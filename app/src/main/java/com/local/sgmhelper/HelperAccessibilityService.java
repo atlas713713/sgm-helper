@@ -30,10 +30,15 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.google.mlkit.vision.common.InputImage;
@@ -83,6 +88,12 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_SUPPLY_RETRY_AT = "supply_retry_at";
     static final String PREF_WILDERNESS_RETRY_AT = "wilderness_retry_at";
     private static final String PREF_DUNGEON_SWEEP_LEVELS = "dungeon_sweep_levels";
+    static final String PREF_TRAINING_LOCATION = "training_location";
+    static final String PREF_TRAINING_WILDERNESS_ZONE = "training_wilderness_zone";
+    static final String PREF_TRAINING_MONSTER = "training_monster";
+    static final String TRAINING_LOCATION_WILDERNESS = "荒野";
+    static final String TRAINING_LOCATION_WILD = "野境";
+    static final String TRAINING_LOCATION_MARKER = "标记点";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final TrainingAutomation trainingAutomation = new TrainingAutomation(this);
     private final TaskAutomation taskAutomation = new TaskAutomation(this, trainingAutomation);
@@ -305,15 +316,34 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void populateMainMenu(LinearLayout menu) {
         menu.removeAllViews();
+        setMenuSize(dp(230), WindowManager.LayoutParams.WRAP_CONTENT);
         stateView = addMenuText(menu, R.string.menu_status_idle);
-        addMenuButton(menu, R.string.menu_training, view -> startTrainingMain());
-        addMenuButton(menu, R.string.menu_boss, view -> showBossMenu());
-        addMenuButton(menu, R.string.menu_dungeon_sweep, view -> showDungeonSweepMenu());
+        addFeatureRow(menu, R.string.menu_training,
+                view -> startTrainingMain(), view -> showTrainingSettings());
+        addFeatureRow(menu, R.string.menu_boss,
+                view -> bossAutomation.start(), view -> showBossMenu());
+        addFeatureRow(menu, R.string.menu_dungeon_sweep,
+                view -> dungeonSweepAutomation.start(selectedDungeonLevels(
+                        getSharedPreferences(PREFS_NAME, MODE_PRIVATE))),
+                view -> showDungeonSweepMenu());
         addMenuButton(menu, R.string.menu_stop, view -> stopAutomation(STATE_STOPPED));
         addMenuButton(menu, R.string.menu_settings, view -> showSettingsMenu());
         addMenuButton(menu, R.string.menu_exit, view -> exitService());
         addMenuText(menu, "版本 " + BuildConfig.VERSION_NAME);
         updateStateView();
+        updateMenuPosition();
+    }
+
+    private void addFeatureRow(LinearLayout menu, int titleResource,
+            View.OnClickListener startListener, View.OnClickListener settingsListener) {
+        LinearLayout row = new LinearLayout(this);
+        Button start = createMenuButton(titleResource, startListener);
+        Button settings = createMenuButton(R.string.feature_settings, settingsListener);
+        settings.setTextSize(13);
+        row.addView(start, new LinearLayout.LayoutParams(0, dp(44), 2));
+        row.addView(settings, new LinearLayout.LayoutParams(0, dp(44), 1));
+        menu.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
     }
 
     private TextView addMenuText(LinearLayout menu, int textResource) {
@@ -412,11 +442,165 @@ public final class HelperAccessibilityService extends AccessibilityService
         stateView = null;
         addMenuText(menu, R.string.menu_settings);
         addMenuButton(menu, R.string.settings_training,
-                view -> showSettingsPage(R.string.settings_training));
+                view -> showTrainingSettings());
         addMenuButton(menu, R.string.settings_timer,
                 view -> showSettingsPage(R.string.settings_timer));
         addMenuButton(menu, R.string.settings_login, view -> showLoginSettings());
         addMenuButton(menu, R.string.settings_back, view -> populateMainMenu(menu));
+    }
+
+    private void showTrainingSettings() {
+        if (!(menuView instanceof LinearLayout)) {
+            return;
+        }
+        LinearLayout menu = (LinearLayout) menuView;
+        menu.removeAllViews();
+        stateView = null;
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int screenHeight = getResources().getDisplayMetrics().heightPixels;
+        setMenuSize(Math.min(dp(700), screenWidth - dp(40)),
+                Math.min(dp(420), screenHeight - dp(40)));
+
+        TextView title = addMenuText(menu, R.string.training_settings_title);
+        title.setTextSize(24);
+        title.setGravity(Gravity.START);
+        title.setPadding(dp(18), dp(14), dp(18), dp(20));
+
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        LinearLayout locationRow = new LinearLayout(this);
+        locationRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label = new TextView(this);
+        label.setText(R.string.training_location);
+        label.setTextColor(Color.rgb(31, 35, 40));
+        label.setTextSize(18);
+        locationRow.addView(label, new LinearLayout.LayoutParams(dp(150), dp(54)));
+
+        RadioGroup locations = new RadioGroup(this);
+        locations.setOrientation(LinearLayout.HORIZONTAL);
+        addLocationOption(locations, TRAINING_LOCATION_WILDERNESS);
+        addLocationOption(locations, TRAINING_LOCATION_WILD);
+        addLocationOption(locations, TRAINING_LOCATION_MARKER);
+        locationRow.addView(locations, new LinearLayout.LayoutParams(0, dp(54), 1));
+        menu.addView(locationRow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+
+        LinearLayout wildernessFields = new LinearLayout(this);
+        wildernessFields.setOrientation(LinearLayout.VERTICAL);
+        int savedZone = preferences.getInt(PREF_TRAINING_WILDERNESS_ZONE, 1);
+        Spinner zone = addSpinnerRow(wildernessFields, R.string.training_wilderness_zone,
+                15, savedZone,
+                value -> preferences.edit().putInt(PREF_TRAINING_WILDERNESS_ZONE, value).apply());
+        Spinner monster = addTextSpinnerRow(wildernessFields, R.string.training_monster,
+                TrainingAutomation.monstersForZone(savedZone),
+                preferences.getString(PREF_TRAINING_MONSTER,
+                        TrainingAutomation.defaultMonsterForZone(savedZone)),
+                value -> preferences.edit().putString(PREF_TRAINING_MONSTER, value).apply());
+        zone.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parentView, View view,
+                    int position, long id) {
+                int value = position + 1;
+                preferences.edit().putInt(PREF_TRAINING_WILDERNESS_ZONE, value).apply();
+                setSpinnerValues(monster, TrainingAutomation.monstersForZone(value),
+                        preferences.getString(PREF_TRAINING_MONSTER, ""));
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parentView) {
+            }
+        });
+        menu.addView(wildernessFields, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        String selectedLocation = preferences.getString(
+                PREF_TRAINING_LOCATION, TRAINING_LOCATION_MARKER);
+        for (int index = 0; index < locations.getChildCount(); index++) {
+            RadioButton option = (RadioButton) locations.getChildAt(index);
+            if (selectedLocation.equals(option.getTag())) {
+                option.setChecked(true);
+                break;
+            }
+        }
+        wildernessFields.setVisibility(shouldShowWildernessOptions(selectedLocation)
+                ? View.VISIBLE : View.GONE);
+        locations.setOnCheckedChangeListener((group, checkedId) -> {
+            RadioButton selected = group.findViewById(checkedId);
+            if (selected == null) {
+                return;
+            }
+            String location = selected.getTag().toString();
+            preferences.edit().putString(PREF_TRAINING_LOCATION, location).apply();
+            wildernessFields.setVisibility(shouldShowWildernessOptions(location)
+                    ? View.VISIBLE : View.GONE);
+        });
+
+        addMenuButton(menu, R.string.settings_back, view -> populateMainMenu(menu));
+        updateMenuPosition();
+    }
+
+    private void addLocationOption(RadioGroup group, String value) {
+        RadioButton option = new RadioButton(this);
+        option.setId(View.generateViewId());
+        option.setTag(value);
+        option.setText(value);
+        option.setTextSize(18);
+        option.setPadding(dp(8), 0, dp(24), 0);
+        group.addView(option, new RadioGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(54)));
+    }
+
+    private Spinner addSpinnerRow(LinearLayout parent, int labelResource, int optionCount,
+            int selectedValue, Consumer<Integer> onSelected) {
+        List<String> values = new ArrayList<>();
+        for (int value = 1; value <= optionCount; value++) {
+            values.add(String.valueOf(value));
+        }
+        Spinner spinner = addTextSpinnerRow(parent, labelResource, values,
+                String.valueOf(selectedValue), value -> onSelected.accept(Integer.parseInt(value)));
+        spinner.setSelection(Math.max(0, Math.min(selectedValue - 1, optionCount - 1)));
+        return spinner;
+    }
+
+    private Spinner addTextSpinnerRow(LinearLayout parent, int labelResource,
+            List<String> values, String selectedValue, Consumer<String> onSelected) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label = new TextView(this);
+        label.setText(labelResource);
+        label.setTextColor(Color.rgb(31, 35, 40));
+        label.setTextSize(17);
+        row.addView(label, new LinearLayout.LayoutParams(dp(150), dp(54)));
+
+        Spinner spinner = new Spinner(this);
+        setSpinnerValues(spinner, values, selectedValue);
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parentView, View view,
+                    int position, long id) {
+                onSelected.accept(parentView.getItemAtPosition(position).toString());
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parentView) {
+            }
+        });
+        row.addView(spinner, new LinearLayout.LayoutParams(dp(180), dp(54)));
+        parent.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+        return spinner;
+    }
+
+    private void setSpinnerValues(Spinner spinner, List<String> values, String selectedValue) {
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item, values);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        int selectedIndex = values.indexOf(selectedValue);
+        spinner.setSelection(selectedIndex < 0 ? 0 : selectedIndex);
+    }
+
+    static boolean shouldShowWildernessOptions(String location) {
+        return TRAINING_LOCATION_WILDERNESS.equals(location);
     }
 
     private void showLoginSettings() {
@@ -670,6 +854,11 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     void startScheduledMilitary() {
+        if (!getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(PREF_MILITARY_ENABLED, true)) {
+            DiagnosticLog.info("MILITARY", "skipped; disabled");
+            return;
+        }
         if (!shouldRunMilitary(primaryTask)) {
             DiagnosticLog.info("MILITARY",
                     "skipped; primary task=" + primaryTaskLabel(primaryTask));
@@ -958,7 +1147,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             }
             if (hasAutoPathPanel(text)) {
                 if (remainingAttempts > 0) {
-                    showProgress("自动军务：关闭自动寻路栏");
+                    showProgress("关闭自动寻路栏");
                     performTap(1248, 147,
                             () -> closeAutoPathPanelIfNeeded(
                                     next, remainingAttempts - 1));
@@ -1528,6 +1717,14 @@ public final class HelperAccessibilityService extends AccessibilityService
         windowManager.updateViewLayout(menuView, menuParams);
     }
 
+    private void setMenuSize(int width, int height) {
+        if (menuParams == null) {
+            return;
+        }
+        menuParams.width = width;
+        menuParams.height = height;
+    }
+
     private void positionMenu() {
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
@@ -1536,7 +1733,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         int childCount = menuView instanceof LinearLayout
                 ? ((LinearLayout) menuView).getChildCount()
                 : 6;
-        int estimatedMenuHeight = dp(20 + childCount * 44);
+        int estimatedMenuHeight = menuParams.height > 0
+                ? menuParams.height : dp(20 + childCount * 44);
 
         menuParams.x = bubbleParams.x > screenWidth / 2
                 ? bubbleParams.x - menuWidth - gap

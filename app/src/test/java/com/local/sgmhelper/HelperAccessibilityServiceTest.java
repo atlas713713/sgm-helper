@@ -26,9 +26,13 @@ public final class HelperAccessibilityServiceTest {
 
     @Test
     public void createsOneSafeLogFilePerSimulator() {
-        assertEquals("sgmhelper-fea64ace64515149.log",
-                DiagnosticLog.logFileName("fea64ace64515149"));
-        assertEquals("sgmhelper-unsafe_id.log",
+        assertEquals("sgmhelper-地球瘦子-077e5a706d186981.log",
+                DiagnosticLog.logFileName("077e5a706d186981"));
+        assertEquals("sgmhelper-栗威-d30b62f2263b6d49.log",
+                DiagnosticLog.logFileName("d30b62f2263b6d49"));
+        assertEquals("sgmhelper-地球-60377771f3d25b63.log",
+                DiagnosticLog.logFileName("60377771f3d25b63"));
+        assertEquals("sgmhelper-未知模拟器-unsafe_id.log",
                 DiagnosticLog.logFileName("unsafe/id"));
     }
 
@@ -175,7 +179,7 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(WorshipAlarmReceiver.hasConfiguredMilitaryTime(true, true));
         assertFalse(WorshipAlarmReceiver.hasConfiguredMilitaryTime(true, false));
         assertFalse(WorshipAlarmReceiver.hasConfiguredMilitaryTime(false, true));
-        assertEquals(6 * 60 * 60 * 1_000L + 1_000,
+        assertEquals(3 * 60 * 60 * 1_000L + 1_000,
                 WorshipAlarmReceiver.nextRollingMilitaryAt(1_000));
         assertEquals(2_000, WorshipAlarmReceiver.nextMilitaryAt(
                 1_000, 2_000, 5_000, 10_000));
@@ -215,6 +219,40 @@ public final class HelperAccessibilityServiceTest {
                 AutomationHost.PrimaryTask.BOSS));
         assertFalse(HelperAccessibilityService.shouldRunMilitary(
                 AutomationHost.PrimaryTask.DUNGEON));
+    }
+
+    @Test
+    public void showsWildernessFieldsOnlyForWildernessTraining() {
+        assertTrue(HelperAccessibilityService.shouldShowWildernessOptions("荒野"));
+        assertFalse(HelperAccessibilityService.shouldShowWildernessOptions("野境"));
+        assertFalse(HelperAccessibilityService.shouldShowWildernessOptions("标记点"));
+    }
+
+    @Test
+    public void mapsWildernessZonesToMonstersAndFixedDialogueRows() {
+        assertEquals(Arrays.asList("60 食人花", "70 金甲龙", "75 圣武士"),
+                TrainingAutomation.monstersForZone(1));
+        assertEquals(Arrays.asList("80 魔斗士", "90 海妖", "100 螳螂巨妖"),
+                TrainingAutomation.monstersForZone(6));
+        assertEquals(Arrays.asList("115 九尾狐", "130 石狮精"),
+                TrainingAutomation.monstersForZone(7));
+        assertEquals(Arrays.asList("145 人面鸟", "160 战鬼"),
+                TrainingAutomation.monstersForZone(12));
+        assertEquals(Arrays.asList("175 式神童子", "190 剑齿虎"),
+                TrainingAutomation.monstersForZone(15));
+        assertEquals("金甲龙", TrainingAutomation.monsterName("70 金甲龙"));
+        assertEquals(0, WildernessNavigator.page(3));
+        assertEquals(1, WildernessNavigator.page(4));
+        assertEquals(4, WildernessNavigator.page(15));
+        assertEquals(450, WildernessNavigator.zoneRowY(1));
+        assertEquals(512, WildernessNavigator.zoneRowY(2));
+        assertEquals(574, WildernessNavigator.zoneRowY(15));
+        assertTrue(WildernessNavigator.isSelectedMapName(
+                "荒野修炼15区", 15));
+        assertTrue(WildernessNavigator.isSelectedMapName(
+                "荒野修练 十五 区", 15));
+        assertFalse(WildernessNavigator.isSelectedMapName(
+                "荒野修炼14区", 15));
     }
 
     @Test

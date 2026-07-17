@@ -45,7 +45,20 @@ final class DiagnosticLog {
         String safeId = androidId == null
                 ? "unknown"
                 : androidId.replaceAll("[^A-Za-z0-9._-]", "_");
-        return "sgmhelper-" + safeId + ".log";
+        return "sgmhelper-" + simulatorName(androidId) + "-" + safeId + ".log";
+    }
+
+    private static String simulatorName(String androidId) {
+        if ("077e5a706d186981".equals(androidId)) {
+            return "地球瘦子";
+        }
+        if ("d30b62f2263b6d49".equals(androidId)) {
+            return "栗威";
+        }
+        if ("60377771f3d25b63".equals(androidId)) {
+            return "地球";
+        }
+        return "未知模拟器";
     }
 
     static void info(String area, String message) {

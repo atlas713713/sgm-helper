@@ -10,7 +10,7 @@ import android.content.SharedPreferences;
 import java.util.Calendar;
 
 public final class WorshipAlarmReceiver extends BroadcastReceiver {
-    private static final long MILITARY_INTERVAL_MS = 6 * 60 * 60 * 1_000L;
+    private static final long MILITARY_INTERVAL_MS = 3 * 60 * 60 * 1_000L;
     private static final String ACTION_WORSHIP = "com.local.sgmhelper.WORSHIP";
     private static final String ACTION_LEGION_REWARD = "com.local.sgmhelper.LEGION_REWARD";
     private static final String ACTION_MILITARY = "com.local.sgmhelper.MILITARY";

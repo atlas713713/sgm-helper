@@ -20,7 +20,6 @@ final class TaskAutomation {
     private static final int SUPPLY_PROGRESS_CHECK_MS = 3 * 60 * 1000;
     private static final int TEXT_RETRY_COUNT = 5;
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
-    private static final int MAP_LOADING_RETRY_COUNT = 30;
     private static final int TASK_START_CONFIRM_RETRY_COUNT = 4;
     private static final Pattern WILDERNESS_ZONE = Pattern.compile(
             "巡狩军团荒野[（(]([一二三四五六七八九十百0-9]+)[）)]");
@@ -34,6 +33,7 @@ final class TaskAutomation {
 
     private final AutomationHost host;
     private final TrainingAutomation trainingAutomation;
+    private final WildernessNavigator wildernessNavigator;
     private String militaryZone;
     private boolean supplyQuestCooling;
     private boolean wildernessQuestCooling;
@@ -44,6 +44,7 @@ final class TaskAutomation {
     TaskAutomation(AutomationHost host, TrainingAutomation trainingAutomation) {
         this.host = host;
         this.trainingAutomation = trainingAutomation;
+        wildernessNavigator = new WildernessNavigator(host, "自动军务");
     }
 
     void start() {
@@ -508,57 +509,7 @@ final class TaskAutomation {
     }
 
     private void openWildernessTraining() {
-        host.showProgress("自动军务：进入荒野修炼");
-        host.tap(1215, 58, () -> scrollMenuToTop(3));
-    }
-
-    private void scrollMenuToTop(int remainingSwipes) {
-        if (remainingSwipes == 0) {
-            findLegionMenu();
-            return;
-        }
-        host.showProgress("自动军务：将菜单拉到最上面");
-        host.swipe(1000, 180, 1000, 550,
-                () -> scrollMenuToTop(remainingSwipes - 1));
-    }
-
-    private void findLegionMenu() {
-        host.showProgress("自动军务：OCR 查找军团");
-        host.clickText("军团", true, this::openWildernessFromLegion,
-                TEXT_RETRY_COUNT, () -> {
-                    host.showProgress("自动军务：OCR 失败，固定坐标点击军团");
-                    host.tap(995, 270, this::openWildernessFromLegion);
-                });
-    }
-
-    private void openWildernessFromLegion() {
-        host.showProgress("自动军务：打开荒野修炼");
-        host.tap(780, 613,
-                () -> host.tap(640, 478,
-                        () -> host.postDelayed(
-                                () -> host.waitForText(
-                                        "荒野营地",
-                                        SCREEN_WAIT_RETRY_COUNT,
-                                        this::findWildernessTeleporter),
-                                4_000)));
-    }
-
-    private void findWildernessTeleporter() {
-        host.showProgress("自动军务：打开自动寻路");
-        host.tap(1130, 500, () -> {
-            host.showProgress("自动军务：选择寻路页");
-            host.tap(1165, 165, () -> {
-                host.showProgress("自动军务：寻找荒野传送官");
-                host.clickText("荒野传送官", true, () -> {
-                    host.showProgress("自动军务：选择荒野修炼二区");
-                    host.clickText("二区", false,
-                            () -> waitForWildernessTrainingMap(
-                                    MAP_LOADING_RETRY_COUNT,
-                                    () -> host.closeAutoPathPanel(this::clickMilitaryQuest)),
-                            SCREEN_WAIT_RETRY_COUNT);
-                }, SCREEN_WAIT_RETRY_COUNT);
-            });
-        });
+        wildernessNavigator.navigateToZone(2, this::clickMilitaryQuest);
     }
 
     private void clickMilitaryQuest() {
@@ -576,33 +527,6 @@ final class TaskAutomation {
                         remainingClickAttempts, TASK_START_CONFIRM_RETRY_COUNT),
                 SCREEN_WAIT_RETRY_COUNT,
                 () -> host.failAutomation("荒野加载完成后未找到右侧巡狩任务"));
-    }
-
-    private void waitForWildernessTrainingMap(int remainingAttempts, Runnable next) {
-        host.showProgress("自动军务：等待荒野修炼区加载");
-        host.recognizeText(text -> {
-            if (!host.isAutomationRunning()) {
-                return;
-            }
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
-                    Rect bounds = line.getBoundingBox();
-                    if (bounds != null && bounds.centerX() > 300 && bounds.centerX() < 850
-                            && bounds.centerY() > 400
-                            && isWildernessTrainingMapName(line.getText())) {
-                        next.run();
-                        return;
-                    }
-                }
-            }
-            if (remainingAttempts > 1) {
-                host.postDelayed(
-                        () -> waitForWildernessTrainingMap(remainingAttempts - 1, next),
-                        ACTION_DELAY_MS);
-            } else {
-                host.failAutomation("等待荒野修炼区加载超时");
-            }
-        });
     }
 
     private void confirmMilitaryQuestStarted(
@@ -630,10 +554,7 @@ final class TaskAutomation {
     }
 
     static boolean isWildernessTrainingMapName(String value) {
-        String normalized = normalizeText(value);
-        return (normalized.contains("荒野修炼")
-                || normalized.contains("荒野修练"))
-                && normalized.contains("区");
+        return WildernessNavigator.isWildernessMapName(value);
     }
 
     static boolean hasTaskExecutionSignal(List<String> values) {
@@ -836,11 +757,48 @@ final class TaskAutomation {
 
     private Runnable leaveCompletedQuest(String questName, Runnable completed) {
         return () -> host.clickText("离开", true,
-                () -> {
-                    WorshipAlarmReceiver.markMilitaryQuestHandled(
-                            host.context(), questName);
-                    completed.run();
-                }, SCREEN_WAIT_RETRY_COUNT);
+                () -> host.postDelayed(
+                        () -> refreshCompletedQuestCooldown(questName, completed),
+                        ACTION_DELAY_MS),
+                SCREEN_WAIT_RETRY_COUNT);
+    }
+
+    private void refreshCompletedQuestCooldown(String questName, Runnable completed) {
+        host.showProgress("自动军务：重新读取" + questName + "冷却");
+        withTaskWindowOpen(() -> host.tap(55, 369,
+                () -> host.tap(316, 101,
+                        () -> host.clickLeftText(questName,
+                                () -> inspectCompletedQuestCooldown(questName, completed),
+                                TEXT_RETRY_COUNT,
+                                () -> useCompletedQuestFallback(questName, completed)))));
+    }
+
+    private void inspectCompletedQuestCooldown(String questName, Runnable completed) {
+        host.recognizeText(text -> {
+            if (!host.isAutomationRunning()) {
+                return;
+            }
+            String cooldown = findMilitaryCooldownText(text);
+            Integer cooldownMinutes = cooldown == null
+                    ? null : extractCooldownMinutes(cooldown);
+            if (cooldownMinutes == null) {
+                useCompletedQuestFallback(questName, completed);
+                return;
+            }
+            long nextMilitaryAt = WorshipAlarmReceiver.scheduleMilitaryAfterCooldown(
+                    host.context(), questName, cooldownMinutes);
+            host.showProgress("自动军务：" + questName
+                    + "下次 " + host.formatTime(nextMilitaryAt));
+            completed.run();
+        });
+    }
+
+    private void useCompletedQuestFallback(String questName, Runnable completed) {
+        long nextMilitaryAt = WorshipAlarmReceiver.markMilitaryQuestHandled(
+                host.context(), questName);
+        host.showProgress("自动军务：未读取到" + questName
+                + "冷却，3小时后复查 " + host.formatTime(nextMilitaryAt));
+        completed.run();
     }
 
     private Boolean requiredItemsComplete(Text text) {

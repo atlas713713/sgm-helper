@@ -30,7 +30,7 @@ final class AntiCheatVerification {
     }
 
     void checkThen(Runnable next) {
-        host.showProgress("野王：检查反外挂验证");
+        host.showProgress("检查反外挂验证");
         host.recognizeText(text -> {
             if (hasChallenge(text)) {
                 solve(next);
