@@ -188,7 +188,12 @@ public final class MainActivity extends Activity {
         }
 
         try {
-            startActivity(launchIntent);
+            HelperAccessibilityService service = HelperAccessibilityService.getInstance();
+            if (service != null) {
+                service.startLoginOnly();
+            } else {
+                startActivity(launchIntent);
+            }
             if (finishAfterLaunch) {
                 finish();
             }
