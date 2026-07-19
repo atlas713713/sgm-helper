@@ -21,6 +21,7 @@ final class TaskAutomation {
     private static final int TEXT_RETRY_COUNT = 5;
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
     private static final int TASK_START_CONFIRM_RETRY_COUNT = 4;
+    private static final int SUPPLY_CLICK_RETRY_COUNT = 3;
     private static final Pattern WILDERNESS_ZONE = Pattern.compile(
             "巡狩军团荒野[（(]([一二三四五六七八九十百0-9]+)[）)]");
     private static final Pattern MILITARY_COOLDOWN = Pattern.compile(
@@ -96,9 +97,7 @@ final class TaskAutomation {
                         if (zone != null) {
                             militaryZone = zone;
                         }
-                        Runnable completed = "巡狩军团荒野".equals(questName)
-                                ? this::startSupplyPhase
-                                : this::finishMilitaryAndStartTraining;
+                        Runnable completed = this::recheckAvailableMilitaryQuests;
                         host.showProgress("自动军务：检查进行中的" + questName);
                         Rect bounds = line.getBoundingBox();
                         host.tap(bounds.centerX(), bounds.centerY(),
@@ -222,10 +221,15 @@ final class TaskAutomation {
 
     private void startSupplyQuest() {
         continueCollecting(
-                "补充军团物资", this::finishMilitaryAndStartTraining);
+                "补充军团物资", this::recheckAvailableMilitaryQuests);
     }
 
     private void continueCollecting(String questName, Runnable completed) {
+        continueCollecting(questName, completed, SUPPLY_CLICK_RETRY_COUNT);
+    }
+
+    private void continueCollecting(
+            String questName, Runnable completed, int remainingClickAttempts) {
         if (shouldEnterWilderness(questName, inWildernessTraining)) {
             host.showProgress("自动军务：当前不在荒野，重新前往荒野");
             openWildernessTraining();
@@ -242,8 +246,16 @@ final class TaskAutomation {
                 scheduleNextCheck,
                 TEXT_RETRY_COUNT,
                 () -> {
-                    host.showProgress("自动军务：未点到右侧物资任务，保留复查");
-                    scheduleNextCheck.run();
+                    if (remainingClickAttempts > 1) {
+                        host.showProgress("自动军务：未点到右侧物资任务，短间隔重试");
+                        host.postDelayed(
+                                () -> continueCollecting(
+                                        questName, completed, remainingClickAttempts - 1),
+                                ACTION_DELAY_MS);
+                    } else {
+                        host.showProgress("自动军务：连续未点到右侧物资任务，保留复查");
+                        scheduleNextCheck.run();
+                    }
                 });
     }
 
@@ -275,10 +287,21 @@ final class TaskAutomation {
                 () -> host.clickLeftText("补充军团物资",
                         () -> inspectOngoingMilitaryQuest(
                                 "补充军团物资",
-                                this::finishMilitaryAndStartTraining,
+                                this::recheckAvailableMilitaryQuests,
                                 this::startSupplyQuest),
                         TEXT_RETRY_COUNT,
                         () -> retryUnacceptedMilitaryQuest("补充军团物资"))));
+    }
+
+    private void recheckAvailableMilitaryQuests() {
+        supplyQuestCooling = false;
+        wildernessQuestCooling = false;
+        checkedMilitaryQuests.clear();
+        retriedUnacceptedQuests.clear();
+        host.showProgress("自动军务：任务完成，重新检查可承接");
+        withTaskWindowOpen(
+                () -> host.tap(55, 369,
+                        () -> host.tap(316, 101, this::selectMilitaryQuest)));
     }
 
     private void withTaskWindowOpen(Runnable next) {
@@ -405,7 +428,7 @@ final class TaskAutomation {
                         host.tap(bounds.centerX(), bounds.centerY(),
                                 () -> inspectOngoingMilitaryQuest(
                                         "巡狩军团荒野",
-                                        this::startSupplyPhase,
+                                        this::recheckAvailableMilitaryQuests,
                                         this::openWildernessTraining));
                         return;
                     }
@@ -487,11 +510,9 @@ final class TaskAutomation {
 
     private void finishMilitaryConversation(String questName) {
         host.showProgress("自动军务：OCR 查找并点击“想”");
-        Runnable leave = () -> host.clickText("离开", true,
-                () -> {
-                    host.tap(316, 101,
-                            () -> findAvailableMilitaryQuest(TEXT_RETRY_COUNT));
-                }, SCREEN_WAIT_RETRY_COUNT);
+        Runnable leave = () -> host.tap(250, 635,
+                () -> host.tap(316, 101,
+                        () -> findAvailableMilitaryQuest(TEXT_RETRY_COUNT)));
         host.clickText("想", true, () -> {
             host.showProgress("自动军务：点击“离开”完成承接");
             leave.run();
@@ -538,7 +559,7 @@ final class TaskAutomation {
             if (hasTaskExecutionSignal(screenLines(text))) {
                 host.showProgress("自动军务：已确认巡狩任务开始");
                 host.closeAutoPathPanel(() -> scheduleMilitaryQuestCheck(
-                        "巡狩军团荒野", this::startSupplyPhase));
+                        "巡狩军团荒野", this::recheckAvailableMilitaryQuests));
             } else if (remainingConfirmAttempts > 1) {
                 host.postDelayed(
                         () -> confirmMilitaryQuestStarted(
@@ -576,7 +597,8 @@ final class TaskAutomation {
 
     private void scheduleMilitaryQuestCheck(String questName, Runnable completed) {
         int delay = progressCheckDelayMillis(questName);
-        long checkAt = System.currentTimeMillis() + delay;
+        long checkAt = WorshipAlarmReceiver.scheduleMilitaryQuestCheck(
+                host.context(), questName, delay);
         host.showProgress("自动军务：" + questName
                 + "收集中，下次检查 " + host.formatTime(checkAt));
         host.postDelayed(
@@ -668,6 +690,8 @@ final class TaskAutomation {
                 return;
             }
             if (Boolean.FALSE.equals(complete)) {
+                WorshipAlarmReceiver.scheduleMilitaryQuestCheck(
+                        host.context(), questName, progressCheckDelayMillis(questName));
                 host.showProgress("自动军务：" + questName + "材料未满");
                 host.tap(982, 52, incomplete);
                 return;
@@ -724,20 +748,51 @@ final class TaskAutomation {
 
     private void reopenWildernessQuest(String questName, Runnable completed) {
         host.showProgress("自动军务：回城后重新打开荒野任务");
+        Runnable arrive = () -> {
+            host.showProgress("自动军务：点击快速抵达");
+            host.postDelayed(
+                    () -> host.clickQuickArrival(
+                            () -> finishWildernessArrival(questName, completed)),
+                    ACTION_DELAY_MS);
+        };
         host.closeAutoPathPanel(() -> withTaskWindowOpen(
                 () -> host.tap(180, 101,
                         () -> host.clickLeftText(questName,
-                                () -> {
-                                    host.showProgress("自动军务：OCR 点击快速抵达");
-                                    host.postDelayed(
-                                            () -> host.clickQuickArrival(
-                                                    () -> finishWildernessArrival(
-                                                            questName, completed)),
-                                            ACTION_DELAY_MS);
-                                },
+                                arrive,
                                 TEXT_RETRY_COUNT,
-                                () -> host.failAutomation(
-                                        "回城后未找到进行中的荒野任务")))));
+                                () -> useSelectedCompletedQuest(
+                                        questName, arrive)))));
+    }
+
+    private void useSelectedCompletedQuest(String questName, Runnable next) {
+        host.recognizeText(text -> {
+            List<String> rightValues = new ArrayList<>();
+            for (Text.TextBlock block : text.getTextBlocks()) {
+                for (Text.Line line : block.getLines()) {
+                    Rect bounds = line.getBoundingBox();
+                    if (bounds != null && bounds.centerX() > 640) {
+                        rightValues.add(line.getText());
+                    }
+                }
+            }
+            if (isSelectedQuestComplete(
+                    questName, rightValues, requiredItemsComplete(text))) {
+                host.showProgress("自动军务：左侧任务 OCR 失败，使用已选中的完成任务");
+                next.run();
+            } else {
+                host.failAutomation("回城后未找到进行中的荒野任务");
+            }
+        });
+    }
+
+    static boolean isSelectedQuestComplete(
+            String questName, List<String> rightValues, Boolean itemsComplete) {
+        for (String value : rightValues) {
+            if (questName.equals(extractMilitaryQuestName(value))) {
+                return Boolean.TRUE.equals(itemsComplete);
+            }
+        }
+        return false;
     }
 
     private void finishWildernessArrival(String questName, Runnable completed) {

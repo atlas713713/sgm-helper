@@ -287,7 +287,7 @@ final class BossAutomation {
         }
     }
 
-    private static BossTarget findRedBoss(Text text, Bitmap bitmap) {
+    static BossTarget findRedBoss(Text text, Bitmap bitmap) {
         for (Text.TextBlock block : text.getTextBlocks()) {
             for (Text.Line line : block.getLines()) {
                 for (Text.Element element : line.getElements()) {
@@ -372,9 +372,9 @@ final class BossAutomation {
                 && redRows >= Math.max(3, height / 4);
     }
 
-    private static final class BossTarget {
-        private final String name;
-        private final Rect bounds;
+    static final class BossTarget {
+        final String name;
+        final Rect bounds;
 
         private BossTarget(String name, Rect bounds) {
             this.name = name;

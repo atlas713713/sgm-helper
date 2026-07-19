@@ -79,6 +79,19 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void fallsBackOnlyToTheSelectedCompletedWildernessQuest() {
+        assertTrue(TaskAutomation.isSelectedQuestComplete(
+                "巡狩军团荒野",
+                Arrays.asList("巡狩军团荒野（五）", "任务目标"), true));
+        assertFalse(TaskAutomation.isSelectedQuestComplete(
+                "巡狩军团荒野",
+                Arrays.asList("勇讨军团天将（五）"), true));
+        assertFalse(TaskAutomation.isSelectedQuestComplete(
+                "巡狩军团荒野",
+                Arrays.asList("巡狩军团荒野（五）"), false));
+    }
+
+    @Test
     public void recognizesCompletedMilitaryGreenMark() {
         assertTrue(TaskAutomation.isCompletionGreen(20, 220, 35));
         assertFalse(TaskAutomation.isCompletionGreen(210, 190, 30));
@@ -205,10 +218,11 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void usesLongerPrimaryRecoveryAfterThreeFailures() {
+    public void retriesPrimaryAutomationOnlyThreeTimes() {
         assertTrue(HelperAccessibilityService.shouldRetryAutomation(1));
         assertTrue(HelperAccessibilityService.shouldRetryAutomation(3));
         assertFalse(HelperAccessibilityService.shouldRetryAutomation(4));
+        assertFalse(HelperAccessibilityService.shouldRetryAutomation(100));
     }
 
     @Test
@@ -321,10 +335,16 @@ public final class HelperAccessibilityServiceTest {
                 LoginAutomation.screenFor(Arrays.asList("福利", "在线奖励", "累积在线")));
         assertEquals(LoginAutomation.Screen.UNCLAIMED_REWARDS,
                 LoginAutomation.screenFor(Arrays.asList("尚未领取的奖励", "关闭界面", "前往领取")));
+        assertEquals(LoginAutomation.Screen.REWARD_RECOVERY,
+                LoginAutomation.screenFor(Arrays.asList("奖励找回", "商城", "福利", "竞技场", "菜单")));
+        assertEquals(LoginAutomation.Screen.REWARD_RECOVERY,
+                LoginAutomation.screenFor(Arrays.asList("重复任务", "副本奖励", "领取80%", "铜钱找回")));
         assertEquals(LoginAutomation.Screen.LOGGED_IN,
                 LoginAutomation.screenFor(Arrays.asList("商城", "福利", "竞技场", "菜单")));
         assertEquals(LoginAutomation.Screen.UNKNOWN,
                 LoginAutomation.screenFor(Arrays.asList("正在连接服务器")));
+        assertEquals(LoginAutomation.Screen.UNKNOWN,
+                LoginAutomation.screenFor(Arrays.asList(LoginAutomation.START_PROGRESS)));
     }
 
     @Test
@@ -392,10 +412,17 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void choosesTheFaceOrientationWithTheLargestDetection() {
-        assertEquals(90, AntiCheatVerification.bestRotation(new int[]{0, 40, 10, 0}));
-        assertEquals(0, AntiCheatVerification.bestRotation(new int[]{20, 0, 0, 0}));
-        assertEquals(-1, AntiCheatVerification.bestRotation(new int[]{0, 0, 0, 0}));
+    public void testsOneTileAfterEachClickAndStopsAfterFourOrientations() {
+        assertEquals(AntiCheatVerification.TileDecision.NEXT_TILE,
+                AntiCheatVerification.decideTile(true, 0));
+        assertEquals(AntiCheatVerification.TileDecision.CLICK,
+                AntiCheatVerification.decideTile(false, 0));
+        assertEquals(AntiCheatVerification.TileDecision.CLICK,
+                AntiCheatVerification.decideTile(false, 1));
+        assertEquals(AntiCheatVerification.TileDecision.CLICK,
+                AntiCheatVerification.decideTile(false, 2));
+        assertEquals(AntiCheatVerification.TileDecision.RECHECK_CHALLENGE,
+                AntiCheatVerification.decideTile(false, 3));
     }
 
     @Test
@@ -403,6 +430,16 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(250, BossAutomation.moveScanDelayMillis(1_000, 5_000));
         assertEquals(100, BossAutomation.moveScanDelayMillis(4_900, 5_000));
         assertEquals(0, BossAutomation.moveScanDelayMillis(5_000, 5_000));
+    }
+
+    @Test
+    public void usesTheConfiguredHeavenfallDurationAndMapCenter() {
+        assertEquals(300_000, HeavenfallAutomation.durationMillis(5));
+        assertTrue(HeavenfallAutomation.expired(300_000, 300_000));
+        assertFalse(HeavenfallAutomation.expired(299_999, 300_000));
+        assertTrue(HeavenfallAutomation.centerReached("300,25"));
+        assertTrue(HeavenfallAutomation.centerReached("280,25"));
+        assertFalse(HeavenfallAutomation.centerReached("279,25"));
     }
 
     @Test

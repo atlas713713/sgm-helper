@@ -21,12 +21,21 @@ final class DungeonSweepAutomation {
     private final AutomationHost host;
     private List<Integer> selectedLevels = new ArrayList<>();
     private int currentIndex;
+    private boolean resumePrimaryTask;
 
     DungeonSweepAutomation(AutomationHost host) {
         this.host = host;
     }
 
     void start(List<Integer> levels) {
+        start(levels, false);
+    }
+
+    void startScheduled(List<Integer> levels) {
+        start(levels, true);
+    }
+
+    private void start(List<Integer> levels, boolean scheduled) {
         if (host.isAutomationRunning()) {
             host.showProgress("已有任务正在运行");
             return;
@@ -36,8 +45,13 @@ final class DungeonSweepAutomation {
             return;
         }
         selectedLevels = new ArrayList<>(levels);
-        host.startPrimaryAutomation(
-                AutomationHost.PrimaryTask.DUNGEON, "扫荡副本：打开游戏", this::begin);
+        resumePrimaryTask = scheduled;
+        if (scheduled) {
+            host.startAutomation("定时副本：打开游戏", this::begin);
+        } else {
+            host.startPrimaryAutomation(
+                    AutomationHost.PrimaryTask.DUNGEON, "扫荡副本：打开游戏", this::begin);
+        }
     }
 
     private void begin() {
@@ -94,9 +108,18 @@ final class DungeonSweepAutomation {
                 findCurrentLevel(MAX_SCROLL_ATTEMPTS);
             } else {
                 host.showProgress("扫荡副本：关闭副本窗口");
-                host.tap(1240, 50, host::completeAutomation);
+                host.tap(1240, 50, this::finish);
             }
         });
+    }
+
+    private void finish() {
+        if (!resumePrimaryTask) {
+            host.completeAutomation();
+            return;
+        }
+        host.showProgress("定时副本已完成，10秒后恢复主要任务");
+        host.postDelayed(host::resumePrimaryTask, 10_000);
     }
 
     private static Rect findLevelBounds(Text text, int expectedLevel) {

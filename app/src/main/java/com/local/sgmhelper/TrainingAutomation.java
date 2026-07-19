@@ -8,14 +8,12 @@ import java.util.List;
 final class TrainingAutomation {
     private final AutomationHost host;
     private final WildernessNavigator wildernessNavigator;
-    private final AntiCheatVerification antiCheatVerification;
     private int wildernessZone;
     private String wildernessMonster;
 
     TrainingAutomation(AutomationHost host) {
         this.host = host;
         wildernessNavigator = new WildernessNavigator(host, "自动练级");
-        antiCheatVerification = new AntiCheatVerification(host);
     }
 
     void start() {
@@ -53,12 +51,7 @@ final class TrainingAutomation {
     private void startWilderness() {
         host.ensureAutoAttackDisabled(
                 () -> wildernessNavigator.navigateToZone(
-                        wildernessZone, this::checkBeforeMonsterNavigation));
-    }
-
-    private void checkBeforeMonsterNavigation() {
-        antiCheatVerification.checkThen(() -> host.postDelayed(
-                () -> antiCheatVerification.checkThen(this::selectMonster), 3_000));
+                        wildernessZone, this::selectMonster));
     }
 
     private void selectMonster() {

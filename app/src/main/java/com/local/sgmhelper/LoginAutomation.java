@@ -11,6 +11,7 @@ import java.util.List;
 final class LoginAutomation {
     static final String PREF_ACCOUNT = "login_account";
     static final String PREF_PASSWORD = "login_password";
+    static final String START_PROGRESS = "Login: tapping start";
 
     private static final int SCREEN_ATTEMPTS = 20;
     private final AutomationHost host;
@@ -34,6 +35,7 @@ final class LoginAutomation {
                 case START -> startGame(next);
                 case WELFARE -> closeWelfare(next);
                 case UNCLAIMED_REWARDS -> closeUnclaimedRewards(next);
+                case REWARD_RECOVERY -> closeRewardRecovery(next);
                 case LOGGED_IN -> next.run();
                 case UNKNOWN -> retry(next, attempts);
             }
@@ -41,14 +43,14 @@ final class LoginAutomation {
     }
 
     private void closeAnnouncement(Runnable next) {
-        host.showProgress("登录：关闭最新公告");
+        host.showProgress("Login: closing announcement");
         host.tap(861, 75,
                 () -> host.tap(1063, 60,
                         () -> inspectScreen(next, SCREEN_ATTEMPTS)));
     }
 
     private void startGame(Runnable next) {
-        host.showProgress("登录：开始游戏");
+        host.showProgress(START_PROGRESS);
         host.tap(625, 591,
                 () -> inspectScreen(next, SCREEN_ATTEMPTS));
     }
@@ -91,6 +93,11 @@ final class LoginAutomation {
         host.closeWelfareWindow(() -> inspectScreen(next, SCREEN_ATTEMPTS));
     }
 
+    private void closeRewardRecovery(Runnable next) {
+        host.showProgress("Login: closing reward recovery");
+        host.ensureGameHudVisible(() -> inspectScreen(next, SCREEN_ATTEMPTS));
+    }
+
     private void retry(Runnable next, int attempts) {
         if (attempts > 1) {
             host.postDelayed(() -> inspectScreen(next, attempts - 1), 1_000);
@@ -113,6 +120,11 @@ final class LoginAutomation {
         }
         if (all.contains("尚未领取的奖励") || all.contains("关闭界面")) {
             return Screen.UNCLAIMED_REWARDS;
+        }
+        if (all.contains("奖励找回")
+                || (all.contains("重复任务") && all.contains("副本奖励"))
+                || all.contains("铜钱找回") || all.contains("元宝找回")) {
+            return Screen.REWARD_RECOVERY;
         }
         if (all.contains("账号登录/注册") || all.contains("快捷登录")) {
             return Screen.QUICK_LOGIN;
@@ -149,6 +161,7 @@ final class LoginAutomation {
         ACCOUNT_LOGIN,
         WELFARE,
         UNCLAIMED_REWARDS,
+        REWARD_RECOVERY,
         LOGGED_IN,
         UNKNOWN
     }

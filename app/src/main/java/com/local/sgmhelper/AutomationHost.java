@@ -35,6 +35,8 @@ interface AutomationHost {
 
     void completeAutomation();
 
+    void resumePrimaryTask();
+
     void enterTraining(long nextMilitaryAt);
 
     void postDelayed(Runnable action, long delayMillis);

@@ -15,6 +15,8 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
     private static final String ACTION_LEGION_REWARD = "com.local.sgmhelper.LEGION_REWARD";
     private static final String ACTION_MILITARY = "com.local.sgmhelper.MILITARY";
     private static final String ACTION_WELFARE = "com.local.sgmhelper.WELFARE";
+    private static final String ACTION_HEAVENFALL = "com.local.sgmhelper.HEAVENFALL";
+    private static final String ACTION_DUNGEON = "com.local.sgmhelper.DUNGEON";
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -28,6 +30,10 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
             scheduleWelfare(context);
         } else if (ACTION_MILITARY.equals(action)) {
             scheduleMilitary(context);
+        } else if (ACTION_HEAVENFALL.equals(action)) {
+            scheduleHeavenfall(context);
+        } else if (ACTION_DUNGEON.equals(action)) {
+            scheduleDungeon(context);
         } else {
             scheduleWorship(context);
         }
@@ -39,6 +45,10 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
                 service.startScheduledWelfare();
             } else if (ACTION_MILITARY.equals(action)) {
                 service.startScheduledMilitary();
+            } else if (ACTION_HEAVENFALL.equals(action)) {
+                service.startScheduledHeavenfall();
+            } else if (ACTION_DUNGEON.equals(action)) {
+                service.startScheduledDungeon();
             } else {
                 service.startScheduledWorship();
             }
@@ -60,6 +70,8 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
         scheduleWorship(context);
         scheduleLegionReward(context);
         scheduleWelfare(context);
+        scheduleHeavenfall(context);
+        scheduleDungeon(context);
         return scheduleMilitary(context);
     }
 
@@ -91,6 +103,20 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
         scheduleAt(context, ACTION_WELFARE, 4,
                 HelperAccessibilityService.PREF_WELFARE_ENABLED, true,
                 second / 60, second % 60);
+    }
+
+    static void scheduleHeavenfall(Context context) {
+        schedule(context, ACTION_HEAVENFALL, 5,
+                HelperAccessibilityService.PREF_HEAVENFALL_ENABLED, true,
+                HelperAccessibilityService.PREF_HEAVENFALL_HOUR,
+                HelperAccessibilityService.PREF_HEAVENFALL_MINUTE, 22, 0);
+    }
+
+    static void scheduleDungeon(Context context) {
+        schedule(context, ACTION_DUNGEON, 6,
+                HelperAccessibilityService.PREF_DUNGEON_ENABLED, true,
+                HelperAccessibilityService.PREF_DUNGEON_HOUR,
+                HelperAccessibilityService.PREF_DUNGEON_MINUTE, 14, 0);
     }
 
     static int welfareSecondMinuteOfDay(int firstHour, int firstMinute) {
@@ -160,10 +186,20 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
 
     static long scheduleMilitaryAfterCooldown(
             Context context, String questName, int cooldownMinutes) {
+        return scheduleMilitaryRetry(context, questName,
+                System.currentTimeMillis() + (cooldownMinutes + 1L) * 60_000L);
+    }
+
+    static long scheduleMilitaryQuestCheck(
+            Context context, String questName, long delayMillis) {
+        return scheduleMilitaryRetry(
+                context, questName, System.currentTimeMillis() + delayMillis);
+    }
+
+    private static long scheduleMilitaryRetry(
+            Context context, String questName, long retryAt) {
         SharedPreferences preferences = context.getSharedPreferences(
                 HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE);
-        long now = System.currentTimeMillis();
-        long retryAt = now + (cooldownMinutes + 1L) * 60_000L;
         String retryKey = militaryRetryKey(questName);
         if (retryKey == null) {
             return scheduleMilitary(context);
@@ -242,6 +278,14 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
         if (ACTION_WELFARE.equals(action)) {
             return preferences.getBoolean(
                     HelperAccessibilityService.PREF_WELFARE_ENABLED, true);
+        }
+        if (ACTION_HEAVENFALL.equals(action)) {
+            return preferences.getBoolean(
+                    HelperAccessibilityService.PREF_HEAVENFALL_ENABLED, true);
+        }
+        if (ACTION_DUNGEON.equals(action)) {
+            return preferences.getBoolean(
+                    HelperAccessibilityService.PREF_DUNGEON_ENABLED, true);
         }
         return preferences.getBoolean(
                 HelperAccessibilityService.PREF_WORSHIP_ENABLED, true);

@@ -4,11 +4,14 @@ import android.graphics.Rect;
 
 import com.google.mlkit.vision.text.Text;
 
+import java.util.concurrent.ThreadLocalRandom;
+
 final class WildernessNavigator {
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
     private static final int MAP_LOADING_RETRY_COUNT = 30;
     private static final int MONSTER_ROUTE_RETRY_COUNT = 90;
-    private static final int MONSTER_MAP_Y = 25;
+    private static final int TELEPORTER_X = 1095;
+    private static final int TELEPORTER_Y = 228;
     private static final int DIALOG_X = 250;
     private static final int FIRST_ZONE_Y = 450;
     private static final int ZONE_GAP_Y = 62;
@@ -45,9 +48,12 @@ final class WildernessNavigator {
         targetMonsterMinX = xRange[0];
         targetMonsterMaxX = xRange[1];
         completed = next;
-        int targetX = (targetMonsterMinX + targetMonsterMaxX) / 2;
-        progress("前往" + monster + "区域 " + targetX + "," + MONSTER_MAP_Y);
-        host.tapMapCoordinate(targetX, MONSTER_MAP_Y,
+        int targetX = ThreadLocalRandom.current().nextInt(
+                targetMonsterMinX, targetMonsterMaxX + 1);
+        int targetY = ThreadLocalRandom.current().nextInt(
+                AutomationHost.MAP_GAME_MAX_Y + 1);
+        progress("前往" + monster + "区域 " + targetX + "," + targetY);
+        host.tapMapCoordinate(targetX, targetY,
                 () -> waitForMonsterArea(MONSTER_ROUTE_RETRY_COUNT));
     }
 
@@ -96,13 +102,11 @@ final class WildernessNavigator {
 
     private void findWildernessTeleporter() {
         progress("寻找荒野传送官");
-        host.tap(1130, 500,
+        host.closeAutoPathPanel(() -> host.tap(1130, 500,
                 () -> host.tap(1165, 165,
-                        () -> host.clickText("荒野传送官", true,
+                        () -> host.tap(TELEPORTER_X, TELEPORTER_Y,
                                 () -> host.postDelayed(
-                                        () -> clickPages(page(targetZone)),
-                                        5_000),
-                                SCREEN_WAIT_RETRY_COUNT)));
+                                        () -> clickPages(page(targetZone)), 5_000)))));
     }
 
     private void clickPages(int remainingPages) {

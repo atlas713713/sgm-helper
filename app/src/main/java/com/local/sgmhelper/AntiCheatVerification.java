@@ -1,7 +1,6 @@
 package com.local.sgmhelper;
 
 import android.graphics.Bitmap;
-import android.graphics.Rect;
 
 import com.google.android.gms.tasks.Task;
 import com.google.mlkit.vision.common.InputImage;
@@ -12,14 +11,17 @@ import com.google.mlkit.vision.face.FaceDetectorOptions;
 import com.google.mlkit.vision.text.Text;
 
 import java.util.List;
-import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicInteger;
 
 final class AntiCheatVerification {
+    enum TileDecision {
+        NEXT_TILE,
+        CLICK,
+        RECHECK_CHALLENGE
+    }
+
     private static final int[] TILE_X = {530, 640, 750};
     private static final int TILE_Y = 315;
     private static final int TILE_SIZE = 74;
-    private static final int[] ROTATIONS = {0, 90, 180, 270};
     private static final int VERIFY_X = 640;
     private static final int VERIFY_Y = 430;
 
@@ -41,130 +43,99 @@ final class AntiCheatVerification {
     }
 
     private void solve(Runnable next) {
-        host.showProgress("反外挂：识别头像方向");
-        host.captureScreenshot(bitmap -> {
-            if (bitmap == null) {
-                host.postDelayed(() -> checkThen(next), 500);
-                return;
-            }
-            Bitmap[] tiles = cropTiles(bitmap);
-            bitmap.recycle();
-            detectRotations(tiles, rotations -> {
-                for (int rotation : rotations) {
-                    if (rotation < 0) {
-                        host.showProgress("反外挂：未识别人脸，重新检测");
-                        host.postDelayed(() -> checkThen(next), 500);
-                        return;
-                    }
-                }
-                clickRotations(rotations, 0, next);
-            });
-        });
-    }
-
-    private Bitmap[] cropTiles(Bitmap screenshot) {
-        Bitmap[] tiles = new Bitmap[TILE_X.length];
-        for (int index = 0; index < TILE_X.length; index++) {
-            int centerX = TILE_X[index] * screenshot.getWidth() / 1280;
-            int centerY = TILE_Y * screenshot.getHeight() / 720;
-            int size = TILE_SIZE * screenshot.getWidth() / 1280;
-            int left = Math.max(0, centerX - size / 2);
-            int top = Math.max(0, centerY - size / 2);
-            int width = Math.min(size, screenshot.getWidth() - left);
-            int height = Math.min(size, screenshot.getHeight() - top);
-            Bitmap crop = Bitmap.createBitmap(screenshot, left, top, width, height);
-            tiles[index] = Bitmap.createScaledBitmap(crop, width * 4, height * 4, true);
-            crop.recycle();
-        }
-        return tiles;
-    }
-
-    private void detectRotations(Bitmap[] tiles, java.util.function.Consumer<int[]> result) {
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
                 .setMinFaceSize(0.05f)
                 .build();
-        FaceDetector detector = FaceDetection.getClient(options);
-        int[][] scores = new int[tiles.length][ROTATIONS.length];
-        AtomicInteger remaining = new AtomicInteger(tiles.length * ROTATIONS.length);
+        orientTile(FaceDetection.getClient(options), 0, 0, next);
+    }
 
-        for (int tile = 0; tile < tiles.length; tile++) {
-            for (int rotation = 0; rotation < ROTATIONS.length; rotation++) {
-                int tileIndex = tile;
-                int rotationIndex = rotation;
-                Task<List<Face>> task = detector.process(
-                        InputImage.fromBitmap(tiles[tile], ROTATIONS[rotation]));
-                task.addOnSuccessListener(faces ->
-                                scores[tileIndex][rotationIndex] = largestFace(faces))
-                        .addOnFailureListener(error -> DiagnosticLog.warn(
-                                "ANTI_CHEAT", "Face detection failed: " + error.getMessage()))
-                        .addOnCompleteListener(done -> {
-                            if (remaining.decrementAndGet() != 0) {
-                                return;
-                            }
-                            detector.close();
-                            for (Bitmap bitmap : tiles) {
-                                bitmap.recycle();
-                            }
-                            int[] rotations = new int[tiles.length];
-                            for (int index = 0; index < rotations.length; index++) {
-                                rotations[index] = bestRotation(scores[index]);
-                            }
-                            DiagnosticLog.info("ANTI_CHEAT",
-                                    "Detected rotations " + Arrays.toString(rotations));
-                            result.accept(rotations);
-                        });
+    private void orientTile(FaceDetector detector, int tile, int clicks, Runnable next) {
+        if (tile == TILE_X.length) {
+            detector.close();
+            submit(next);
+            return;
+        }
+        host.showProgress("反外挂：检查头像 " + (tile + 1) + "/" + TILE_X.length);
+        host.captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                host.postDelayed(() -> orientTile(detector, tile, clicks, next), 500);
+                return;
             }
-        }
+            Bitmap face = cropTile(bitmap, tile);
+            bitmap.recycle();
+            detectFace(detector, face, upright -> {
+                DiagnosticLog.info("ANTI_CHEAT", "Tile=" + (tile + 1)
+                        + " clicks=" + clicks + " upright=" + upright);
+                TileDecision decision = decideTile(upright, clicks);
+                if (decision == TileDecision.NEXT_TILE) {
+                    orientTile(detector, tile + 1, 0, next);
+                    return;
+                }
+                if (decision == TileDecision.RECHECK_CHALLENGE) {
+                    detector.close();
+                    DiagnosticLog.info("ANTI_CHEAT",
+                            "Tile stayed unrecognized after one cycle; rechecking challenge");
+                    host.postDelayed(() -> checkThen(next), 500);
+                    return;
+                }
+                host.showProgress("反外挂：旋转头像 " + (tile + 1));
+                host.tapFast(TILE_X[tile], TILE_Y,
+                        () -> host.postDelayed(
+                                () -> orientTile(detector, tile, clicks + 1, next), 300));
+            });
+        });
     }
 
-    private void clickRotations(int[] rotations, int tile, Runnable next) {
-        if (tile == rotations.length) {
-            host.showProgress("反外挂：提交验证");
-            host.tapFast(VERIFY_X, VERIFY_Y,
-                    () -> host.postDelayed(() -> confirmSolved(next), 1_000));
-            return;
-        }
-        clickTile(TILE_X[tile], rotations[tile] / 90,
-                () -> clickRotations(rotations, tile + 1, next));
+    private Bitmap cropTile(Bitmap screenshot, int tile) {
+        int centerX = TILE_X[tile] * screenshot.getWidth() / 1280;
+        int centerY = TILE_Y * screenshot.getHeight() / 720;
+        int size = TILE_SIZE * screenshot.getWidth() / 1280;
+        int left = Math.max(0, centerX - size / 2);
+        int top = Math.max(0, centerY - size / 2);
+        int width = Math.min(size, screenshot.getWidth() - left);
+        int height = Math.min(size, screenshot.getHeight() - top);
+        Bitmap crop = Bitmap.createBitmap(screenshot, left, top, width, height);
+        Bitmap scaled = Bitmap.createScaledBitmap(crop, width * 4, height * 4, true);
+        crop.recycle();
+        return scaled;
     }
 
-    private void clickTile(int x, int remainingClicks, Runnable next) {
-        if (remainingClicks == 0) {
-            next.run();
-            return;
-        }
-        host.tapFast(x, TILE_Y,
-                () -> clickTile(x, remainingClicks - 1, next));
+    private void detectFace(FaceDetector detector, Bitmap face,
+            java.util.function.Consumer<Boolean> result) {
+        Task<List<Face>> task = detector.process(InputImage.fromBitmap(face, 0));
+        task.addOnFailureListener(error -> DiagnosticLog.warn(
+                        "ANTI_CHEAT", "Face detection failed: " + error.getMessage()))
+                .addOnCompleteListener(done -> {
+                    boolean upright = done.isSuccessful() && !done.getResult().isEmpty();
+                    face.recycle();
+                    result.accept(upright);
+                });
     }
 
-    private void confirmSolved(Runnable next) {
+    private void submit(Runnable next) {
+        host.showProgress("反外挂：提交验证");
+        host.tapFast(VERIFY_X, VERIFY_Y,
+                () -> host.postDelayed(() -> confirmSolved(next, 0), 1_000));
+    }
+
+    private void confirmSolved(Runnable next, int clearChecks) {
         host.recognizeText(text -> {
             if (hasChallenge(text)) {
                 solve(next);
+            } else if (clearChecks == 0) {
+                host.postDelayed(() -> confirmSolved(next, 1), 500);
             } else {
                 next.run();
             }
         });
     }
 
-    private static int largestFace(List<Face> faces) {
-        int largest = 0;
-        for (Face face : faces) {
-            Rect bounds = face.getBoundingBox();
-            largest = Math.max(largest, bounds.width() * bounds.height());
+    static TileDecision decideTile(boolean upright, int clicks) {
+        if (upright) {
+            return TileDecision.NEXT_TILE;
         }
-        return largest;
-    }
-
-    static int bestRotation(int[] scores) {
-        int best = -1;
-        for (int index = 0; index < scores.length; index++) {
-            if (scores[index] > 0 && (best < 0 || scores[index] > scores[best])) {
-                best = index;
-            }
-        }
-        return best < 0 ? -1 : ROTATIONS[best];
+        return clicks < 3 ? TileDecision.CLICK : TileDecision.RECHECK_CHALLENGE;
     }
 
     static boolean hasChallenge(Text text) {

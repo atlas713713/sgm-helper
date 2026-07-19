@@ -80,10 +80,18 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_MILITARY_MINUTE = "military_minute";
     static final String PREF_WELFARE_HOUR = "welfare_hour";
     static final String PREF_WELFARE_MINUTE = "welfare_minute";
+    static final String PREF_HEAVENFALL_HOUR = "heavenfall_hour";
+    static final String PREF_HEAVENFALL_MINUTE = "heavenfall_minute";
+    static final String PREF_DUNGEON_HOUR = "dungeon_hour";
+    static final String PREF_DUNGEON_MINUTE = "dungeon_minute";
+    static final String PREF_HEAVENFALL_DURATION_MINUTES = "heavenfall_duration_minutes";
+    static final String PREF_HEAVENFALL_ZONE = "heavenfall_zone";
     static final String PREF_WORSHIP_ENABLED = "worship_enabled";
     static final String PREF_MILITARY_ENABLED = "military_enabled";
     static final String PREF_WELFARE_ENABLED = "welfare_enabled";
     static final String PREF_LEGION_REWARD_ENABLED = "legion_reward_enabled";
+    static final String PREF_HEAVENFALL_ENABLED = "heavenfall_enabled";
+    static final String PREF_DUNGEON_ENABLED = "dungeon_enabled";
     static final String PREF_MILITARY_RETRY_AT = "military_retry_at";
     static final String PREF_SUPPLY_RETRY_AT = "supply_retry_at";
     static final String PREF_WILDERNESS_RETRY_AT = "wilderness_retry_at";
@@ -105,6 +113,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private final DungeonSweepAutomation dungeonSweepAutomation =
             new DungeonSweepAutomation(this);
     private final BossAutomation bossAutomation = new BossAutomation(this);
+    private final HeavenfallAutomation heavenfallAutomation = new HeavenfallAutomation(this);
 
     // ponytail: one in-process service reference keeps the self-test small; clear it on every teardown.
     @SuppressLint("StaticFieldLeak")
@@ -746,6 +755,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void showTimerPage(LinearLayout menu) {
+        setMenuSize(dp(420), WindowManager.LayoutParams.WRAP_CONTENT);
         addMenuText(menu, R.string.settings_timer);
         addTimerRow(menu, R.string.timer_worship, PREF_HOUR, PREF_MINUTE,
                 PREF_WORSHIP_ENABLED, true, 10, 0,
@@ -765,6 +775,24 @@ public final class HelperAccessibilityService extends AccessibilityService
                 PREF_LEGION_REWARD_ENABLED, true, 10, 10,
                 () -> WorshipAlarmReceiver.scheduleLegionReward(this),
                 this::startScheduledLegionReward);
+        addTimerRow(menu, R.string.timer_dungeon,
+                PREF_DUNGEON_HOUR, PREF_DUNGEON_MINUTE,
+                PREF_DUNGEON_ENABLED, true, 14, 0,
+                () -> WorshipAlarmReceiver.scheduleDungeon(this),
+                this::startScheduledDungeon);
+        addTimerRow(menu, R.string.timer_heavenfall,
+                PREF_HEAVENFALL_HOUR, PREF_HEAVENFALL_MINUTE,
+                PREF_HEAVENFALL_ENABLED, true, 22, 0,
+                () -> WorshipAlarmReceiver.scheduleHeavenfall(this),
+                this::startScheduledHeavenfall);
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        addSpinnerRow(menu, R.string.heavenfall_duration, 60,
+                preferences.getInt(PREF_HEAVENFALL_DURATION_MINUTES, 5),
+                value -> preferences.edit()
+                        .putInt(PREF_HEAVENFALL_DURATION_MINUTES, value).apply());
+        addSpinnerRow(menu, R.string.heavenfall_zone, 15,
+                preferences.getInt(PREF_HEAVENFALL_ZONE, 1),
+                value -> preferences.edit().putInt(PREF_HEAVENFALL_ZONE, value).apply());
         addMenuButton(menu, R.string.settings_back, view -> showSettingsMenu());
         updateMenuPosition();
     }
@@ -851,6 +879,20 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     void startScheduledWelfare() {
         welfareAutomation.start();
+    }
+
+    void startScheduledHeavenfall() {
+        heavenfallAutomation.start();
+    }
+
+    void startScheduledDungeon() {
+        if (automationRunning) {
+            DiagnosticLog.info("DUNGEON", "busy; retrying in 60 seconds");
+            handler.postDelayed(this::startScheduledDungeon, 60_000);
+            return;
+        }
+        dungeonSweepAutomation.startScheduled(selectedDungeonLevels(
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)));
     }
 
     void startScheduledMilitary() {
@@ -1126,7 +1168,14 @@ public final class HelperAccessibilityService extends AccessibilityService
                 } else if (enabled == targetEnabled) {
                     next.run();
                 } else {
-                    performTap(1210, 480, next);
+                    if (remainingAttempts > 1) {
+                        showProgress(targetEnabled ? "开启自动攻击" : "停止自动攻击");
+                        performTap(1210, 480,
+                                () -> ensureAutoAttackState(
+                                        targetEnabled, next, remainingAttempts - 1));
+                    } else {
+                        failAutomation("Unable to change auto attack state");
+                    }
                 }
             } finally {
                 if (bitmap != null) {
@@ -1580,9 +1629,32 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void resumePrimaryTask() {
+        Runnable resume = primaryTaskAction;
+        automationRunning = false;
+        clearAutomationRecovery();
+        if (resume != null) {
+            resume.run();
+        }
+    }
+
+    @Override
     public void failAutomation(String message) {
         DiagnosticLog.error("AUTOMATION", message);
         handler.removeCallbacksAndMessages(null);
+        captureScreenshot(bitmap -> {
+            try {
+                DiagnosticLog.saveScreenshot(bitmap, "automation-error");
+            } finally {
+                if (bitmap != null) {
+                    bitmap.recycle();
+                }
+                finishAutomationFailure(message);
+            }
+        });
+    }
+
+    private void finishAutomationFailure(String message) {
         if (currentAutomationAction == null) {
             automationRunning = false;
             setTaskState(STATE_STOPPED);
@@ -1595,20 +1667,33 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void recoverPrimaryTask(String message) {
         automationRecoveryAttempts++;
-        boolean quickRetry = shouldRetryAutomation(automationRecoveryAttempts);
         automationRunning = true;
+        if (!shouldRetryAutomation(automationRecoveryAttempts)) {
+            currentAutomationAction = null;
+            resetPrimaryTaskToTraining();
+            setTaskState(STATE_RUNNING);
+            showProgress("错误：" + message
+                    + " · 连续失败，60秒后最后恢复练级，不再自动重试");
+            handler.postDelayed(() -> {
+                if (!automationRunning) {
+                    return;
+                }
+                showProgress("错误恢复：最后恢复练级");
+                trainingAutomation.start();
+            }, RECOVERY_LONG_DELAY_MS);
+            return;
+        }
         currentAutomationAction = primaryTaskAction;
         setTaskState(STATE_RUNNING);
-        showProgress("错误：" + message + " · "
-                + (quickRetry ? "5秒后" : "连续失败，60秒后")
-                + "恢复主要任务：" + primaryTaskLabel(primaryTask));
+        showProgress("错误：" + message + " · 5秒后恢复主要任务："
+                + primaryTaskLabel(primaryTask));
         handler.postDelayed(() -> {
             if (!automationRunning || primaryTaskAction == null) {
                 return;
             }
             showProgress("错误恢复：恢复主要任务 · " + primaryTaskLabel(primaryTask));
             primaryTaskAction.run();
-        }, quickRetry ? RECOVERY_START_DELAY_MS : RECOVERY_LONG_DELAY_MS);
+        }, RECOVERY_START_DELAY_MS);
     }
 
     private void stopAutomation(int state) {

@@ -64,4 +64,8 @@
     <string name="timer_military">自动军务</string>
     <string name="timer_reward">领取福利×2</string>
     <string name="timer_legion_reward">军团奖励</string>
+    <string name="timer_dungeon">自动副本</string>
+    <string name="timer_heavenfall">天降</string>
+    <string name="heavenfall_duration">持续分钟：</string>
+    <string name="heavenfall_zone">荒野几区：</string>
 </resources>

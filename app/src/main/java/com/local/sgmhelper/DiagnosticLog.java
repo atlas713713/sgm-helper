@@ -1,6 +1,7 @@
 package com.local.sgmhelper;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.os.Build;
 import android.provider.Settings;
 import android.util.Log;
@@ -81,6 +82,22 @@ final class DiagnosticLog {
         append("ERROR", area, message, error);
     }
 
+    static synchronized void saveScreenshot(Bitmap bitmap, String label) {
+        if (bitmap == null || sharedLogFile == null) {
+            return;
+        }
+        String timestamp = new SimpleDateFormat(
+                "yyyyMMdd-HHmmss-SSS", Locale.US).format(new Date());
+        String safeLabel = label.replaceAll("[^A-Za-z0-9._-]", "_");
+        String logName = sharedLogFile.getName().replaceFirst("\\.log$", "");
+        File sharedFile = new File(
+                SHARED_LOG_DIRECTORY, logName + "-" + safeLabel + "-" + timestamp + ".png");
+        File fallbackFile = new File(fallbackLogFile.getParentFile(), sharedFile.getName());
+        if (!writePng(sharedFile, bitmap)) {
+            writePng(fallbackFile, bitmap);
+        }
+    }
+
     private static synchronized void append(
             String level, String area, String message, Throwable error) {
         if (sharedLogFile == null) {
@@ -122,6 +139,25 @@ final class DiagnosticLog {
             return true;
         } catch (IOException | SecurityException error) {
             Log.e(TAG, "Unable to write diagnostic log: " + file, error);
+            return false;
+        }
+    }
+
+    private static boolean writePng(File file, Bitmap bitmap) {
+        File parent = file.getParentFile();
+        if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) {
+            return false;
+        }
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            boolean saved = bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);
+            if (saved) {
+                file.setReadable(true, false);
+                file.setWritable(true, false);
+                info("SCREENSHOT", "saved " + file.getAbsolutePath());
+            }
+            return saved;
+        } catch (IOException | SecurityException error) {
+            Log.e(TAG, "Unable to save diagnostic screenshot: " + file, error);
             return false;
         }
     }
