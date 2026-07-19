@@ -185,12 +185,17 @@ final class BossAutomation {
     }
 
     static Integer parseMapX(String value) {
+        int[] coordinate = parseMapCoordinate(value);
+        return coordinate == null ? null : coordinate[0];
+    }
+
+    static int[] parseMapCoordinate(String value) {
         Matcher matcher = MAP_COORDINATE.matcher(value);
         while (matcher.find()) {
             int x = Integer.parseInt(matcher.group(1));
             int y = Integer.parseInt(matcher.group(2));
             if (x <= AutomationHost.MAP_GAME_MAX_X && y <= AutomationHost.MAP_GAME_MAX_Y) {
-                return x;
+                return new int[] {x, y};
             }
         }
         return null;

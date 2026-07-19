@@ -286,6 +286,14 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void mergesAdjacentScreenTextFragments() {
+        assertTrue(HelperAccessibilityService.matchesTextFragments(
+                Arrays.asList("补充军团", "物资(五)"), "补充军团物资", false));
+        assertFalse(HelperAccessibilityService.matchesTextFragments(
+                Arrays.asList("巡狩军团", "荒野(五)"), "补充军团物资", false));
+    }
+
+    @Test
     public void recognizesAnAlreadyOpenTaskWindow() {
         assertTrue(TaskAutomation.isTaskWindowVisible(
                 Arrays.asList("任务", "进行中", "可承接")));
@@ -311,6 +319,14 @@ public final class HelperAccessibilityServiceTest {
                 Arrays.asList("寻路")));
         assertFalse(HelperAccessibilityService.hasAutoPathPanelLabels(
                 Arrays.asList("自动寻路", "巡狩军团荒野")));
+    }
+
+    @Test
+    public void recognizesCampArrivalText() {
+        assertTrue(SoldierRevivalAutomation.hasCampArrival(
+                Arrays.asList("军营", "士兵 卸下")));
+        assertFalse(SoldierRevivalAutomation.hasCampArrival(
+                Arrays.asList("工坊", "客栈")));
     }
 
     @Test
@@ -377,6 +393,8 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(Integer.valueOf(590), BossAutomation.parseMapX("590：24"));
         assertEquals(Integer.valueOf(4), BossAutomation.parseMapX("坐标 4，7"));
         assertNull(BossAutomation.parseMapX("601,25"));
+        assertTrue(Arrays.equals(new int[] {300, 25},
+                BossAutomation.parseMapCoordinate("300,25")));
         assertEquals(Integer.valueOf(4), BossAutomation.parseChannel("第 4 分流"));
         assertEquals(Integer.valueOf(8), BossAutomation.parseChannel("临渊道·分流8"));
         assertNull(BossAutomation.parseChannel("第9分流"));
@@ -440,6 +458,8 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(HeavenfallAutomation.centerReached("300,25"));
         assertTrue(HeavenfallAutomation.centerReached("280,25"));
         assertFalse(HeavenfallAutomation.centerReached("279,25"));
+        assertTrue(HeavenfallAutomation.centerReached("300,30"));
+        assertFalse(HeavenfallAutomation.centerReached("300,31"));
     }
 
     @Test

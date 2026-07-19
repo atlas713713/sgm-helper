@@ -254,9 +254,35 @@ final class TaskAutomation {
                                 ACTION_DELAY_MS);
                     } else {
                         host.showProgress("自动军务：连续未点到右侧物资任务，保留复查");
-                        scheduleNextCheck.run();
+                        logSupplyTaskOcrMiss(scheduleNextCheck);
                     }
                 });
+    }
+
+    private void logSupplyTaskOcrMiss(Runnable next) {
+        host.recognizeText(text -> {
+            List<String> rightLines = new ArrayList<>();
+            for (Text.TextBlock block : text.getTextBlocks()) {
+                for (Text.Line line : block.getLines()) {
+                    Rect bounds = line.getBoundingBox();
+                    if (bounds != null && bounds.centerX() >= 850) {
+                        rightLines.add(line.getText() + "@" + bounds.flattenToString());
+                    }
+                }
+            }
+            DiagnosticLog.warn("OCR", "right text not found: 补充军团物资; lines="
+                    + rightLines);
+            host.captureScreenshot(bitmap -> {
+                try {
+                    DiagnosticLog.saveScreenshot(bitmap, "supply-task-ocr-miss");
+                } finally {
+                    if (bitmap != null) {
+                        bitmap.recycle();
+                    }
+                    next.run();
+                }
+            });
+        });
     }
 
     static boolean shouldResumeSupplyCollection(String questName) {

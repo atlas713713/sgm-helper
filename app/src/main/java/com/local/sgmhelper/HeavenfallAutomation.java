@@ -7,10 +7,11 @@ import android.graphics.Bitmap;
 final class HeavenfallAutomation {
     private static final int MAP_CENTER_X = 300;
     private static final int MAP_CENTER_Y = 25;
-    private static final int CENTER_TOLERANCE = 20;
+    private static final int CENTER_X_TOLERANCE = 20;
+    private static final int CENTER_Y_TOLERANCE = 5;
     private static final int CENTER_WAIT_ATTEMPTS = 60;
-    private static final long SCAN_INTERVAL_MS = 1_000;
-    private static final long BOSS_CHECK_MS = 5_000;
+    private static final long CENTER_CHECK_INTERVAL_MS = 1_000;
+    private static final long BOSS_SCAN_INTERVAL_MS = 3_000;
     private static final long RESUME_DELAY_MS = 10_000;
 
     private final AutomationHost host;
@@ -59,7 +60,7 @@ final class HeavenfallAutomation {
                 host.closeAutoPathPanel(this::openEnemyPanel);
             } else if (remainingAttempts > 1) {
                 host.postDelayed(
-                        () -> waitForCenter(remainingAttempts - 1), SCAN_INTERVAL_MS);
+                        () -> waitForCenter(remainingAttempts - 1), CENTER_CHECK_INTERVAL_MS);
             } else {
                 host.failAutomation("天降：前往地图中间超时");
             }
@@ -80,14 +81,14 @@ final class HeavenfallAutomation {
         }
         findRedBoss(target -> {
             if (target == null) {
-                host.showProgress("天降：等待红色 BOSS 出现");
-                host.postDelayed(this::scanForBoss, SCAN_INTERVAL_MS);
+                host.showProgress("天降：未发现红色 BOSS，返回地图中间");
+                host.postDelayed(this::goToCenter, BOSS_SCAN_INTERVAL_MS);
                 return;
             }
             host.showProgress("天降：攻击 " + target.name);
             host.tap(target.bounds.centerX(), target.bounds.centerY(),
                     () -> host.postDelayed(
-                            () -> waitForBossToDisappear(target.name), BOSS_CHECK_MS));
+                            () -> waitForBossToDisappear(target.name), BOSS_SCAN_INTERVAL_MS));
         });
     }
 
@@ -102,7 +103,7 @@ final class HeavenfallAutomation {
             } else {
                 host.showProgress("天降：正在攻击 " + bossName);
                 host.postDelayed(
-                        () -> waitForBossToDisappear(bossName), BOSS_CHECK_MS);
+                        () -> waitForBossToDisappear(bossName), BOSS_SCAN_INTERVAL_MS);
             }
         });
     }
@@ -144,7 +145,9 @@ final class HeavenfallAutomation {
     }
 
     static boolean centerReached(String mapCoordinate) {
-        Integer x = BossAutomation.parseMapX(mapCoordinate);
-        return x != null && Math.abs(x - MAP_CENTER_X) <= CENTER_TOLERANCE;
+        int[] coordinate = BossAutomation.parseMapCoordinate(mapCoordinate);
+        return coordinate != null
+                && Math.abs(coordinate[0] - MAP_CENTER_X) <= CENTER_X_TOLERANCE
+                && Math.abs(coordinate[1] - MAP_CENTER_Y) <= CENTER_Y_TOLERANCE;
     }
 }

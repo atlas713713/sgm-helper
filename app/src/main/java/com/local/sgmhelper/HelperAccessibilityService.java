@@ -114,6 +114,8 @@ public final class HelperAccessibilityService extends AccessibilityService
             new DungeonSweepAutomation(this);
     private final BossAutomation bossAutomation = new BossAutomation(this);
     private final HeavenfallAutomation heavenfallAutomation = new HeavenfallAutomation(this);
+    private final SoldierRevivalAutomation soldierRevivalAutomation =
+            new SoldierRevivalAutomation(this);
 
     // ponytail: one in-process service reference keeps the self-test small; clear it on every teardown.
     @SuppressLint("StaticFieldLeak")
@@ -335,6 +337,8 @@ public final class HelperAccessibilityService extends AccessibilityService
                 view -> dungeonSweepAutomation.start(selectedDungeonLevels(
                         getSharedPreferences(PREFS_NAME, MODE_PRIVATE))),
                 view -> showDungeonSweepMenu());
+        addMenuButton(menu, R.string.menu_soldier_revival,
+                view -> soldierRevivalAutomation.start());
         addMenuButton(menu, R.string.menu_stop, view -> stopAutomation(STATE_STOPPED));
         addMenuButton(menu, R.string.menu_settings, view -> showSettingsMenu());
         addMenuButton(menu, R.string.menu_exit, view -> exitService());
@@ -1477,17 +1481,20 @@ public final class HelperAccessibilityService extends AccessibilityService
                 return;
             }
             String target = normalizeText(expected);
+            List<Text.Line> lines = new ArrayList<>();
             for (Text.TextBlock block : text.getTextBlocks()) {
                 for (Text.Line line : block.getLines()) {
-                    String value = normalizeText(line.getText());
                     Rect bounds = line.getBoundingBox();
                     if (bounds != null && isHorizontalMatch(
-                            bounds.centerX(), minX, maxX)
-                            && (exact ? value.equals(target) : value.contains(target))) {
-                        performTap(bounds.centerX(), bounds.centerY(), next, nextDelayMillis);
-                        return;
+                            bounds.centerX(), minX, maxX)) {
+                        lines.add(line);
                     }
                 }
+            }
+            Rect match = findTextBounds(lines, target, exact);
+            if (match != null) {
+                performTap(match.centerX(), match.centerY(), next, nextDelayMillis);
+                return;
             }
             if (remainingAttempts > 1) {
                 handler.postDelayed(
@@ -1501,6 +1508,49 @@ public final class HelperAccessibilityService extends AccessibilityService
                 failAutomation("Screen text was not found: " + expected);
             }
         });
+    }
+
+    private static Rect findTextBounds(List<Text.Line> lines, String target, boolean exact) {
+        for (Text.Line line : lines) {
+            if (matchesTextFragments(Collections.singletonList(line.getText()), target, exact)) {
+                return line.getBoundingBox();
+            }
+        }
+        lines.sort((left, right) -> Integer.compare(
+                left.getBoundingBox().left, right.getBoundingBox().left));
+        for (int start = 0; start < lines.size(); start++) {
+            Rect anchor = lines.get(start).getBoundingBox();
+            Rect mergedBounds = new Rect(anchor);
+            List<String> fragments = new ArrayList<>();
+            fragments.add(lines.get(start).getText());
+            for (int index = start + 1; index < lines.size(); index++) {
+                Text.Line line = lines.get(index);
+                Rect bounds = line.getBoundingBox();
+                if (Math.max(anchor.top, bounds.top) > Math.min(anchor.bottom, bounds.bottom)) {
+                    continue;
+                }
+                if (bounds.left - mergedBounds.right > 80) {
+                    break;
+                }
+                fragments.add(line.getText());
+                mergedBounds.union(bounds);
+                if (matchesTextFragments(fragments, target, exact)) {
+                    return mergedBounds;
+                }
+            }
+        }
+        return null;
+    }
+
+    static boolean matchesTextFragments(
+            List<String> fragments, String target, boolean exact) {
+        StringBuilder combined = new StringBuilder();
+        for (String fragment : fragments) {
+            combined.append(normalizeText(fragment));
+        }
+        String value = combined.toString();
+        String normalizedTarget = normalizeText(target);
+        return exact ? value.equals(normalizedTarget) : value.contains(normalizedTarget);
     }
 
     static boolean isHorizontalMatch(int x, int minX, int maxX) {
