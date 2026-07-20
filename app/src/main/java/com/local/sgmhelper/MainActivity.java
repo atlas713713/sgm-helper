@@ -27,6 +27,7 @@ import java.util.List;
 
 public final class MainActivity extends Activity {
     public static final String EXTRA_SHOW_CONTROLS = "show_controls";
+    public static final String EXTRA_START_TRAINING = "start_training";
 
     private static final String GAME_PACKAGE = "hk.phx.khm.cs";
     private static final int COLOR_TEXT = Color.rgb(31, 35, 40);
@@ -48,6 +49,7 @@ public final class MainActivity extends Activity {
     private Button runTestButton;
     private Button testTargetButton;
     private boolean showControls;
+    private boolean startTraining;
     private boolean launchAttempted;
     private int testCount;
 
@@ -58,6 +60,7 @@ public final class MainActivity extends Activity {
         windowParams.alpha = 0.7f;
         getWindow().setAttributes(windowParams);
         showControls = getIntent().getBooleanExtra(EXTRA_SHOW_CONTROLS, false);
+        startTraining = getIntent().getBooleanExtra(EXTRA_START_TRAINING, false);
         setContentView(createContentView());
     }
 
@@ -66,6 +69,7 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         showControls = intent.getBooleanExtra(EXTRA_SHOW_CONTROLS, false);
+        startTraining = intent.getBooleanExtra(EXTRA_START_TRAINING, false);
         launchAttempted = false;
     }
 
@@ -190,7 +194,16 @@ public final class MainActivity extends Activity {
         try {
             HelperAccessibilityService service = HelperAccessibilityService.getInstance();
             if (service != null) {
-                service.startLoginOnly();
+                boolean autoStart = getSharedPreferences(
+                        HelperAccessibilityService.PREFS_NAME, MODE_PRIVATE)
+                        .getBoolean(
+                                HelperAccessibilityService.PREF_START_TRAINING_ON_LAUNCH,
+                                true);
+                if (startTraining && autoStart) {
+                    service.startTrainingMain();
+                } else {
+                    service.startLoginOnly();
+                }
             } else {
                 startActivity(launchIntent);
             }

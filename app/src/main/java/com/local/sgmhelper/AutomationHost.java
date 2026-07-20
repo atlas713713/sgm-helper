@@ -79,9 +79,14 @@ interface AutomationHost {
 
     void swipe(int startX, int startY, int endX, int endY, Runnable next);
 
+    void swipe(int startX, int startY, int endX, int endY,
+            long durationMillis, Runnable next);
+
     void recognizeText(Consumer<Text> result);
 
     void recognizeMapCoordinate(Consumer<String> result);
+
+    void recognizeBackpackCapacity(Consumer<String> result);
 
     void captureScreenshot(Consumer<Bitmap> result);
 

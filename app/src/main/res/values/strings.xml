@@ -29,7 +29,6 @@
     <string name="menu_boss">BOSS</string>
     <string name="menu_dungeon_sweep">副本</string>
     <string name="menu_soldier_revival">复活士兵</string>
-    <string name="feature_settings">设置</string>
     <string name="menu_stop">终止</string>
     <string name="menu_settings">设置</string>
     <string name="menu_exit">退出</string>
@@ -39,11 +38,16 @@
     <string name="menu_status_stopped">状态：已终止</string>
     <string name="menu_status_completed">状态：已完成</string>
     <string name="settings_training">练级</string>
+    <string name="training_start_after_restart">模拟器重启后自动开始练级</string>
+    <string name="training_auto_sell">背包快满时自动贩卖（练级/BOSS）</string>
+    <string name="training_auto_sell_min_free_slots">剩余格数少于：</string>
     <string name="training_settings_title">练级设置</string>
     <string name="training_location">练级地点：</string>
     <string name="training_wilderness_zone">荒野几区：</string>
     <string name="training_monster">目标怪物：</string>
     <string name="settings_timer">定时</string>
+    <string name="settings_timed_tasks">定时任务</string>
+    <string name="settings_auxiliary">辅助</string>
     <string name="settings_login">登录账号</string>
     <string name="login_account_hint">账号</string>
     <string name="login_password_hint">密码</string>

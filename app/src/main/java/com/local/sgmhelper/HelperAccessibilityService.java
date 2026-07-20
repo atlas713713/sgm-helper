@@ -38,6 +38,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
@@ -71,6 +72,9 @@ public final class HelperAccessibilityService extends AccessibilityService
     private static final int MAX_AUTOMATION_RECOVERY_ATTEMPTS = 3;
     private static final int RECOVERY_START_DELAY_MS = 5_000;
     private static final int RECOVERY_LONG_DELAY_MS = 60_000;
+    private static final long INVENTORY_CHECK_INTERVAL_MS = 60_000;
+    private static final int COLOR_SETTINGS_BACKGROUND = 0xFF4A4A4A;
+    private static final int COLOR_SETTINGS_TEXT = 0xFFFFC107;
     static final String PREFS_NAME = "schedule";
     static final String PREF_HOUR = "hour";
     static final String PREF_MINUTE = "minute";
@@ -92,6 +96,9 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_LEGION_REWARD_ENABLED = "legion_reward_enabled";
     static final String PREF_HEAVENFALL_ENABLED = "heavenfall_enabled";
     static final String PREF_DUNGEON_ENABLED = "dungeon_enabled";
+    static final String PREF_START_TRAINING_ON_LAUNCH = "start_training";
+    static final String PREF_AUTO_SELL_ENABLED = "auto_sell_enabled";
+    static final String PREF_AUTO_SELL_MIN_FREE_SLOTS = "auto_sell_min_free_slots";
     static final String PREF_MILITARY_RETRY_AT = "military_retry_at";
     static final String PREF_SUPPLY_RETRY_AT = "supply_retry_at";
     static final String PREF_WILDERNESS_RETRY_AT = "wilderness_retry_at";
@@ -103,7 +110,9 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String TRAINING_LOCATION_WILD = "野境";
     static final String TRAINING_LOCATION_MARKER = "标记点";
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Handler inventoryHandler = new Handler(Looper.getMainLooper());
     private final TrainingAutomation trainingAutomation = new TrainingAutomation(this);
+    private final AutoSellAutomation autoSellAutomation = new AutoSellAutomation(this);
     private final TaskAutomation taskAutomation = new TaskAutomation(this, trainingAutomation);
     private final RewardAutomation rewardAutomation =
             new RewardAutomation(this, trainingAutomation);
@@ -134,6 +143,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     private Runnable currentAutomationAction;
     private PrimaryTask primaryTask = PrimaryTask.TRAINING;
     private Runnable primaryTaskAction = trainingAutomation::start;
+    private boolean inventoryCheckRunning;
+    private boolean inventorySelling;
     private TextRecognizer textRecognizer;
 
     static HelperAccessibilityService getInstance() {
@@ -327,36 +338,32 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void populateMainMenu(LinearLayout menu) {
         menu.removeAllViews();
+        styleMainMenu(menu);
         setMenuSize(dp(230), WindowManager.LayoutParams.WRAP_CONTENT);
         stateView = addMenuText(menu, R.string.menu_status_idle);
-        addFeatureRow(menu, R.string.menu_training,
-                view -> startTrainingMain(), view -> showTrainingSettings());
-        addFeatureRow(menu, R.string.menu_boss,
-                view -> bossAutomation.start(), view -> showBossMenu());
-        addFeatureRow(menu, R.string.menu_dungeon_sweep,
+        addMenuButton(menu, R.string.menu_training, view -> startTrainingMain());
+        addMenuButton(menu, R.string.menu_boss, view -> bossAutomation.start());
+        addMenuButton(menu, R.string.menu_dungeon_sweep,
                 view -> dungeonSweepAutomation.start(selectedDungeonLevels(
-                        getSharedPreferences(PREFS_NAME, MODE_PRIVATE))),
-                view -> showDungeonSweepMenu());
+                        getSharedPreferences(PREFS_NAME, MODE_PRIVATE))));
         addMenuButton(menu, R.string.menu_soldier_revival,
                 view -> soldierRevivalAutomation.start());
         addMenuButton(menu, R.string.menu_stop, view -> stopAutomation(STATE_STOPPED));
-        addMenuButton(menu, R.string.menu_settings, view -> showSettingsMenu());
+        addMenuButton(menu, R.string.menu_settings, view -> showTrainingSettings());
         addMenuButton(menu, R.string.menu_exit, view -> exitService());
         addMenuText(menu, "版本 " + BuildConfig.VERSION_NAME);
         updateStateView();
         updateMenuPosition();
     }
 
-    private void addFeatureRow(LinearLayout menu, int titleResource,
-            View.OnClickListener startListener, View.OnClickListener settingsListener) {
-        LinearLayout row = new LinearLayout(this);
-        Button start = createMenuButton(titleResource, startListener);
-        Button settings = createMenuButton(R.string.feature_settings, settingsListener);
-        settings.setTextSize(13);
-        row.addView(start, new LinearLayout.LayoutParams(0, dp(44), 2));
-        row.addView(settings, new LinearLayout.LayoutParams(0, dp(44), 1));
-        menu.addView(row, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+    private void styleMainMenu(LinearLayout menu) {
+        menu.setPadding(dp(10), dp(10), dp(10), dp(10));
+        menu.setAlpha(0.7f);
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.rgb(250, 250, 250));
+        background.setCornerRadius(dp(12));
+        background.setStroke(dp(1), Color.rgb(210, 214, 220));
+        menu.setBackground(background);
     }
 
     private TextView addMenuText(LinearLayout menu, int textResource) {
@@ -412,13 +419,18 @@ public final class HelperAccessibilityService extends AccessibilityService
         }
     }
 
-    private void startTrainingMain() {
+    void startTrainingMain() {
         if (automationRunning) {
             showProgress("已有任务正在运行，请先终止");
             closeMenu();
             return;
         }
         setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
+        stopInventoryMonitoring();
+        startTrainingAfterPreparation();
+    }
+
+    private void startTrainingAfterPreparation() {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         if (preferences.getBoolean(PREF_MILITARY_ENABLED, true)) {
             showProgress("初始化：重新检测军务任务");
@@ -446,45 +458,128 @@ public final class HelperAccessibilityService extends AccessibilityService
         stateView.setText(textResource);
     }
 
-    private void showSettingsMenu() {
+    private LinearLayout prepareSettingsPage(int selectedTab) {
         if (!(menuView instanceof LinearLayout)) {
-            return;
-        }
-        LinearLayout menu = (LinearLayout) menuView;
-        menu.removeAllViews();
-        stateView = null;
-        addMenuText(menu, R.string.menu_settings);
-        addMenuButton(menu, R.string.settings_training,
-                view -> showTrainingSettings());
-        addMenuButton(menu, R.string.settings_timer,
-                view -> showSettingsPage(R.string.settings_timer));
-        addMenuButton(menu, R.string.settings_login, view -> showLoginSettings());
-        addMenuButton(menu, R.string.settings_back, view -> populateMainMenu(menu));
-    }
-
-    private void showTrainingSettings() {
-        if (!(menuView instanceof LinearLayout)) {
-            return;
+            return null;
         }
         LinearLayout menu = (LinearLayout) menuView;
         menu.removeAllViews();
         stateView = null;
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
-        setMenuSize(Math.min(dp(700), screenWidth - dp(40)),
-                Math.min(dp(420), screenHeight - dp(40)));
+        setMenuSize(Math.min(dp(1000), screenWidth - dp(40)),
+                Math.min(dp(620), screenHeight - dp(40)));
+        menu.setPadding(dp(22), dp(18), dp(22), dp(18));
+        menu.setAlpha(0.92f);
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(COLOR_SETTINGS_BACKGROUND);
+        background.setCornerRadius(dp(4));
+        menu.setBackground(background);
 
-        TextView title = addMenuText(menu, R.string.training_settings_title);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setGravity(Gravity.CENTER_VERTICAL);
+        addSettingsTab(tabs, R.string.settings_training, selectedTab,
+                view -> showTrainingSettings());
+        addSettingsTab(tabs, R.string.settings_boss, selectedTab,
+                view -> showBossMenu());
+        addSettingsTab(tabs, R.string.menu_dungeon_sweep, selectedTab,
+                view -> showDungeonSweepMenu());
+        addSettingsTab(tabs, R.string.settings_timed_tasks, selectedTab,
+                view -> showTimerPage());
+        addSettingsTab(tabs, R.string.settings_auxiliary, selectedTab,
+                view -> showAuxiliarySettings());
+        menu.addView(tabs, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        menu.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        return content;
+    }
+
+    private void addSettingsTab(LinearLayout tabs, int textResource, int selectedTab,
+            View.OnClickListener listener) {
+        TextView tab = new TextView(this);
+        tab.setText(textResource);
+        tab.setTextColor(COLOR_SETTINGS_TEXT);
+        tab.setTextSize(20);
+        tab.setGravity(Gravity.CENTER);
+        tab.setPadding(dp(12), 0, dp(12), 0);
+        tab.setTypeface(tab.getTypeface(), textResource == selectedTab
+                ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        tab.setOnClickListener(listener);
+        tabs.addView(tab, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private TextView addSettingsText(LinearLayout menu, int textResource) {
+        TextView text = addMenuText(menu, textResource);
+        text.setTextColor(Color.WHITE);
+        return text;
+    }
+
+    private void showMainMenu() {
+        if (menuView instanceof LinearLayout) {
+            populateMainMenu((LinearLayout) menuView);
+        }
+    }
+
+    private void showTrainingSettings() {
+        LinearLayout menu = prepareSettingsPage(R.string.settings_training);
+        if (menu == null) {
+            return;
+        }
+
+        TextView title = addSettingsText(menu, R.string.training_settings_title);
+        title.setTextColor(COLOR_SETTINGS_TEXT);
         title.setTextSize(24);
         title.setGravity(Gravity.START);
         title.setPadding(dp(18), dp(14), dp(18), dp(20));
 
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        CheckBox autoStart = new CheckBox(this);
+        autoStart.setText(R.string.training_start_after_restart);
+        autoStart.setTextColor(Color.WHITE);
+        autoStart.setTextSize(18);
+        autoStart.setChecked(preferences.getBoolean(PREF_START_TRAINING_ON_LAUNCH, true));
+        autoStart.setOnCheckedChangeListener((button, checked) -> preferences.edit()
+                .putBoolean(PREF_START_TRAINING_ON_LAUNCH, checked)
+                .apply());
+        menu.addView(autoStart, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+
+        CheckBox autoSell = new CheckBox(this);
+        autoSell.setText(R.string.training_auto_sell);
+        autoSell.setTextColor(Color.WHITE);
+        autoSell.setTextSize(18);
+        autoSell.setChecked(preferences.getBoolean(PREF_AUTO_SELL_ENABLED, false));
+        autoSell.setOnCheckedChangeListener((button, checked) -> {
+            preferences.edit().putBoolean(PREF_AUTO_SELL_ENABLED, checked).apply();
+            if (checked) {
+                startInventoryMonitoring();
+            } else {
+                stopInventoryMonitoring();
+            }
+        });
+        menu.addView(autoSell, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+
+        addSpinnerRow(menu, R.string.training_auto_sell_min_free_slots, 20,
+                preferences.getInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, 5),
+                value -> preferences.edit()
+                        .putInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, value).apply());
+
         LinearLayout locationRow = new LinearLayout(this);
         locationRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView label = new TextView(this);
         label.setText(R.string.training_location);
-        label.setTextColor(Color.rgb(31, 35, 40));
+        label.setTextColor(Color.WHITE);
         label.setTextSize(18);
         locationRow.addView(label, new LinearLayout.LayoutParams(dp(150), dp(54)));
 
@@ -547,7 +642,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                     ? View.VISIBLE : View.GONE);
         });
 
-        addMenuButton(menu, R.string.settings_back, view -> populateMainMenu(menu));
+        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
         updateMenuPosition();
     }
 
@@ -556,6 +651,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         option.setId(View.generateViewId());
         option.setTag(value);
         option.setText(value);
+        option.setTextColor(Color.WHITE);
         option.setTextSize(18);
         option.setPadding(dp(8), 0, dp(24), 0);
         group.addView(option, new RadioGroup.LayoutParams(
@@ -580,7 +676,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         row.setGravity(Gravity.CENTER_VERTICAL);
         TextView label = new TextView(this);
         label.setText(labelResource);
-        label.setTextColor(Color.rgb(31, 35, 40));
+        label.setTextColor(Color.WHITE);
         label.setTextSize(17);
         row.addView(label, new LinearLayout.LayoutParams(dp(150), dp(54)));
 
@@ -656,23 +752,20 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void showBossMenu() {
-        if (!(menuView instanceof LinearLayout)) {
+        LinearLayout menu = prepareSettingsPage(R.string.settings_boss);
+        if (menu == null) {
             return;
         }
-        LinearLayout menu = (LinearLayout) menuView;
-        menu.removeAllViews();
-        stateView = null;
         showBossPage(menu);
     }
 
     private void showDungeonSweepMenu() {
-        if (!(menuView instanceof LinearLayout)) {
+        LinearLayout menu = prepareSettingsPage(R.string.menu_dungeon_sweep);
+        if (menu == null) {
             return;
         }
-        LinearLayout menu = (LinearLayout) menuView;
-        menu.removeAllViews();
-        stateView = null;
-        addMenuText(menu, R.string.dungeon_sweep_title);
+        addSettingsText(menu, R.string.dungeon_sweep_title)
+                .setTextColor(COLOR_SETTINGS_TEXT);
 
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         Set<String> selected = new HashSet<>(preferences.getStringSet(
@@ -686,6 +779,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 int level = DungeonSweepAutomation.LEVELS[index];
                 CheckBox box = new CheckBox(this);
                 box.setText(String.valueOf(level));
+                box.setTextColor(Color.WHITE);
                 box.setTextSize(12);
                 box.setPadding(0, 0, 0, 0);
                 box.setChecked(selected.contains(String.valueOf(level)));
@@ -718,7 +812,7 @@ public final class HelperAccessibilityService extends AccessibilityService
 
         addMenuButton(menu, R.string.dungeon_start_sweep,
                 view -> dungeonSweepAutomation.start(selectedDungeonLevels(preferences)));
-        addMenuButton(menu, R.string.settings_back, view -> populateMainMenu(menu));
+        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
         updateMenuPosition();
     }
 
@@ -734,35 +828,23 @@ public final class HelperAccessibilityService extends AccessibilityService
         return levels;
     }
 
-    private void showSettingsPage(int titleResource) {
-        if (!(menuView instanceof LinearLayout)) {
-            return;
-        }
-        LinearLayout menu = (LinearLayout) menuView;
-        menu.removeAllViews();
-        if (titleResource == R.string.settings_timer) {
-            showTimerPage(menu);
-            return;
-        }
-        addMenuText(menu, titleResource);
-        addMenuText(menu, R.string.settings_placeholder);
-        addMenuButton(menu, R.string.settings_back, view -> showSettingsMenu());
-        updateMenuPosition();
-    }
-
     private void showBossPage(LinearLayout menu) {
-        addMenuText(menu, R.string.settings_boss);
+        addSettingsText(menu, R.string.settings_boss).setTextColor(COLOR_SETTINGS_TEXT);
         addMenuButton(menu, R.string.boss_wilderness, view -> bossAutomation.start());
-        addMenuText(menu, R.string.boss_world_pending);
-        addMenuButton(menu, R.string.settings_back, view -> populateMainMenu(menu));
+        addSettingsText(menu, R.string.boss_world_pending);
+        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
         updateMenuPosition();
     }
 
-    private void showTimerPage(LinearLayout menu) {
-        setMenuSize(dp(420), WindowManager.LayoutParams.WRAP_CONTENT);
-        addMenuText(menu, R.string.settings_timer);
+    private void showTimerPage() {
+        LinearLayout menu = prepareSettingsPage(R.string.settings_timed_tasks);
+        if (menu == null) {
+            return;
+        }
+        addSettingsText(menu, R.string.settings_timed_tasks)
+                .setTextColor(COLOR_SETTINGS_TEXT);
         addTimerRow(menu, R.string.timer_worship, PREF_HOUR, PREF_MINUTE,
-                PREF_WORSHIP_ENABLED, true, 10, 0,
+                PREF_WORSHIP_ENABLED, true, 10, 30,
                 () -> WorshipAlarmReceiver.scheduleWorship(this), this::startScheduledWorship);
         addTimerRow(menu, R.string.timer_military,
                 PREF_MILITARY_HOUR, PREF_MILITARY_MINUTE,
@@ -797,7 +879,19 @@ public final class HelperAccessibilityService extends AccessibilityService
         addSpinnerRow(menu, R.string.heavenfall_zone, 15,
                 preferences.getInt(PREF_HEAVENFALL_ZONE, 1),
                 value -> preferences.edit().putInt(PREF_HEAVENFALL_ZONE, value).apply());
-        addMenuButton(menu, R.string.settings_back, view -> showSettingsMenu());
+        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
+        updateMenuPosition();
+    }
+
+    private void showAuxiliarySettings() {
+        LinearLayout menu = prepareSettingsPage(R.string.settings_auxiliary);
+        if (menu == null) {
+            return;
+        }
+        addSettingsText(menu, R.string.settings_auxiliary)
+                .setTextColor(COLOR_SETTINGS_TEXT);
+        addMenuButton(menu, R.string.settings_login, view -> showLoginSettings());
+        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
         updateMenuPosition();
     }
 
@@ -964,6 +1058,9 @@ public final class HelperAccessibilityService extends AccessibilityService
             PrimaryTask task, String progress, Runnable firstAction) {
         setPrimaryTask(task, firstAction);
         startScheduledAutomation(progress, firstAction);
+        if (task == PrimaryTask.BOSS) {
+            startInventoryMonitoring();
+        }
     }
 
     @Override
@@ -990,6 +1087,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         showProgress(nextMilitaryAt > 0
                 ? "自动练级中 · 下次军务 " + formatTime(nextMilitaryAt)
                 : "自动练级中");
+        startInventoryMonitoring();
     }
 
     @Override
@@ -1037,6 +1135,11 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void performSwipe(int startX, int startY, int endX, int endY, Runnable next) {
+        performSwipe(startX, startY, endX, endY, 300, next);
+    }
+
+    private void performSwipe(int startX, int startY, int endX, int endY,
+            long durationMillis, Runnable next) {
         if (!automationRunning) {
             return;
         }
@@ -1044,7 +1147,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         path.moveTo(startX, startY);
         path.lineTo(endX, endY);
         GestureDescription gesture = new GestureDescription.Builder()
-                .addStroke(new GestureDescription.StrokeDescription(path, 0, 300))
+                .addStroke(new GestureDescription.StrokeDescription(path, 0, durationMillis))
                 .build();
         boolean accepted = dispatchGesture(gesture, new GestureResultCallback() {
             @Override
@@ -1110,6 +1213,12 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public void swipe(int startX, int startY, int endX, int endY, Runnable next) {
         performSwipe(startX, startY, endX, endY, next);
+    }
+
+    @Override
+    public void swipe(int startX, int startY, int endX, int endY,
+            long durationMillis, Runnable next) {
+        performSwipe(startX, startY, endX, endY, durationMillis, next);
     }
 
     @Override
@@ -1309,6 +1418,39 @@ public final class HelperAccessibilityService extends AccessibilityService
                     .addOnFailureListener(error -> {
                         DiagnosticLog.warn("OCR",
                                 "Map coordinate recognition failed: " + error.getMessage());
+                        result.accept("");
+                    })
+                    .addOnCompleteListener(task -> enlarged.recycle());
+        });
+    }
+
+    @Override
+    public void recognizeBackpackCapacity(Consumer<String> result) {
+        captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                result.accept("");
+                return;
+            }
+            int left = 1090 * bitmap.getWidth() / 1280;
+            int top = 50 * bitmap.getHeight() / 720;
+            int right = 1190 * bitmap.getWidth() / 1280;
+            int bottom = 110 * bitmap.getHeight() / 720;
+            Bitmap cropped = Bitmap.createBitmap(
+                    bitmap, left, top, right - left, bottom - top);
+            bitmap.recycle();
+            Bitmap enlarged = Bitmap.createScaledBitmap(
+                    cropped, cropped.getWidth() * 4, cropped.getHeight() * 4, true);
+            cropped.recycle();
+
+            if (textRecognizer == null) {
+                textRecognizer = TextRecognition.getClient(
+                        new ChineseTextRecognizerOptions.Builder().build());
+            }
+            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
+                    .addOnSuccessListener(text -> result.accept(text.getText()))
+                    .addOnFailureListener(error -> {
+                        DiagnosticLog.warn("AUTO_SELL",
+                                "Backpack OCR failed: " + error.getMessage());
                         result.accept("");
                     })
                     .addOnCompleteListener(task -> enlarged.recycle());
@@ -1670,6 +1812,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         boolean completedPrimaryDungeon = currentAutomationAction == primaryTaskAction
                 && primaryTask == PrimaryTask.DUNGEON;
         automationRunning = false;
+        stopInventoryMonitoring();
         clearAutomationRecovery();
         if (completedPrimaryDungeon) {
             resetPrimaryTaskToTraining();
@@ -1716,6 +1859,10 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void recoverPrimaryTask(String message) {
+        if (inventorySelling) {
+            inventorySelling = false;
+            startInventoryMonitoring();
+        }
         automationRecoveryAttempts++;
         automationRunning = true;
         if (!shouldRetryAutomation(automationRecoveryAttempts)) {
@@ -1749,6 +1896,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     private void stopAutomation(int state) {
         DiagnosticLog.info("AUTOMATION", "stopped state=" + state);
         automationRunning = false;
+        inventorySelling = false;
+        stopInventoryMonitoring();
         clearAutomationRecovery();
         resetPrimaryTaskToTraining();
         handler.removeCallbacksAndMessages(null);
@@ -1768,6 +1917,78 @@ public final class HelperAccessibilityService extends AccessibilityService
     private void setPrimaryTask(PrimaryTask task, Runnable action) {
         primaryTask = task;
         primaryTaskAction = action;
+    }
+
+    private void startInventoryMonitoring() {
+        stopInventoryMonitoring();
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (!inventorySelling && taskState == STATE_RUNNING
+                && preferences.getBoolean(PREF_AUTO_SELL_ENABLED, false)
+                && (primaryTask == PrimaryTask.TRAINING || primaryTask == PrimaryTask.BOSS)) {
+            inventoryHandler.postDelayed(this::checkInventory, INVENTORY_CHECK_INTERVAL_MS);
+        }
+    }
+
+    private void stopInventoryMonitoring() {
+        inventoryHandler.removeCallbacksAndMessages(null);
+        inventoryCheckRunning = false;
+    }
+
+    private void checkInventory() {
+        if (!canCheckInventory() || inventoryCheckRunning) {
+            startInventoryMonitoring();
+            return;
+        }
+        inventoryCheckRunning = true;
+        int minimumFreeSlots = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, 5);
+        autoSellAutomation.checkNearlyFull(minimumFreeSlots, nearlyFull -> {
+            inventoryCheckRunning = false;
+            if (!canCheckInventory()) {
+                return;
+            }
+            if (nearlyFull) {
+                interruptForAutoSell();
+            } else {
+                startInventoryMonitoring();
+            }
+        });
+    }
+
+    private boolean canCheckInventory() {
+        if (inventorySelling || taskState != STATE_RUNNING
+                || !getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .getBoolean(PREF_AUTO_SELL_ENABLED, false)) {
+            return false;
+        }
+        if (primaryTask == PrimaryTask.TRAINING) {
+            return !automationRunning;
+        }
+        return primaryTask == PrimaryTask.BOSS
+                && automationRunning && currentAutomationAction == primaryTaskAction;
+    }
+
+    private void interruptForAutoSell() {
+        PrimaryTask interruptedTask = primaryTask;
+        inventorySelling = true;
+        stopInventoryMonitoring();
+        handler.removeCallbacksAndMessages(null);
+        automationRunning = false;
+        clearAutomationRecovery();
+        showProgress("Auto sell: backpack is nearly full");
+        autoSellAutomation.start(() -> resumeAfterAutoSell(interruptedTask));
+    }
+
+    private void resumeAfterAutoSell(PrimaryTask interruptedTask) {
+        automationRunning = false;
+        inventorySelling = false;
+        clearAutomationRecovery();
+        if (interruptedTask == PrimaryTask.BOSS) {
+            bossAutomation.start();
+            return;
+        }
+        setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
+        startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
     }
 
     private static String primaryTaskLabel(PrimaryTask task) {
@@ -1902,8 +2123,10 @@ public final class HelperAccessibilityService extends AccessibilityService
         DiagnosticLog.info("SERVICE", "accessibility service disconnected");
         instance = null;
         automationRunning = false;
+        inventorySelling = false;
         clearAutomationRecovery();
         handler.removeCallbacksAndMessages(null);
+        stopInventoryMonitoring();
         hideProgress();
         closeMenu();
         if (windowManager != null && bubbleView != null) {

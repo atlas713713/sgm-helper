@@ -85,7 +85,7 @@ final class DungeonSweepAutomation {
             if (bounds != null) {
                 host.tap(bounds.centerX(), bounds.centerY(), this::sweepCurrentLevel);
             } else if (remainingScrolls > 0) {
-                host.swipe(200, 500, 200, 250,
+                host.swipe(200, 500, 200, 250, 800,
                         () -> findCurrentLevel(remainingScrolls - 1));
             } else {
                 host.failAutomation("扫荡副本：未找到 " + level + " 级副本");

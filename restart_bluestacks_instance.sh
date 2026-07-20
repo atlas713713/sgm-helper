@@ -40,7 +40,18 @@ done
 echo "Starting SGM Helper and game..."
 "$adb" -s "$target" shell input keyevent KEYCODE_WAKEUP
 "$adb" -s "$target" shell wm dismiss-keyguard >/dev/null 2>&1 || true
-"$adb" -s "$target" shell am start -W -n com.local.sgmhelper/.MainActivity >/dev/null
+for _ in $(seq 1 60); do
+  "$adb" -s "$target" shell dumpsys accessibility 2>/dev/null |
+    grep -q 'com.local.sgmhelper/com.local.sgmhelper.HelperAccessibilityService' && break
+  sleep 1
+done
+"$adb" -s "$target" shell dumpsys accessibility 2>/dev/null |
+  grep -q 'com.local.sgmhelper/com.local.sgmhelper.HelperAccessibilityService' || {
+    echo "SGM Helper accessibility service is unavailable on $target" >&2
+    exit 1
+  }
+"$adb" -s "$target" shell am start -W -n com.local.sgmhelper/.MainActivity \
+  --ez start_training true >/dev/null
 sleep 2
 "$adb" -s "$target" shell am start -W -n hk.phx.khm.cs/com.unity3d.player.UnityPlayerActivity >/dev/null
 sleep 5

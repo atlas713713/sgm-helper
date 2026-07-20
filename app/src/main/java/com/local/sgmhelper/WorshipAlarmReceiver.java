@@ -79,7 +79,7 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
         schedule(context, ACTION_WORSHIP, 0,
                 HelperAccessibilityService.PREF_WORSHIP_ENABLED, true,
                 HelperAccessibilityService.PREF_HOUR,
-                HelperAccessibilityService.PREF_MINUTE, 10, 0);
+                HelperAccessibilityService.PREF_MINUTE, 10, 30);
     }
 
     static void scheduleLegionReward(Context context) {

@@ -5,12 +5,22 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.List;
 
 import org.junit.Test;
 
 public final class HelperAccessibilityServiceTest {
+    @Test
+    public void newestDiagnosticLinesStayFirstAndCapped() {
+        ArrayDeque<String> lines = new ArrayDeque<>();
+        lines.add("older\n");
+        DiagnosticLog.addLatestLines(lines, "newest\ndetail\n", 2);
+        assertEquals(Arrays.asList("newest\n", "detail\n"),
+                Arrays.asList(lines.toArray(new String[0])));
+    }
+
     @Test
     public void prependsCurrentPrimaryTaskToProgress() {
         assertEquals("【练级】 自动军务：检查任务",
