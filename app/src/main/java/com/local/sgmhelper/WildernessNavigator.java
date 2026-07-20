@@ -10,6 +10,7 @@ final class WildernessNavigator {
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
     private static final int MAP_LOADING_RETRY_COUNT = 30;
     private static final int MONSTER_ROUTE_RETRY_COUNT = 90;
+    private static final int AUTO_PATH_OPEN_RETRY_COUNT = 3;
     private static final int TELEPORTER_X = 1095;
     private static final int TELEPORTER_Y = 228;
     private static final int DIALOG_X = 250;
@@ -102,11 +103,24 @@ final class WildernessNavigator {
 
     private void findWildernessTeleporter() {
         progress("寻找荒野传送官");
-        host.closeAutoPathPanel(() -> host.tap(1130, 500,
-                () -> host.tap(1165, 165,
-                        () -> host.tap(TELEPORTER_X, TELEPORTER_Y,
-                                () -> host.postDelayed(
-                                        () -> clickPages(page(targetZone)), 5_000)))));
+        host.closeAutoPathPanel(() -> openAutoPathPanel(AUTO_PATH_OPEN_RETRY_COUNT));
+    }
+
+    private void openAutoPathPanel(int remainingAttempts) {
+        progress("打开自动寻路");
+        host.tap(1130, 500, () -> host.clickRightText("寻路",
+                () -> host.tap(TELEPORTER_X, TELEPORTER_Y,
+                        () -> host.postDelayed(
+                                () -> clickPages(page(targetZone)), 5_000)),
+                5, () -> {
+                    if (remainingAttempts > 1) {
+                        progress("自动寻路未打开，重试");
+                        host.closeAutoPathPanel(() -> host.postDelayed(
+                                () -> openAutoPathPanel(remainingAttempts - 1), 1_000));
+                    } else {
+                        host.failAutomation("自动寻路面板未打开");
+                    }
+                }));
     }
 
     private void clickPages(int remainingPages) {
