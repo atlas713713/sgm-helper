@@ -41,7 +41,7 @@
     <string name="training_start_after_restart">模拟器重启后自动开始练级</string>
     <string name="training_auto_sell">背包快满时自动贩卖（练级/BOSS）</string>
     <string name="training_auto_sell_min_free_slots">剩余格数少于：</string>
-    <string name="training_settings_title">练级设置</string>
+    <string name="soldier_revival_auto">开始练级前自动复活士兵</string>
     <string name="training_location">练级地点：</string>
     <string name="training_wilderness_zone">荒野几区：</string>
     <string name="training_monster">目标怪物：</string>

@@ -33,7 +33,7 @@ final class TaskAutomation {
     };
 
     private final AutomationHost host;
-    private final TrainingAutomation trainingAutomation;
+    private final Runnable trainingStarter;
     private final WildernessNavigator wildernessNavigator;
     private String militaryZone;
     private boolean supplyQuestCooling;
@@ -42,9 +42,9 @@ final class TaskAutomation {
     private final Set<String> checkedMilitaryQuests = new HashSet<>();
     private final Set<String> retriedUnacceptedQuests = new HashSet<>();
 
-    TaskAutomation(AutomationHost host, TrainingAutomation trainingAutomation) {
+    TaskAutomation(AutomationHost host, Runnable trainingStarter) {
         this.host = host;
-        this.trainingAutomation = trainingAutomation;
+        this.trainingStarter = trainingStarter;
         wildernessNavigator = new WildernessNavigator(host, "自动军务");
     }
 
@@ -616,7 +616,7 @@ final class TaskAutomation {
     private void finishMilitaryAndStartTraining() {
         host.returnHome(() -> {
             host.showProgress("自动军务已完成，10秒后自动练级");
-            host.postDelayed(trainingAutomation::start, 10_000);
+            host.postDelayed(trainingStarter, 10_000);
         });
     }
 

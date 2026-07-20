@@ -14,8 +14,8 @@ android {
         applicationId = "com.local.sgmhelper"
         minSdk = 24
         targetSdk = 36
-        versionCode = 133
-        versionName = "0.1.132"
+        versionCode = 136
+        versionName = "0.1.135"
 
         ndk {
             abiFilters "arm64-v8a"

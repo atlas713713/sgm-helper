@@ -8,6 +8,7 @@ import android.app.TimePickerDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.ColorSpace;
@@ -34,6 +35,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -99,6 +101,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_START_TRAINING_ON_LAUNCH = "start_training";
     static final String PREF_AUTO_SELL_ENABLED = "auto_sell_enabled";
     static final String PREF_AUTO_SELL_MIN_FREE_SLOTS = "auto_sell_min_free_slots";
+    static final String PREF_SOLDIER_REVIVAL_ENABLED = "soldier_revival_before_training";
     static final String PREF_MILITARY_RETRY_AT = "military_retry_at";
     static final String PREF_SUPPLY_RETRY_AT = "supply_retry_at";
     static final String PREF_WILDERNESS_RETRY_AT = "wilderness_retry_at";
@@ -113,7 +116,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     private final Handler inventoryHandler = new Handler(Looper.getMainLooper());
     private final TrainingAutomation trainingAutomation = new TrainingAutomation(this);
     private final AutoSellAutomation autoSellAutomation = new AutoSellAutomation(this);
-    private final TaskAutomation taskAutomation = new TaskAutomation(this, trainingAutomation);
+    private final TaskAutomation taskAutomation =
+            new TaskAutomation(this, this::startTrainingWithOptionalRevival);
     private final RewardAutomation rewardAutomation =
             new RewardAutomation(this, trainingAutomation);
     private final WelfareAutomation welfareAutomation =
@@ -304,15 +308,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private void showMenu() {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setPadding(dp(10), dp(10), dp(10), dp(10));
         menu.setElevation(dp(10));
-        menu.setAlpha(0.7f);
-
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.rgb(250, 250, 250));
-        background.setCornerRadius(dp(12));
-        background.setStroke(dp(1), Color.rgb(210, 214, 220));
-        menu.setBackground(background);
 
         populateMainMenu(menu);
 
@@ -346,8 +342,6 @@ public final class HelperAccessibilityService extends AccessibilityService
         addMenuButton(menu, R.string.menu_dungeon_sweep,
                 view -> dungeonSweepAutomation.start(selectedDungeonLevels(
                         getSharedPreferences(PREFS_NAME, MODE_PRIVATE))));
-        addMenuButton(menu, R.string.menu_soldier_revival,
-                view -> soldierRevivalAutomation.start());
         addMenuButton(menu, R.string.menu_stop, view -> stopAutomation(STATE_STOPPED));
         addMenuButton(menu, R.string.menu_settings, view -> showTrainingSettings());
         addMenuButton(menu, R.string.menu_exit, view -> exitService());
@@ -357,12 +351,11 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void styleMainMenu(LinearLayout menu) {
-        menu.setPadding(dp(10), dp(10), dp(10), dp(10));
-        menu.setAlpha(0.7f);
+        menu.setPadding(dp(12), dp(10), dp(12), dp(10));
+        menu.setAlpha(0.92f);
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.rgb(250, 250, 250));
-        background.setCornerRadius(dp(12));
-        background.setStroke(dp(1), Color.rgb(210, 214, 220));
+        background.setColor(COLOR_SETTINGS_BACKGROUND);
+        background.setCornerRadius(dp(4));
         menu.setBackground(background);
     }
 
@@ -373,7 +366,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private TextView addMenuText(LinearLayout menu, String value) {
         TextView text = new TextView(this);
         text.setText(value);
-        text.setTextColor(Color.rgb(31, 35, 40));
+        text.setTextColor(Color.WHITE);
         text.setTextSize(14);
         text.setGravity(Gravity.CENTER);
         text.setPadding(dp(6), dp(6), dp(6), dp(8));
@@ -436,7 +429,16 @@ public final class HelperAccessibilityService extends AccessibilityService
             showProgress("初始化：重新检测军务任务");
             startScheduledMilitary();
         } else {
-            startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
+            startScheduledAutomation("自动练级：打开游戏", this::startTrainingWithOptionalRevival);
+        }
+    }
+
+    private void startTrainingWithOptionalRevival() {
+        if (getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(PREF_SOLDIER_REVIVAL_ENABLED, false)) {
+            soldierRevivalAutomation.run(trainingAutomation::start);
+        } else {
+            trainingAutomation.start();
         }
     }
 
@@ -467,13 +469,13 @@ public final class HelperAccessibilityService extends AccessibilityService
         stateView = null;
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
-        setMenuSize(Math.min(dp(1000), screenWidth - dp(40)),
-                Math.min(dp(620), screenHeight - dp(40)));
-        menu.setPadding(dp(22), dp(18), dp(22), dp(18));
-        menu.setAlpha(0.92f);
+        setMenuSize(Math.min(dp(1000), screenWidth - dp(32)),
+                Math.min(dp(620), screenHeight - dp(32)));
+        menu.setPadding(dp(18), dp(14), dp(18), dp(14));
+        menu.setAlpha(0.95f);
         GradientDrawable background = new GradientDrawable();
         background.setColor(COLOR_SETTINGS_BACKGROUND);
-        background.setCornerRadius(dp(4));
+        background.setCornerRadius(dp(8));
         menu.setBackground(background);
 
         LinearLayout tabs = new LinearLayout(this);
@@ -488,8 +490,10 @@ public final class HelperAccessibilityService extends AccessibilityService
                 view -> showTimerPage());
         addSettingsTab(tabs, R.string.settings_auxiliary, selectedTab,
                 view -> showAuxiliarySettings());
-        menu.addView(tabs, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
+        LinearLayout.LayoutParams tabsParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+        tabsParams.bottomMargin = dp(12);
+        menu.addView(tabs, tabsParams);
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -507,21 +511,75 @@ public final class HelperAccessibilityService extends AccessibilityService
             View.OnClickListener listener) {
         TextView tab = new TextView(this);
         tab.setText(textResource);
-        tab.setTextColor(COLOR_SETTINGS_TEXT);
-        tab.setTextSize(20);
+        boolean selected = textResource == selectedTab;
+        tab.setTextSize(16);
         tab.setGravity(Gravity.CENTER);
-        tab.setPadding(dp(12), 0, dp(12), 0);
-        tab.setTypeface(tab.getTypeface(), textResource == selectedTab
+        tab.setPadding(dp(18), 0, dp(18), 0);
+        tab.setTypeface(tab.getTypeface(), selected
                 ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        if (selected) {
+            tab.setTextColor(0xFF2B2B2B);
+            GradientDrawable pill = new GradientDrawable();
+            pill.setColor(COLOR_SETTINGS_TEXT);
+            pill.setCornerRadius(dp(18));
+            tab.setBackground(pill);
+        } else {
+            tab.setTextColor(0xFFE0E0E0);
+        }
         tab.setOnClickListener(listener);
-        tabs.addView(tab, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+        params.rightMargin = dp(10);
+        tabs.addView(tab, params);
     }
 
     private TextView addSettingsText(LinearLayout menu, int textResource) {
         TextView text = addMenuText(menu, textResource);
         text.setTextColor(Color.WHITE);
+        text.setGravity(Gravity.START);
+        text.setPadding(dp(4), dp(4), dp(4), dp(6));
         return text;
+    }
+
+    private void tintCheckable(CompoundButton box) {
+        box.setButtonTintList(ColorStateList.valueOf(COLOR_SETTINGS_TEXT));
+    }
+
+    private Button createSettingsButton(int textResource, boolean accent,
+            View.OnClickListener listener) {
+        Button button = new Button(this);
+        button.setAllCaps(false);
+        button.setText(textResource);
+        button.setTextSize(14);
+        button.setSingleLine(true);
+        button.setTextColor(accent ? 0xFF2B2B2B : Color.WHITE);
+        button.setMinWidth(0);
+        button.setMinimumWidth(dp(104));
+        button.setMinHeight(0);
+        button.setMinimumHeight(dp(38));
+        button.setPadding(dp(20), 0, dp(20), 0);
+        GradientDrawable pill = new GradientDrawable();
+        pill.setColor(accent ? COLOR_SETTINGS_TEXT : 0xFF6A6A6A);
+        pill.setCornerRadius(dp(19));
+        button.setBackground(pill);
+        button.setOnClickListener(listener);
+        return button;
+    }
+
+    private LinearLayout addSettingsButtonRow(LinearLayout menu, Button... buttons) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        for (Button button : buttons) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(38));
+            params.rightMargin = dp(12);
+            row.addView(button, params);
+        }
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowParams.topMargin = dp(10);
+        menu.addView(row, rowParams);
+        return row;
     }
 
     private void showMainMenu() {
@@ -536,61 +594,24 @@ public final class HelperAccessibilityService extends AccessibilityService
             return;
         }
 
-        TextView title = addSettingsText(menu, R.string.training_settings_title);
-        title.setTextColor(COLOR_SETTINGS_TEXT);
-        title.setTextSize(24);
-        title.setGravity(Gravity.START);
-        title.setPadding(dp(18), dp(14), dp(18), dp(20));
-
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        CheckBox autoStart = new CheckBox(this);
-        autoStart.setText(R.string.training_start_after_restart);
-        autoStart.setTextColor(Color.WHITE);
-        autoStart.setTextSize(18);
-        autoStart.setChecked(preferences.getBoolean(PREF_START_TRAINING_ON_LAUNCH, true));
-        autoStart.setOnCheckedChangeListener((button, checked) -> preferences.edit()
-                .putBoolean(PREF_START_TRAINING_ON_LAUNCH, checked)
-                .apply());
-        menu.addView(autoStart, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
-
-        CheckBox autoSell = new CheckBox(this);
-        autoSell.setText(R.string.training_auto_sell);
-        autoSell.setTextColor(Color.WHITE);
-        autoSell.setTextSize(18);
-        autoSell.setChecked(preferences.getBoolean(PREF_AUTO_SELL_ENABLED, false));
-        autoSell.setOnCheckedChangeListener((button, checked) -> {
-            preferences.edit().putBoolean(PREF_AUTO_SELL_ENABLED, checked).apply();
-            if (checked) {
-                startInventoryMonitoring();
-            } else {
-                stopInventoryMonitoring();
-            }
-        });
-        menu.addView(autoSell, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
-
-        addSpinnerRow(menu, R.string.training_auto_sell_min_free_slots, 20,
-                preferences.getInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, 5),
-                value -> preferences.edit()
-                        .putInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, value).apply());
-
         LinearLayout locationRow = new LinearLayout(this);
         locationRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView label = new TextView(this);
         label.setText(R.string.training_location);
         label.setTextColor(Color.WHITE);
-        label.setTextSize(18);
-        locationRow.addView(label, new LinearLayout.LayoutParams(dp(150), dp(54)));
+        label.setTextSize(14);
+        label.setGravity(Gravity.CENTER_VERTICAL);
+        locationRow.addView(label, new LinearLayout.LayoutParams(dp(120), dp(40)));
 
         RadioGroup locations = new RadioGroup(this);
         locations.setOrientation(LinearLayout.HORIZONTAL);
         addLocationOption(locations, TRAINING_LOCATION_WILDERNESS);
         addLocationOption(locations, TRAINING_LOCATION_WILD);
         addLocationOption(locations, TRAINING_LOCATION_MARKER);
-        locationRow.addView(locations, new LinearLayout.LayoutParams(0, dp(54), 1));
+        locationRow.addView(locations, new LinearLayout.LayoutParams(0, dp(40), 1));
         menu.addView(locationRow, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
 
         LinearLayout wildernessFields = new LinearLayout(this);
         wildernessFields.setOrientation(LinearLayout.VERTICAL);
@@ -642,7 +663,8 @@ public final class HelperAccessibilityService extends AccessibilityService
                     ? View.VISIBLE : View.GONE);
         });
 
-        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
         updateMenuPosition();
     }
 
@@ -652,10 +674,11 @@ public final class HelperAccessibilityService extends AccessibilityService
         option.setTag(value);
         option.setText(value);
         option.setTextColor(Color.WHITE);
-        option.setTextSize(18);
-        option.setPadding(dp(8), 0, dp(24), 0);
+        option.setTextSize(14);
+        option.setPadding(dp(4), 0, dp(16), 0);
+        tintCheckable(option);
         group.addView(option, new RadioGroup.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(54)));
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)));
     }
 
     private Spinner addSpinnerRow(LinearLayout parent, int labelResource, int optionCount,
@@ -677,8 +700,9 @@ public final class HelperAccessibilityService extends AccessibilityService
         TextView label = new TextView(this);
         label.setText(labelResource);
         label.setTextColor(Color.WHITE);
-        label.setTextSize(17);
-        row.addView(label, new LinearLayout.LayoutParams(dp(150), dp(54)));
+        label.setTextSize(14);
+        label.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(label, new LinearLayout.LayoutParams(dp(120), dp(40)));
 
         Spinner spinner = new Spinner(this);
         setSpinnerValues(spinner, values, selectedValue);
@@ -693,15 +717,26 @@ public final class HelperAccessibilityService extends AccessibilityService
             public void onNothingSelected(AdapterView<?> parentView) {
             }
         });
-        row.addView(spinner, new LinearLayout.LayoutParams(dp(180), dp(54)));
+        row.addView(spinner, new LinearLayout.LayoutParams(dp(160), dp(40)));
         parent.addView(row, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
         return spinner;
     }
 
     private void setSpinnerValues(Spinner spinner, List<String> values, String selectedValue) {
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(
-                this, android.R.layout.simple_spinner_item, values);
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(
+                this, android.R.layout.simple_spinner_item, values) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View view = super.getView(position, convertView, parent);
+                if (view instanceof TextView) {
+                    TextView text = (TextView) view;
+                    text.setTextColor(Color.WHITE);
+                    text.setTextSize(14);
+                }
+                return view;
+            }
+        };
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(adapter);
         int selectedIndex = values.indexOf(selectedValue);
@@ -764,24 +799,26 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (menu == null) {
             return;
         }
-        addSettingsText(menu, R.string.dungeon_sweep_title)
-                .setTextColor(COLOR_SETTINGS_TEXT);
+        addSettingsText(menu, R.string.dungeon_sweep_title);
 
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         Set<String> selected = new HashSet<>(preferences.getStringSet(
                 PREF_DUNGEON_SWEEP_LEVELS, Collections.emptySet()));
         List<CheckBox> boxes = new ArrayList<>();
-        for (int start = 0; start < DungeonSweepAutomation.LEVELS.length; start += 3) {
+        int columns = 6;
+        for (int start = 0; start < DungeonSweepAutomation.LEVELS.length; start += columns) {
             LinearLayout row = new LinearLayout(this);
-            for (int index = start;
-                    index < Math.min(start + 3, DungeonSweepAutomation.LEVELS.length);
-                    index++) {
+            for (int index = start; index < start + columns; index++) {
+                if (index >= DungeonSweepAutomation.LEVELS.length) {
+                    row.addView(new View(this), new LinearLayout.LayoutParams(0, dp(38), 1));
+                    continue;
+                }
                 int level = DungeonSweepAutomation.LEVELS[index];
                 CheckBox box = new CheckBox(this);
                 box.setText(String.valueOf(level));
                 box.setTextColor(Color.WHITE);
-                box.setTextSize(12);
-                box.setPadding(0, 0, 0, 0);
+                box.setTextSize(14);
+                tintCheckable(box);
                 box.setChecked(selected.contains(String.valueOf(level)));
                 box.setOnCheckedChangeListener((button, checked) -> {
                     Set<String> updated = new HashSet<>(preferences.getStringSet(
@@ -794,25 +831,21 @@ public final class HelperAccessibilityService extends AccessibilityService
                     preferences.edit().putStringSet(PREF_DUNGEON_SWEEP_LEVELS, updated).apply();
                 });
                 boxes.add(box);
-                row.addView(box, new LinearLayout.LayoutParams(0, dp(34), 1));
+                row.addView(box, new LinearLayout.LayoutParams(0, dp(38), 1));
             }
             menu.addView(row, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(38)));
         }
 
-        LinearLayout controls = new LinearLayout(this);
-        Button selectAll = createMenuButton(R.string.dungeon_select_all,
-                view -> boxes.forEach(box -> box.setChecked(true)));
-        Button clear = createMenuButton(R.string.dungeon_clear,
-                view -> boxes.forEach(box -> box.setChecked(false)));
-        controls.addView(selectAll, new LinearLayout.LayoutParams(0, dp(40), 1));
-        controls.addView(clear, new LinearLayout.LayoutParams(0, dp(40), 1));
-        menu.addView(controls, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
-
-        addMenuButton(menu, R.string.dungeon_start_sweep,
-                view -> dungeonSweepAutomation.start(selectedDungeonLevels(preferences)));
-        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.dungeon_select_all, false,
+                        view -> boxes.forEach(box -> box.setChecked(true))),
+                createSettingsButton(R.string.dungeon_clear, false,
+                        view -> boxes.forEach(box -> box.setChecked(false))));
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.dungeon_start_sweep, true,
+                        view -> dungeonSweepAutomation.start(selectedDungeonLevels(preferences))),
+                createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
         updateMenuPosition();
     }
 
@@ -829,10 +862,15 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void showBossPage(LinearLayout menu) {
-        addSettingsText(menu, R.string.settings_boss).setTextColor(COLOR_SETTINGS_TEXT);
-        addMenuButton(menu, R.string.boss_wilderness, view -> bossAutomation.start());
-        addSettingsText(menu, R.string.boss_world_pending);
-        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
+        Button worldBoss = createSettingsButton(R.string.boss_world_pending, false, null);
+        worldBoss.setEnabled(false);
+        worldBoss.setAlpha(0.4f);
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.boss_wilderness, true,
+                        view -> bossAutomation.start()),
+                worldBoss);
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
         updateMenuPosition();
     }
 
@@ -841,8 +879,6 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (menu == null) {
             return;
         }
-        addSettingsText(menu, R.string.settings_timed_tasks)
-                .setTextColor(COLOR_SETTINGS_TEXT);
         addTimerRow(menu, R.string.timer_worship, PREF_HOUR, PREF_MINUTE,
                 PREF_WORSHIP_ENABLED, true, 10, 30,
                 () -> WorshipAlarmReceiver.scheduleWorship(this), this::startScheduledWorship);
@@ -879,7 +915,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         addSpinnerRow(menu, R.string.heavenfall_zone, 15,
                 preferences.getInt(PREF_HEAVENFALL_ZONE, 1),
                 value -> preferences.edit().putInt(PREF_HEAVENFALL_ZONE, value).apply());
-        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
         updateMenuPosition();
     }
 
@@ -888,11 +925,65 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (menu == null) {
             return;
         }
-        addSettingsText(menu, R.string.settings_auxiliary)
-                .setTextColor(COLOR_SETTINGS_TEXT);
-        addMenuButton(menu, R.string.settings_login, view -> showLoginSettings());
-        addMenuButton(menu, R.string.settings_back, view -> showMainMenu());
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        CheckBox autoStart = addSettingsCheckBox(menu, R.string.training_start_after_restart,
+                preferences.getBoolean(PREF_START_TRAINING_ON_LAUNCH, true));
+        autoStart.setOnCheckedChangeListener((button, checked) -> preferences.edit()
+                .putBoolean(PREF_START_TRAINING_ON_LAUNCH, checked)
+                .apply());
+
+        boolean sellEnabled = preferences.getBoolean(PREF_AUTO_SELL_ENABLED, false);
+        CheckBox autoSell = addSettingsCheckBox(menu, R.string.training_auto_sell, sellEnabled);
+
+        LinearLayout slotsWrap = new LinearLayout(this);
+        slotsWrap.setOrientation(LinearLayout.VERTICAL);
+        slotsWrap.setPadding(dp(40), 0, 0, 0);
+        Spinner slots = addSpinnerRow(slotsWrap, R.string.training_auto_sell_min_free_slots, 20,
+                preferences.getInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, 5),
+                value -> preferences.edit()
+                        .putInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, value).apply());
+        menu.addView(slotsWrap, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        slotsWrap.setAlpha(sellEnabled ? 1f : 0.4f);
+        slots.setEnabled(sellEnabled);
+
+        autoSell.setOnCheckedChangeListener((button, checked) -> {
+            preferences.edit().putBoolean(PREF_AUTO_SELL_ENABLED, checked).apply();
+            slotsWrap.setAlpha(checked ? 1f : 0.4f);
+            slots.setEnabled(checked);
+            if (checked) {
+                startInventoryMonitoring();
+            } else {
+                stopInventoryMonitoring();
+            }
+        });
+
+        CheckBox autoRevival = addSettingsCheckBox(menu, R.string.soldier_revival_auto,
+                preferences.getBoolean(PREF_SOLDIER_REVIVAL_ENABLED, false));
+        autoRevival.setOnCheckedChangeListener((button, checked) -> preferences.edit()
+                .putBoolean(PREF_SOLDIER_REVIVAL_ENABLED, checked)
+                .apply());
+
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.menu_soldier_revival, false,
+                        view -> soldierRevivalAutomation.start()),
+                createSettingsButton(R.string.settings_login, false,
+                        view -> showLoginSettings()));
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
         updateMenuPosition();
+    }
+
+    private CheckBox addSettingsCheckBox(LinearLayout menu, int textResource, boolean checked) {
+        CheckBox box = new CheckBox(this);
+        box.setText(textResource);
+        box.setTextColor(Color.WHITE);
+        box.setTextSize(14);
+        tintCheckable(box);
+        box.setChecked(checked);
+        menu.addView(box, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
+        return box;
     }
 
     private void addTimerRow(LinearLayout menu, int titleResource,
@@ -900,10 +991,12 @@ public final class HelperAccessibilityService extends AccessibilityService
             int defaultHour, int defaultMinute,
             Runnable reschedule, Runnable runNow) {
         LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
         CheckBox enabled = new CheckBox(this);
-        Button timer = createMenuButton(titleResource, null);
+        tintCheckable(enabled);
+        Button timer = createSettingsButton(titleResource, false, null);
         timer.setTextSize(13);
-        Button execute = createMenuButton(R.string.timer_run_now,
+        Button execute = createSettingsButton(R.string.timer_run_now, false,
                 runNow == null ? null : view -> runNow.run());
         execute.setTextSize(13);
 
@@ -911,6 +1004,8 @@ public final class HelperAccessibilityService extends AccessibilityService
             enabled.setEnabled(false);
             timer.setEnabled(false);
             execute.setEnabled(false);
+            timer.setAlpha(0.4f);
+            execute.setAlpha(0.4f);
         } else {
             SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             enabled.setChecked(preferences.getBoolean(enabledKey, defaultEnabled));
@@ -930,11 +1025,14 @@ public final class HelperAccessibilityService extends AccessibilityService
                     hourKey, minuteKey, defaultHour, defaultMinute, reschedule));
         }
 
-        row.addView(enabled, new LinearLayout.LayoutParams(dp(42), dp(44)));
-        row.addView(timer, new LinearLayout.LayoutParams(0, dp(44), 1));
-        row.addView(execute, new LinearLayout.LayoutParams(dp(72), dp(44)));
+        row.addView(enabled, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        row.addView(timer, new LinearLayout.LayoutParams(dp(300), dp(38)));
+        LinearLayout.LayoutParams executeParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(38));
+        executeParams.leftMargin = dp(10);
+        row.addView(execute, executeParams);
         menu.addView(row, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
     }
 
     private void setTimerButtonText(TextView view, int titleResource, int hour, int minute) {
@@ -2092,11 +2190,14 @@ public final class HelperAccessibilityService extends AccessibilityService
         int estimatedMenuHeight = menuParams.height > 0
                 ? menuParams.height : dp(20 + childCount * 44);
 
+        int margin = dp(16);
         menuParams.x = bubbleParams.x > screenWidth / 2
                 ? bubbleParams.x - menuWidth - gap
                 : bubbleParams.x + bubbleParams.width + gap;
-        menuParams.x = Math.max(0, Math.min(menuParams.x, screenWidth - menuWidth));
-        menuParams.y = Math.max(0, Math.min(bubbleParams.y, screenHeight - estimatedMenuHeight));
+        menuParams.x = Math.max(margin,
+                Math.min(menuParams.x, screenWidth - menuWidth - margin));
+        menuParams.y = Math.max(margin,
+                Math.min(bubbleParams.y, screenHeight - estimatedMenuHeight - margin));
     }
 
     private void closeMenu() {
