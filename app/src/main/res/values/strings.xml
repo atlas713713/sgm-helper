@@ -55,6 +55,7 @@
     <string name="login_cancel">取消</string>
     <string name="settings_boss">BOSS</string>
     <string name="boss_wilderness">开始野王</string>
+    <string name="boss_follow_leader">打 BOSS 时跟随队长分流</string>
     <string name="boss_world_pending">世界王（暂未实现）</string>
     <string name="settings_back">返回</string>
     <string name="settings_placeholder">配置项待定义</string>

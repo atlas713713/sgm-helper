@@ -53,6 +53,10 @@ final class TaskAutomation {
     }
 
     private void begin() {
+        host.checkInventoryBeforePrimary(this::beginAfterInventoryCheck);
+    }
+
+    private void beginAfterInventoryCheck() {
         militaryZone = null;
         supplyQuestCooling = false;
         wildernessQuestCooling = false;
@@ -195,7 +199,14 @@ final class TaskAutomation {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            String cooldown = findMilitaryCooldownText(text);
+            String rightDetails = rightMilitaryDetails(text);
+            if (!isMilitaryQuestDetail(questName, rightDetails)) {
+                DiagnosticLog.warn("OCR", "right military detail mismatch: expected="
+                        + questName + "; text=" + rightDetails);
+                host.failAutomation("右侧任务详情未切换到：" + questName);
+                return;
+            }
+            String cooldown = isCooldownText(rightDetails) ? rightDetails : null;
             if (cooldown != null) {
                 if ("补充军团物资".equals(questName)) {
                     supplyQuestCooling = true;
@@ -239,10 +250,28 @@ final class TaskAutomation {
             scheduleMilitaryQuestCheck(questName, completed);
             return;
         }
+        host.recognizeText(text -> {
+            if (!host.isAutomationRunning()) {
+                return;
+            }
+            if (isWildernessLocation(screenLines(text))) {
+                host.showProgress("自动军务：物资任务必须在城内，先回城");
+                host.returnHome(() -> host.postDelayed(
+                        () -> continueCollecting(
+                                questName, completed, remainingClickAttempts),
+                        9_000));
+                return;
+            }
+            clickSupplyQuest(questName, completed, remainingClickAttempts);
+        });
+    }
+
+    private void clickSupplyQuest(
+            String questName, Runnable completed, int remainingClickAttempts) {
         host.showProgress("自动军务：再次点击右侧补充军团物资");
         Runnable scheduleNextCheck = () -> scheduleMilitaryQuestCheck(
                 questName, completed);
-        host.clickRightText("补充军团物资",
+        host.clickRightText("团物资",
                 scheduleNextCheck,
                 TEXT_RETRY_COUNT,
                 () -> {
@@ -494,7 +523,7 @@ final class TaskAutomation {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    private String findMilitaryCooldownText(Text text) {
+    private String rightMilitaryDetails(Text text) {
         StringBuilder rightDetails = new StringBuilder();
         for (Text.TextBlock block : text.getTextBlocks()) {
             for (Text.Line line : block.getLines()) {
@@ -504,8 +533,11 @@ final class TaskAutomation {
                 }
             }
         }
-        String value = rightDetails.toString();
-        return isCooldownText(value) ? value : null;
+        return rightDetails.toString();
+    }
+
+    static boolean isMilitaryQuestDetail(String questName, String value) {
+        return normalizeText(value).contains(normalizeText(questName));
     }
 
     static boolean isCooldownText(String value) {
@@ -535,14 +567,15 @@ final class TaskAutomation {
     }
 
     private void finishMilitaryConversation(String questName) {
-        host.showProgress("自动军务：OCR 查找并点击“想”");
+        host.showProgress("自动军务：左侧 NPC 窗口查找并点击“想”");
         Runnable leave = () -> host.tap(250, 635,
                 () -> host.tap(316, 101,
                         () -> findAvailableMilitaryQuest(TEXT_RETRY_COUNT)));
-        host.clickText("想", true, () -> {
+        host.clickLeftText("想", () -> {
             host.showProgress("自动军务：点击“离开”完成承接");
             leave.run();
-        }, SCREEN_WAIT_RETRY_COUNT, leave);
+        }, SCREEN_WAIT_RETRY_COUNT,
+                () -> host.failAutomation("左侧 NPC 窗口未找到：想"));
     }
 
     private void retryUnacceptedMilitaryQuest(String questName) {
@@ -697,6 +730,18 @@ final class TaskAutomation {
         return false;
     }
 
+    static boolean isWildernessLocation(List<String> values) {
+        if (isWildernessTrainingLocation(values)) {
+            return true;
+        }
+        for (String value : values) {
+            if (normalizeText(value).contains("荒野营地")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void inspectOngoingMilitaryQuest(
             String questName, Runnable completed, Runnable incomplete) {
         inspectOngoingMilitaryQuest(
@@ -837,11 +882,10 @@ final class TaskAutomation {
     }
 
     private Runnable leaveCompletedQuest(String questName, Runnable completed) {
-        return () -> host.clickText("离开", true,
+        return () -> host.tap(250, 635,
                 () -> host.postDelayed(
                         () -> refreshCompletedQuestCooldown(questName, completed),
-                        ACTION_DELAY_MS),
-                SCREEN_WAIT_RETRY_COUNT);
+                        ACTION_DELAY_MS));
     }
 
     private void refreshCompletedQuestCooldown(String questName, Runnable completed) {
@@ -859,7 +903,9 @@ final class TaskAutomation {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            String cooldown = findMilitaryCooldownText(text);
+            String rightDetails = rightMilitaryDetails(text);
+            String cooldown = isMilitaryQuestDetail(questName, rightDetails)
+                    && isCooldownText(rightDetails) ? rightDetails : null;
             Integer cooldownMinutes = cooldown == null
                     ? null : extractCooldownMinutes(cooldown);
             if (cooldownMinutes == null) {

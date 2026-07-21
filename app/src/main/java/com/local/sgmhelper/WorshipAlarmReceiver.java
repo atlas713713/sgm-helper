@@ -11,6 +11,7 @@ import java.util.Calendar;
 
 public final class WorshipAlarmReceiver extends BroadcastReceiver {
     private static final long MILITARY_INTERVAL_MS = 3 * 60 * 60 * 1_000L;
+    private static final long MILITARY_OVERDUE_RETRY_MS = 60_000L;
     private static final String ACTION_WORSHIP = "com.local.sgmhelper.WORSHIP";
     private static final String ACTION_LEGION_REWARD = "com.local.sgmhelper.LEGION_REWARD";
     private static final String ACTION_MILITARY = "com.local.sgmhelper.MILITARY";
@@ -175,11 +176,14 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
     static long nextMilitaryAt(
             long now, long supplyRetryAt, long wildernessRetryAt, long regularAt) {
         long next = regularAt;
-        if (supplyRetryAt > now) {
-            next = Math.min(next, supplyRetryAt);
+        long overdueRetryAt = now + MILITARY_OVERDUE_RETRY_MS;
+        if (supplyRetryAt > 0) {
+            next = Math.min(next,
+                    supplyRetryAt <= now ? overdueRetryAt : supplyRetryAt);
         }
-        if (wildernessRetryAt > now) {
-            next = Math.min(next, wildernessRetryAt);
+        if (wildernessRetryAt > 0) {
+            next = Math.min(next,
+                    wildernessRetryAt <= now ? overdueRetryAt : wildernessRetryAt);
         }
         return next;
     }

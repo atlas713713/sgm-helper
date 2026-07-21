@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 
 final class AutoSellAutomation {
     private static final int ARRIVAL_ATTEMPTS = 90;
+    private static final int PREFLIGHT_CAPACITY_ATTEMPTS = 3;
     private static final Pattern CAPACITY = Pattern.compile(
             "(\\d{1,3})\\s*[/／]\\s*(\\d{1,3})");
 
@@ -20,35 +21,79 @@ final class AutoSellAutomation {
     }
 
     void checkNearlyFull(int minimumFreeSlots, Consumer<Boolean> result) {
+        readNearlyFull(minimumFreeSlots,
+                nearlyFull -> result.accept(Boolean.TRUE.equals(nearlyFull)));
+    }
+
+    void checkNearlyFullBeforeStart(int minimumFreeSlots, Consumer<Boolean> result) {
+        checkNearlyFullBeforeStart(minimumFreeSlots, PREFLIGHT_CAPACITY_ATTEMPTS, result);
+    }
+
+    private void checkNearlyFullBeforeStart(
+            int minimumFreeSlots, int attemptsRemaining, Consumer<Boolean> result) {
+        readNearlyFull(minimumFreeSlots, nearlyFull -> {
+            if (nearlyFull != null) {
+                result.accept(nearlyFull);
+                return;
+            }
+            if (attemptsRemaining > 1) {
+                DiagnosticLog.warn("AUTO_SELL",
+                        "Backpack preflight OCR failed; retrying ("
+                                + (PREFLIGHT_CAPACITY_ATTEMPTS - attemptsRemaining + 2)
+                                + "/" + PREFLIGHT_CAPACITY_ATTEMPTS + ")");
+                host.postDelayed(() -> checkNearlyFullBeforeStart(
+                        minimumFreeSlots, attemptsRemaining - 1, result), 1_000);
+                return;
+            }
+            host.showProgress("启动前暂未识别到背包容量，5秒后重试");
+            host.postDelayed(() -> checkNearlyFullBeforeStart(
+                    minimumFreeSlots, PREFLIGHT_CAPACITY_ATTEMPTS, result), 5_000);
+        });
+    }
+
+    private void readNearlyFull(int minimumFreeSlots, Consumer<Boolean> result) {
         host.recognizeBackpackCapacity(firstValue -> {
             int[] first = parseCapacity(firstValue);
             if (first == null) {
                 DiagnosticLog.warn("AUTO_SELL",
                         "Backpack OCR was unreadable: " + firstValue);
-                result.accept(false);
+                result.accept(null);
                 return;
             }
             host.postDelayed(() -> host.recognizeBackpackCapacity(secondValue -> {
                 int[] second = parseCapacity(secondValue);
-                boolean stable = second != null
-                        && first[0] == second[0] && first[1] == second[1];
-                DiagnosticLog.info("AUTO_SELL", stable
+                Boolean nearlyFull = consistentNearlyFull(
+                        first, second, minimumFreeSlots);
+                DiagnosticLog.info("AUTO_SELL", nearlyFull != null
                         ? "backpack=" + first[0] + "/" + first[1]
                                 + " threshold=" + minimumFreeSlots
                         : "backpack OCR was not stable");
-                result.accept(stable && first[1] - first[0] < minimumFreeSlots);
+                result.accept(nearlyFull);
             }), 1_000);
         });
     }
 
     static int[] parseCapacity(String value) {
-        Matcher matcher = CAPACITY.matcher(value == null ? "" : value);
+        String normalized = value == null ? "" : value
+                .replace('S', '5').replace('s', '5')
+                .replace('O', '0').replace('o', '0');
+        Matcher matcher = CAPACITY.matcher(normalized);
         if (!matcher.find()) {
             return null;
         }
         int used = Integer.parseInt(matcher.group(1));
         int total = Integer.parseInt(matcher.group(2));
         return total > 0 && used <= total ? new int[] {used, total} : null;
+    }
+
+    static Boolean consistentNearlyFull(
+            int[] first, int[] second, int minimumFreeSlots) {
+        if (first == null || second == null || first[1] != second[1]) {
+            return null;
+        }
+        boolean firstNearlyFull = first[1] - first[0] < minimumFreeSlots;
+        boolean secondNearlyFull = second[1] - second[0] < minimumFreeSlots;
+        return firstNearlyFull == secondNearlyFull ? firstNearlyFull : null;
     }
 
     private void returnToTown(Runnable next) {

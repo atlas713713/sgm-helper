@@ -168,6 +168,42 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void checksTheBackpackBeforeTrainingAndBoss() {
+        assertTrue(HelperAccessibilityService.shouldCheckInventoryBeforePrimary(
+                true, AutomationHost.PrimaryTask.TRAINING));
+        assertTrue(HelperAccessibilityService.shouldCheckInventoryBeforePrimary(
+                true, AutomationHost.PrimaryTask.BOSS));
+        assertFalse(HelperAccessibilityService.shouldCheckInventoryBeforePrimary(
+                true, AutomationHost.PrimaryTask.DUNGEON));
+        assertFalse(HelperAccessibilityService.shouldCheckInventoryBeforePrimary(
+                false, AutomationHost.PrimaryTask.TRAINING));
+    }
+
+    @Test
+    public void acceptsChangingBackpackCountsWithTheSameCapacityDecision() {
+        assertEquals(50, AutoSellAutomation.parseCapacity("So/81")[0]);
+        assertEquals(Boolean.FALSE, AutoSellAutomation.consistentNearlyFull(
+                new int[] {48, 69}, new int[] {49, 69}, 5));
+        assertEquals(Boolean.TRUE, AutoSellAutomation.consistentNearlyFull(
+                new int[] {65, 69}, new int[] {66, 69}, 5));
+        assertNull(AutoSellAutomation.consistentNearlyFull(
+                new int[] {64, 69}, new int[] {65, 69}, 5));
+    }
+
+    @Test
+    public void isolatesWhiteCapacityTextFromColoredGameBackground() {
+        assertTrue(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFFF8F8F8));
+        assertFalse(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFF91C2EF));
+        assertFalse(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFFE1B743));
+    }
+
+    @Test
+    public void matchesTheStableSupplyTaskSuffixAfterOcrSubstitution() {
+        assertTrue(HelperAccessibilityService.matchesTextFragments(
+                Arrays.asList("一补充至团物资E門"), "团物资", false));
+    }
+
+    @Test
     public void resumesOnlySupplyCollectionFromTheRightTaskBar() {
         assertTrue(TaskAutomation.shouldResumeSupplyCollection("补充军团物资"));
         assertFalse(TaskAutomation.shouldResumeSupplyCollection("巡狩军团荒野"));
@@ -184,6 +220,16 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(TaskAutomation.shouldEnterWilderness("巡狩军团荒野", false));
         assertFalse(TaskAutomation.shouldEnterWilderness("巡狩军团荒野", true));
         assertFalse(TaskAutomation.shouldEnterWilderness("补充军团物资", false));
+    }
+
+    @Test
+    public void returnsToTheCityBeforeResumingSupplyCollection() {
+        assertTrue(TaskAutomation.isWildernessLocation(
+                Arrays.asList("荒野营地")));
+        assertTrue(TaskAutomation.isWildernessLocation(
+                Arrays.asList("荒野修炼2区")));
+        assertFalse(TaskAutomation.isWildernessLocation(
+                Arrays.asList("军团主城")));
     }
 
     @Test
@@ -208,8 +254,18 @@ public final class HelperAccessibilityServiceTest {
                 1_000, 2_000, 5_000, 10_000));
         assertEquals(5_000, WorshipAlarmReceiver.nextMilitaryAt(
                 1_000, 900, 5_000, 10_000));
+        assertEquals(61_000, WorshipAlarmReceiver.nextMilitaryAt(
+                1_000, 900, 500_000, 1_000_000));
         assertEquals(10_000, WorshipAlarmReceiver.nextMilitaryAt(
                 1_000, 0, 0, 10_000));
+    }
+
+    @Test
+    public void assignsMilitaryCooldownOnlyToTheSelectedQuest() {
+        assertTrue(TaskAutomation.isMilitaryQuestDetail(
+                "补充军团物资", "补充 军团物资 冷却时间2小时"));
+        assertFalse(TaskAutomation.isMilitaryQuestDetail(
+                "补充军团物资", "巡狩军团荒野 冷却时间3小时"));
     }
 
     @Test
@@ -301,6 +357,10 @@ public final class HelperAccessibilityServiceTest {
                 Arrays.asList("补充军团", "物资(五)"), "补充军团物资", false));
         assertFalse(HelperAccessibilityService.matchesTextFragments(
                 Arrays.asList("巡狩军团", "荒野(五)"), "补充军团物资", false));
+        assertTrue(HelperAccessibilityService.matchesTextFragments(
+                Arrays.asList("想"), "想", true));
+        assertFalse(HelperAccessibilityService.matchesTextFragments(
+                Arrays.asList("不想"), "想", true));
     }
 
     @Test
@@ -407,6 +467,7 @@ public final class HelperAccessibilityServiceTest {
                 BossAutomation.parseMapCoordinate("300,25")));
         assertEquals(Integer.valueOf(4), BossAutomation.parseChannel("第 4 分流"));
         assertEquals(Integer.valueOf(8), BossAutomation.parseChannel("临渊道·分流8"));
+        assertEquals(Integer.valueOf(1), BossAutomation.parseChannel("分流\n1"));
         assertNull(BossAutomation.parseChannel("第9分流"));
         assertEquals(4, BossAutomation.nextChannel(3));
         assertEquals(1, BossAutomation.nextChannel(8));
@@ -458,6 +519,12 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(250, BossAutomation.moveScanDelayMillis(1_000, 5_000));
         assertEquals(100, BossAutomation.moveScanDelayMillis(4_900, 5_000));
         assertEquals(0, BossAutomation.moveScanDelayMillis(5_000, 5_000));
+    }
+
+    @Test
+    public void detectsADimLeaderPortrait() {
+        assertTrue(BossAutomation.isLeaderPortraitDim(56));
+        assertFalse(BossAutomation.isLeaderPortraitDim(109));
     }
 
     @Test

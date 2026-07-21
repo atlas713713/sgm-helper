@@ -1,5 +1,6 @@
 package com.local.sgmhelper;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
@@ -26,12 +27,22 @@ final class BossAutomation {
     private static final long MOVE_DURATION_MS = 4_000;
     private static final long MOVE_SCAN_INTERVAL_MS = 250;
     private static final long BOSS_CHECK_MS = 5_000;
+    private static final long LEADER_CHECK_MS = 10_000;
+    private static final int PARTY_OCR_ATTEMPTS = 5;
+    private static final int PARTY_TOGGLE_X = 23;
+    private static final int PARTY_TOGGLE_Y = 79;
+    private static final int PARTY_MANAGE_X = 190;
+    private static final int PARTY_MANAGE_Y = 279;
+    private static final int PARTY_CLOSE_X = 294;
+    private static final int PARTY_CLOSE_Y = 121;
 
     private final AutomationHost host;
     private final ChannelSwitcher channelSwitcher;
     private final AntiCheatVerification antiCheatVerification;
     private List<Integer> route = new ArrayList<>();
     private int routeIndex;
+    private boolean followLeader;
+    private long nextLeaderCheckAt;
 
     BossAutomation(AutomationHost host) {
         this.host = host;
@@ -44,19 +55,37 @@ final class BossAutomation {
             host.showProgress("已有任务正在运行");
             return;
         }
+        followLeader = host.context().getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE).getBoolean(
+                        HelperAccessibilityService.PREF_BOSS_FOLLOW_LEADER, false);
+        nextLeaderCheckAt = 0;
         host.startPrimaryAutomation(
-                AutomationHost.PrimaryTask.BOSS, "野王：打开游戏", this::prepareModeOne);
+                AutomationHost.PrimaryTask.BOSS, "野王：打开游戏", this::prepareBoss);
+    }
+
+    private void prepareBoss() {
+        host.checkInventoryBeforePrimary(this::prepareBossAfterInventoryCheck);
+    }
+
+    private void prepareBossAfterInventoryCheck() {
+        host.ensureGameHudVisible(() -> {
+            if (followLeader) {
+                followLeaderChannel(this::prepareModeOne);
+            } else {
+                prepareModeOne();
+            }
+        });
     }
 
     private void prepareModeOne() {
         host.showProgress("野王：打开菜单");
-        host.ensureGameHudVisible(() -> host.tap(1215, 58, () -> {
+        host.tap(1215, 58, () -> {
             host.showProgress("野王：打开自动设置");
             host.tap(1190, 360, () -> {
                 host.showProgress("野王：选择模式 1");
                 host.tap(1025, 75, () -> host.tap(1240, 45, this::useMarker));
             });
-        }));
+        });
     }
 
     private void useMarker() {
@@ -90,11 +119,19 @@ final class BossAutomation {
     }
 
     private void moveNext() {
+        maybeFollowLeader(this::moveNextAfterLeaderCheck);
+    }
+
+    private void moveNextAfterLeaderCheck() {
         if (!host.isAutomationRunning()) {
             return;
         }
         if (routeIndex >= route.size()) {
-            switchChannel();
+            if (followLeader) {
+                readCurrentPosition();
+            } else {
+                switchChannel();
+            }
             return;
         }
         int x = route.get(routeIndex);
@@ -127,6 +164,10 @@ final class BossAutomation {
     }
 
     private void waitForBossDefeated(String currentBoss) {
+        maybeFollowLeader(() -> waitForBossDefeatedAfterLeaderCheck(currentBoss));
+    }
+
+    private void waitForBossDefeatedAfterLeaderCheck(String currentBoss) {
         findRedBoss(target -> {
             if (target == null) {
                 host.showProgress("野王：已击败 " + currentBoss);
@@ -174,14 +215,206 @@ final class BossAutomation {
             host.showProgress("野王：第 " + current + " 分流 → 第 " + next + " 分流");
             channelSwitcher.switchOpenTo(next,
                     () -> host.postDelayed(
-                            this::checkAfterChannelSwitch, CHANNEL_CHECK_MS));
+                            () -> checkAfterChannelSwitch(this::openEnemyPanel),
+                            CHANNEL_CHECK_MS));
         }));
     }
 
-    private void checkAfterChannelSwitch() {
+    private void checkAfterChannelSwitch(Runnable next) {
         antiCheatVerification.checkThen(() -> host.postDelayed(
-                () -> antiCheatVerification.checkThen(this::openEnemyPanel),
+                () -> antiCheatVerification.checkThen(next),
                 CHANNEL_READY_MS));
+    }
+
+    private void maybeFollowLeader(Runnable next) {
+        if (!followLeader || System.currentTimeMillis() < nextLeaderCheckAt) {
+            next.run();
+            return;
+        }
+        nextLeaderCheckAt = System.currentTimeMillis() + LEADER_CHECK_MS;
+        ensurePartyPanelOpen(PARTY_OCR_ATTEMPTS, () -> host.captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                host.failAutomation("野王跟随队长：无法检测队长头像");
+                return;
+            }
+            int luma = averageLeaderPortraitLuma(bitmap);
+            bitmap.recycle();
+            DiagnosticLog.info("BOSS", "leader portrait luma=" + luma);
+            if (isLeaderPortraitDim(luma)) {
+                host.showProgress("野王跟随队长：队长头像变暗，检查分流");
+                followLeaderChannel(this::openEnemyPanel);
+            } else {
+                host.tap(PARTY_CLOSE_X, PARTY_CLOSE_Y, next);
+            }
+        }));
+    }
+
+    private void followLeaderChannel(Runnable next) {
+        host.showProgress("野王跟随队长：检查队伍栏");
+        ensurePartyPanelOpen(PARTY_OCR_ATTEMPTS,
+                () -> readCurrentHudChannel(PARTY_OCR_ATTEMPTS, current -> {
+                    host.showProgress("野王跟随队长：当前第 " + current + " 分流");
+                    host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
+                            () -> host.postDelayed(
+                                    () -> readLeaderChannel(
+                                            PARTY_OCR_ATTEMPTS, current, next),
+                                    CHANNEL_DIALOG_MS));
+                }));
+    }
+
+    private void ensurePartyPanelOpen(int remainingAttempts, Runnable next) {
+        host.recognizeText(text -> {
+            if (hasPartyPanel(text)) {
+                next.run();
+                return;
+            }
+            if (remainingAttempts == 4) {
+                host.showProgress("野王跟随队长：打开队伍栏");
+                host.tap(PARTY_TOGGLE_X, PARTY_TOGGLE_Y,
+                        () -> host.postDelayed(
+                                () -> ensurePartyPanelOpen(3, next), 1_000));
+            } else if (remainingAttempts > 1) {
+                host.postDelayed(
+                        () -> ensurePartyPanelOpen(remainingAttempts - 1, next), 1_000);
+            } else {
+                failPartyOcr("队伍栏“经验分配”", text);
+            }
+        });
+    }
+
+    private void readCurrentHudChannel(int remainingAttempts,
+            java.util.function.Consumer<Integer> next) {
+        host.showProgress("野王跟随队长：读取当前分流");
+        host.recognizeText(text -> {
+            Integer channel = findCurrentHudChannel(text);
+            if (channel != null) {
+                next.accept(channel);
+            } else if (remainingAttempts > 1) {
+                host.postDelayed(() -> readCurrentHudChannel(
+                        remainingAttempts - 1, next), 1_000);
+            } else {
+                failPartyOcr("右下角当前分流", text);
+            }
+        });
+    }
+
+    private void readLeaderChannel(int remainingAttempts, int current, Runnable next) {
+        host.showProgress("野王跟随队长：读取队长分流");
+        host.recognizeText(text -> {
+            Integer leader = findLeaderChannel(text);
+            if (leader != null) {
+                closePartyAndFollow(current, leader, next);
+            } else if (remainingAttempts > 1) {
+                host.postDelayed(() -> readLeaderChannel(
+                        remainingAttempts - 1, current, next), 1_000);
+            } else {
+                failPartyOcr("队长分流", text);
+            }
+        });
+    }
+
+    private void closePartyAndFollow(int current, int leader, Runnable next) {
+        host.showProgress("野王跟随队长：队长在第 " + leader + " 分流");
+        host.tap(PARTY_CLOSE_X, PARTY_CLOSE_Y, () -> {
+            if (current == leader) {
+                nextLeaderCheckAt = System.currentTimeMillis() + LEADER_CHECK_MS;
+                next.run();
+                return;
+            }
+            host.showProgress("野王跟随队长：第 " + current
+                    + " 分流 → 第 " + leader + " 分流");
+            host.tap(1215, 705, () -> host.postDelayed(
+                    () -> channelSwitcher.switchOpenTo(leader,
+                            () -> host.postDelayed(
+                                    () -> checkAfterChannelSwitch(() -> {
+                                        nextLeaderCheckAt = System.currentTimeMillis()
+                                                + LEADER_CHECK_MS;
+                                        next.run();
+                                    }), CHANNEL_CHECK_MS)),
+                    CHANNEL_DIALOG_MS));
+        });
+    }
+
+    private void failPartyOcr(String target, Text text) {
+        DiagnosticLog.warn("BOSS", "OCR miss: " + target + "; lines=" + ocrLines(text));
+        host.failAutomation("野王跟随队长：未识别到" + target);
+    }
+
+    private static String ocrLines(Text text) {
+        List<String> values = new ArrayList<>();
+        for (Text.TextBlock block : text.getTextBlocks()) {
+            for (Text.Line line : block.getLines()) {
+                Rect bounds = line.getBoundingBox();
+                values.add(line.getText() + "@" + bounds);
+            }
+        }
+        return values.toString();
+    }
+
+    private static boolean hasPartyPanel(Text text) {
+        for (Text.TextBlock block : text.getTextBlocks()) {
+            if (block.getText().replaceAll("\\s+", "").contains("经验分配")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Integer findCurrentHudChannel(Text text) {
+        for (Text.TextBlock block : text.getTextBlocks()) {
+            for (Text.Line line : block.getLines()) {
+                Rect bounds = line.getBoundingBox();
+                if (bounds != null && bounds.centerX() >= 950 && bounds.centerY() >= 640) {
+                    Integer channel = parseChannel(line.getText());
+                    if (channel != null) {
+                        return channel;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Integer findLeaderChannel(Text text) {
+        Integer leader = null;
+        int firstRow = Integer.MAX_VALUE;
+        for (Text.TextBlock block : text.getTextBlocks()) {
+            for (Text.Line line : block.getLines()) {
+                Rect bounds = line.getBoundingBox();
+                if (bounds == null || bounds.centerX() >= 950 || bounds.centerY() >= 640) {
+                    continue;
+                }
+                Integer channel = parseChannel(line.getText());
+                if (channel != null && bounds.top < firstRow) {
+                    firstRow = bounds.top;
+                    leader = channel;
+                }
+            }
+        }
+        return leader;
+    }
+
+    private static int averageLeaderPortraitLuma(Bitmap bitmap) {
+        int left = 23 * bitmap.getWidth() / 1280;
+        int right = 78 * bitmap.getWidth() / 1280;
+        int top = 120 * bitmap.getHeight() / 720;
+        int bottom = 185 * bitmap.getHeight() / 720;
+        long total = 0;
+        int count = 0;
+        for (int y = top; y < bottom; y += 2) {
+            for (int x = left; x < right; x += 2) {
+                int color = bitmap.getPixel(x, y);
+                total += (Color.red(color) * 299L
+                        + Color.green(color) * 587L
+                        + Color.blue(color) * 114L) / 1_000L;
+                count++;
+            }
+        }
+        return count == 0 ? 0 : (int) (total / count);
+    }
+
+    static boolean isLeaderPortraitDim(int averageLuma) {
+        return averageLuma < 80;
     }
 
     static Integer parseMapX(String value) {

@@ -39,6 +39,8 @@ interface AutomationHost {
 
     void enterTraining(long nextMilitaryAt);
 
+    void checkInventoryBeforePrimary(Runnable next);
+
     void postDelayed(Runnable action, long delayMillis);
 
     String formatTime(long value);

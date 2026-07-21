@@ -17,6 +17,10 @@ final class TrainingAutomation {
     }
 
     void start() {
+        host.checkInventoryBeforePrimary(this::startAfterInventoryCheck);
+    }
+
+    private void startAfterInventoryCheck() {
         SharedPreferences preferences = host.context().getSharedPreferences(
                 HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE);
         String location = preferences.getString(

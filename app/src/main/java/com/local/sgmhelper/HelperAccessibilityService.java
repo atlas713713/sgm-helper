@@ -102,6 +102,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_AUTO_SELL_ENABLED = "auto_sell_enabled";
     static final String PREF_AUTO_SELL_MIN_FREE_SLOTS = "auto_sell_min_free_slots";
     static final String PREF_SOLDIER_REVIVAL_ENABLED = "soldier_revival_before_training";
+    static final String PREF_BOSS_FOLLOW_LEADER = "boss_follow_leader";
     static final String PREF_MILITARY_RETRY_AT = "military_retry_at";
     static final String PREF_SUPPLY_RETRY_AT = "supply_retry_at";
     static final String PREF_WILDERNESS_RETRY_AT = "wilderness_retry_at";
@@ -862,6 +863,13 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void showBossPage(LinearLayout menu) {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        CheckBox followLeader = addSettingsCheckBox(menu, R.string.boss_follow_leader,
+                preferences.getBoolean(PREF_BOSS_FOLLOW_LEADER, false));
+        followLeader.setOnCheckedChangeListener((button, checked) -> preferences.edit()
+                .putBoolean(PREF_BOSS_FOLLOW_LEADER, checked)
+                .apply());
+
         Button worldBoss = createSettingsButton(R.string.boss_world_pending, false, null);
         worldBoss.setEnabled(false);
         worldBoss.setAlpha(0.4f);
@@ -1186,6 +1194,32 @@ public final class HelperAccessibilityService extends AccessibilityService
                 ? "自动练级中 · 下次军务 " + formatTime(nextMilitaryAt)
                 : "自动练级中");
         startInventoryMonitoring();
+    }
+
+    @Override
+    public void checkInventoryBeforePrimary(Runnable next) {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        boolean enabled = preferences.getBoolean(PREF_AUTO_SELL_ENABLED, false);
+        if (!shouldCheckInventoryBeforePrimary(enabled, primaryTask)) {
+            next.run();
+            return;
+        }
+        showProgress("启动前检查背包");
+        int minimumFreeSlots = preferences.getInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, 5);
+        autoSellAutomation.checkNearlyFullBeforeStart(minimumFreeSlots, nearlyFull -> {
+            if (taskState != STATE_RUNNING) {
+                return;
+            }
+            if (nearlyFull) {
+                interruptForAutoSell(next);
+            } else {
+                next.run();
+            }
+        });
+    }
+
+    static boolean shouldCheckInventoryBeforePrimary(boolean enabled, PrimaryTask task) {
+        return enabled && (task == PrimaryTask.TRAINING || task == PrimaryTask.BOSS);
     }
 
     @Override
@@ -1529,16 +1563,27 @@ public final class HelperAccessibilityService extends AccessibilityService
                 result.accept("");
                 return;
             }
-            int left = 1090 * bitmap.getWidth() / 1280;
-            int top = 50 * bitmap.getHeight() / 720;
-            int right = 1190 * bitmap.getWidth() / 1280;
-            int bottom = 110 * bitmap.getHeight() / 720;
+            int left = 1088 * bitmap.getWidth() / 1280;
+            int top = 66 * bitmap.getHeight() / 720;
+            int right = 1176 * bitmap.getWidth() / 1280;
+            int bottom = 98 * bitmap.getHeight() / 720;
             Bitmap cropped = Bitmap.createBitmap(
                     bitmap, left, top, right - left, bottom - top);
             bitmap.recycle();
-            Bitmap enlarged = Bitmap.createScaledBitmap(
-                    cropped, cropped.getWidth() * 4, cropped.getHeight() * 4, true);
+            int width = cropped.getWidth();
+            int height = cropped.getHeight();
+            int[] pixels = new int[width * height];
+            cropped.getPixels(pixels, 0, width, 0, 0, width, height);
+            for (int index = 0; index < pixels.length; index++) {
+                pixels[index] = isBackpackCapacityTextPixel(pixels[index])
+                        ? Color.BLACK : Color.WHITE;
+            }
+            Bitmap cleaned = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            cleaned.setPixels(pixels, 0, width, 0, 0, width, height);
             cropped.recycle();
+            Bitmap enlarged = Bitmap.createScaledBitmap(
+                    cleaned, width * 8, height * 8, false);
+            cleaned.recycle();
 
             if (textRecognizer == null) {
                 textRecognizer = TextRecognition.getClient(
@@ -1553,6 +1598,12 @@ public final class HelperAccessibilityService extends AccessibilityService
                     })
                     .addOnCompleteListener(task -> enlarged.recycle());
         });
+    }
+
+    static boolean isBackpackCapacityTextPixel(int color) {
+        return ((color >> 16) & 0xFF) >= 200
+                && ((color >> 8) & 0xFF) >= 200
+                && (color & 0xFF) >= 200;
     }
 
     @Override
@@ -1752,8 +1803,17 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private static Rect findTextBounds(List<Text.Line> lines, String target, boolean exact) {
         for (Text.Line line : lines) {
-            if (matchesTextFragments(Collections.singletonList(line.getText()), target, exact)) {
+            if (matchesTextFragments(
+                    Collections.singletonList(line.getText()), target, true)) {
                 return line.getBoundingBox();
+            }
+        }
+        if (!exact) {
+            for (Text.Line line : lines) {
+                if (matchesTextFragments(
+                        Collections.singletonList(line.getText()), target, false)) {
+                    return line.getBoundingBox();
+                }
             }
         }
         lines.sort((left, right) -> Integer.compare(
@@ -2067,20 +2127,32 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void interruptForAutoSell() {
+        interruptForAutoSell(null);
+    }
+
+    private void interruptForAutoSell(Runnable continuation) {
         PrimaryTask interruptedTask = primaryTask;
+        Runnable recoveryAction = currentAutomationAction;
         inventorySelling = true;
         stopInventoryMonitoring();
         handler.removeCallbacksAndMessages(null);
         automationRunning = false;
         clearAutomationRecovery();
         showProgress("Auto sell: backpack is nearly full");
-        autoSellAutomation.start(() -> resumeAfterAutoSell(interruptedTask));
+        autoSellAutomation.start(
+                () -> resumeAfterAutoSell(interruptedTask, continuation, recoveryAction));
     }
 
-    private void resumeAfterAutoSell(PrimaryTask interruptedTask) {
-        automationRunning = false;
+    private void resumeAfterAutoSell(
+            PrimaryTask interruptedTask, Runnable continuation, Runnable recoveryAction) {
         inventorySelling = false;
         clearAutomationRecovery();
+        if (continuation != null) {
+            currentAutomationAction = recoveryAction;
+            continuation.run();
+            return;
+        }
+        automationRunning = false;
         if (interruptedTask == PrimaryTask.BOSS) {
             bossAutomation.start();
             return;
