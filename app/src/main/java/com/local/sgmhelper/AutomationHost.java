@@ -117,6 +117,8 @@ interface AutomationHost {
 
     void closeAutoPathPanel(Runnable next);
 
+    void openAutoPathPanel(Runnable next);
+
     void ensureGameHudVisible(Runnable next);
 
     void ensureAutoAttackDisabled(Runnable next);

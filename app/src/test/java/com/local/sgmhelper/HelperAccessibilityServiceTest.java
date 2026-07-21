@@ -157,6 +157,20 @@ public final class HelperAccessibilityServiceTest {
                 Arrays.asList("勇讨军团天将（五）", "补充军团物资（五）")));
         assertNull(TaskAutomation.firstOngoingCollectionQuest(
                 Arrays.asList("勇讨军团天将（五）")));
+        assertEquals("补充军团物资", TaskAutomation.firstOngoingCollectionQuest(
+                Arrays.asList("补充军团物资（五）", "巡狩军团荒野（五）"),
+                true, false));
+        assertNull(TaskAutomation.firstOngoingCollectionQuest(
+                Arrays.asList("补充军团物资（五）", "巡狩军团荒野（五）"),
+                false, false));
+    }
+
+    @Test
+    public void schedulesMilitaryOnlyWhenAQuestIsSelected() {
+        assertTrue(WorshipAlarmReceiver.shouldScheduleMilitary(true, true, false));
+        assertTrue(WorshipAlarmReceiver.shouldScheduleMilitary(true, false, true));
+        assertFalse(WorshipAlarmReceiver.shouldScheduleMilitary(true, false, false));
+        assertFalse(WorshipAlarmReceiver.shouldScheduleMilitary(false, true, true));
     }
 
     @Test
@@ -501,17 +515,24 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void testsOneTileAfterEachClickAndStopsAfterFourOrientations() {
-        assertEquals(AntiCheatVerification.TileDecision.NEXT_TILE,
-                AntiCheatVerification.decideTile(true, 0));
-        assertEquals(AntiCheatVerification.TileDecision.CLICK,
-                AntiCheatVerification.decideTile(false, 0));
-        assertEquals(AntiCheatVerification.TileDecision.CLICK,
-                AntiCheatVerification.decideTile(false, 1));
-        assertEquals(AntiCheatVerification.TileDecision.CLICK,
-                AntiCheatVerification.decideTile(false, 2));
-        assertEquals(AntiCheatVerification.TileDecision.RECHECK_CHALLENGE,
-                AntiCheatVerification.decideTile(false, 3));
+    public void turnsEachTileByTheRotationThatUprightsItsPortrait() {
+        assertEquals(0, AntiCheatVerification.tapCount(0, true));
+        assertEquals(1, AntiCheatVerification.tapCount(90, true));
+        assertEquals(2, AntiCheatVerification.tapCount(180, true));
+        assertEquals(3, AntiCheatVerification.tapCount(270, true));
+
+        assertEquals(0, AntiCheatVerification.tapCount(0, false));
+        assertEquals(3, AntiCheatVerification.tapCount(90, false));
+        assertEquals(2, AntiCheatVerification.tapCount(180, false));
+        assertEquals(1, AntiCheatVerification.tapCount(270, false));
+    }
+
+    @Test
+    public void leavesTilesAloneWhenNoOrientationShowsAFace() {
+        assertEquals(0, AntiCheatVerification.tapCount(
+                AntiCheatVerification.UNKNOWN_ROTATION, true));
+        assertEquals(0, AntiCheatVerification.tapCount(
+                AntiCheatVerification.UNKNOWN_ROTATION, false));
     }
 
     @Test
@@ -522,9 +543,11 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void detectsADimLeaderPortrait() {
-        assertTrue(BossAutomation.isLeaderPortraitDim(56));
-        assertFalse(BossAutomation.isLeaderPortraitDim(109));
+    public void checksLeaderChannelOnlyForAGrayPortrait() {
+        assertTrue(BossAutomation.isLeaderPortraitGray(0));
+        assertTrue(BossAutomation.isLeaderPortraitGray(11));
+        assertFalse(BossAutomation.isLeaderPortraitGray(12));
+        assertFalse(BossAutomation.isLeaderPortraitGray(23));
     }
 
     @Test

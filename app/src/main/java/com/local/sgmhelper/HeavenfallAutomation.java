@@ -72,7 +72,7 @@ final class HeavenfallAutomation {
             return;
         }
         host.showProgress("天降：打开自动寻敌");
-        host.tap(1130, 500, () -> host.tap(1015, 165, this::scanForBoss));
+        host.openAutoPathPanel(() -> host.tap(1015, 165, this::scanForBoss));
     }
 
     private void scanForBoss() {

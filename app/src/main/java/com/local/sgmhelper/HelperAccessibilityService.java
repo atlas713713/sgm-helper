@@ -94,6 +94,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_HEAVENFALL_ZONE = "heavenfall_zone";
     static final String PREF_WORSHIP_ENABLED = "worship_enabled";
     static final String PREF_MILITARY_ENABLED = "military_enabled";
+    static final String PREF_MILITARY_SUPPLY_ENABLED = "military_supply_enabled";
+    static final String PREF_MILITARY_WILDERNESS_ENABLED = "military_wilderness_enabled";
     static final String PREF_WELFARE_ENABLED = "welfare_enabled";
     static final String PREF_LEGION_REWARD_ENABLED = "legion_reward_enabled";
     static final String PREF_HEAVENFALL_ENABLED = "heavenfall_enabled";
@@ -426,7 +428,10 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void startTrainingAfterPreparation() {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        if (preferences.getBoolean(PREF_MILITARY_ENABLED, true)) {
+        if (WorshipAlarmReceiver.shouldScheduleMilitary(
+                preferences.getBoolean(PREF_MILITARY_ENABLED, true),
+                preferences.getBoolean(PREF_MILITARY_SUPPLY_ENABLED, true),
+                preferences.getBoolean(PREF_MILITARY_WILDERNESS_ENABLED, true))) {
             showProgress("初始化：重新检测军务任务");
             startScheduledMilitary();
         } else {
@@ -887,6 +892,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (menu == null) {
             return;
         }
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         addTimerRow(menu, R.string.timer_worship, PREF_HOUR, PREF_MINUTE,
                 PREF_WORSHIP_ENABLED, true, 10, 30,
                 () -> WorshipAlarmReceiver.scheduleWorship(this), this::startScheduledWorship);
@@ -895,6 +901,20 @@ public final class HelperAccessibilityService extends AccessibilityService
                 PREF_MILITARY_ENABLED, true, -1, -1,
                 () -> WorshipAlarmReceiver.scheduleMilitary(this),
                 this::startScheduledMilitary);
+        CheckBox supply = addSettingsCheckBox(menu, R.string.timer_military_supply,
+                preferences.getBoolean(PREF_MILITARY_SUPPLY_ENABLED, true));
+        supply.setPadding(dp(40), 0, 0, 0);
+        supply.setOnCheckedChangeListener((button, checked) -> {
+            preferences.edit().putBoolean(PREF_MILITARY_SUPPLY_ENABLED, checked).apply();
+            WorshipAlarmReceiver.scheduleMilitary(this);
+        });
+        CheckBox wilderness = addSettingsCheckBox(menu, R.string.timer_military_wilderness,
+                preferences.getBoolean(PREF_MILITARY_WILDERNESS_ENABLED, true));
+        wilderness.setPadding(dp(40), 0, 0, 0);
+        wilderness.setOnCheckedChangeListener((button, checked) -> {
+            preferences.edit().putBoolean(PREF_MILITARY_WILDERNESS_ENABLED, checked).apply();
+            WorshipAlarmReceiver.scheduleMilitary(this);
+        });
         addTimerRow(menu, R.string.timer_reward,
                 PREF_WELFARE_HOUR, PREF_WELFARE_MINUTE,
                 PREF_WELFARE_ENABLED, true, 12, 5,
@@ -915,7 +935,6 @@ public final class HelperAccessibilityService extends AccessibilityService
                 PREF_HEAVENFALL_ENABLED, true, 22, 0,
                 () -> WorshipAlarmReceiver.scheduleHeavenfall(this),
                 this::startScheduledHeavenfall);
-        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         addSpinnerRow(menu, R.string.heavenfall_duration, 60,
                 preferences.getInt(PREF_HEAVENFALL_DURATION_MINUTES, 5),
                 value -> preferences.edit()
@@ -1100,9 +1119,12 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     void startScheduledMilitary() {
-        if (!getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .getBoolean(PREF_MILITARY_ENABLED, true)) {
-            DiagnosticLog.info("MILITARY", "skipped; disabled");
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (!WorshipAlarmReceiver.shouldScheduleMilitary(
+                preferences.getBoolean(PREF_MILITARY_ENABLED, true),
+                preferences.getBoolean(PREF_MILITARY_SUPPLY_ENABLED, true),
+                preferences.getBoolean(PREF_MILITARY_WILDERNESS_ENABLED, true))) {
+            DiagnosticLog.info("MILITARY", "skipped; disabled or no quest selected");
             return;
         }
         if (!shouldRunMilitary(primaryTask)) {
@@ -1457,6 +1479,30 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public void closeAutoPathPanel(Runnable next) {
         closeAutoPathPanelIfNeeded(next);
+    }
+
+    @Override
+    public void openAutoPathPanel(Runnable next) {
+        showProgress("打开自动寻路栏");
+        performTap(1130, 500,
+                () -> waitForAutoPathPanel(next, TEXT_RETRY_COUNT));
+    }
+
+    private void waitForAutoPathPanel(Runnable next, int remainingAttempts) {
+        recognizeScreenText(text -> {
+            if (!automationRunning) {
+                return;
+            }
+            if (hasAutoPathPanel(text)) {
+                next.run();
+            } else if (remainingAttempts > 1) {
+                handler.postDelayed(
+                        () -> waitForAutoPathPanel(next, remainingAttempts - 1),
+                        ACTION_DELAY_MS);
+            } else {
+                failAutomation("自动寻路栏未打开");
+            }
+        });
     }
 
     private boolean hasAutoPathPanel(Text text) {

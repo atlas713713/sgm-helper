@@ -29,7 +29,7 @@ final class SoldierRevivalAutomation {
 
     private void openCampSearch(boolean mayReturnHome, Runnable next) {
         host.showProgress("复活士兵：打开右侧自动寻路");
-        host.closeAutoPathPanel(() -> host.tap(1130, 500,
+        host.closeAutoPathPanel(() -> host.openAutoPathPanel(
                 () -> findCamp(CAMP_SCROLL_ATTEMPTS, mayReturnHome, next)));
     }
 

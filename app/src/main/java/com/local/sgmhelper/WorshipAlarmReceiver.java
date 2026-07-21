@@ -127,22 +127,32 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
     static long scheduleMilitary(Context context) {
         SharedPreferences preferences = context.getSharedPreferences(
                 HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE);
-        if (!preferences.getBoolean(
-                HelperAccessibilityService.PREF_MILITARY_ENABLED, true)) {
+        boolean supplyEnabled = preferences.getBoolean(
+                HelperAccessibilityService.PREF_MILITARY_SUPPLY_ENABLED, true);
+        boolean wildernessEnabled = preferences.getBoolean(
+                HelperAccessibilityService.PREF_MILITARY_WILDERNESS_ENABLED, true);
+        if (!shouldScheduleMilitary(
+                preferences.getBoolean(HelperAccessibilityService.PREF_MILITARY_ENABLED, true),
+                supplyEnabled, wildernessEnabled)) {
             cancelAlarm(context, ACTION_MILITARY, 2);
             return 0;
         }
         long now = System.currentTimeMillis();
         preferences.edit().remove(HelperAccessibilityService.PREF_MILITARY_RETRY_AT).apply();
-        long supplyRetryAt = preferences.getLong(
-                HelperAccessibilityService.PREF_SUPPLY_RETRY_AT, 0);
-        long wildernessRetryAt = preferences.getLong(
-                HelperAccessibilityService.PREF_WILDERNESS_RETRY_AT, 0);
+        long supplyRetryAt = supplyEnabled ? preferences.getLong(
+                HelperAccessibilityService.PREF_SUPPLY_RETRY_AT, 0) : 0;
+        long wildernessRetryAt = wildernessEnabled ? preferences.getLong(
+                HelperAccessibilityService.PREF_WILDERNESS_RETRY_AT, 0) : 0;
         long regularAt = nextRegularMilitaryAt(preferences);
         long nextMilitaryAt = nextMilitaryAt(
                 now, supplyRetryAt, wildernessRetryAt, regularAt);
         setAlarm(context, ACTION_MILITARY, 2, nextMilitaryAt);
         return nextMilitaryAt;
+    }
+
+    static boolean shouldScheduleMilitary(
+            boolean militaryEnabled, boolean supplyEnabled, boolean wildernessEnabled) {
+        return militaryEnabled && (supplyEnabled || wildernessEnabled);
     }
 
     private static long nextRegularMilitaryAt(SharedPreferences preferences) {
@@ -276,8 +286,13 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
                     HelperAccessibilityService.PREF_LEGION_REWARD_ENABLED, true);
         }
         if (ACTION_MILITARY.equals(action)) {
-            return preferences.getBoolean(
-                    HelperAccessibilityService.PREF_MILITARY_ENABLED, true);
+            return shouldScheduleMilitary(
+                    preferences.getBoolean(
+                            HelperAccessibilityService.PREF_MILITARY_ENABLED, true),
+                    preferences.getBoolean(
+                            HelperAccessibilityService.PREF_MILITARY_SUPPLY_ENABLED, true),
+                    preferences.getBoolean(
+                            HelperAccessibilityService.PREF_MILITARY_WILDERNESS_ENABLED, true));
         }
         if (ACTION_WELFARE.equals(action)) {
             return preferences.getBoolean(

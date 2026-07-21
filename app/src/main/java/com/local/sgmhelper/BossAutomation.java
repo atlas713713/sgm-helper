@@ -68,13 +68,7 @@ final class BossAutomation {
     }
 
     private void prepareBossAfterInventoryCheck() {
-        host.ensureGameHudVisible(() -> {
-            if (followLeader) {
-                followLeaderChannel(this::prepareModeOne);
-            } else {
-                prepareModeOne();
-            }
-        });
+        host.ensureGameHudVisible(this::prepareModeOne);
     }
 
     private void prepareModeOne() {
@@ -95,7 +89,7 @@ final class BossAutomation {
 
     private void openEnemyPanel() {
         host.showProgress("野王：打开自动寻敌");
-        host.tap(1130, 500,
+        host.openAutoPathPanel(
                 () -> host.tap(1015, 165, this::readCurrentPosition));
     }
 
@@ -237,11 +231,11 @@ final class BossAutomation {
                 host.failAutomation("野王跟随队长：无法检测队长头像");
                 return;
             }
-            int luma = averageLeaderPortraitLuma(bitmap);
+            int chroma = averageLeaderPortraitChroma(bitmap);
             bitmap.recycle();
-            DiagnosticLog.info("BOSS", "leader portrait luma=" + luma);
-            if (isLeaderPortraitDim(luma)) {
-                host.showProgress("野王跟随队长：队长头像变暗，检查分流");
+            DiagnosticLog.info("BOSS", "leader portrait chroma=" + chroma);
+            if (isLeaderPortraitGray(chroma)) {
+                host.showProgress("野王跟随队长：队长头像变灰，检查分流");
                 followLeaderChannel(this::openEnemyPanel);
             } else {
                 host.tap(PARTY_CLOSE_X, PARTY_CLOSE_Y, next);
@@ -394,27 +388,29 @@ final class BossAutomation {
         return leader;
     }
 
-    private static int averageLeaderPortraitLuma(Bitmap bitmap) {
-        int left = 23 * bitmap.getWidth() / 1280;
-        int right = 78 * bitmap.getWidth() / 1280;
-        int top = 120 * bitmap.getHeight() / 720;
-        int bottom = 185 * bitmap.getHeight() / 720;
+    private static int averageLeaderPortraitChroma(Bitmap bitmap) {
+        int left = 26 * bitmap.getWidth() / 1280;
+        int right = 61 * bitmap.getWidth() / 1280;
+        int top = 132 * bitmap.getHeight() / 720;
+        int bottom = 174 * bitmap.getHeight() / 720;
         long total = 0;
         int count = 0;
         for (int y = top; y < bottom; y += 2) {
             for (int x = left; x < right; x += 2) {
                 int color = bitmap.getPixel(x, y);
-                total += (Color.red(color) * 299L
-                        + Color.green(color) * 587L
-                        + Color.blue(color) * 114L) / 1_000L;
+                int red = Color.red(color);
+                int green = Color.green(color);
+                int blue = Color.blue(color);
+                total += Math.max(red, Math.max(green, blue))
+                        - Math.min(red, Math.min(green, blue));
                 count++;
             }
         }
         return count == 0 ? 0 : (int) (total / count);
     }
 
-    static boolean isLeaderPortraitDim(int averageLuma) {
-        return averageLuma < 80;
+    static boolean isLeaderPortraitGray(int averageChroma) {
+        return averageChroma < 12;
     }
 
     static Integer parseMapX(String value) {

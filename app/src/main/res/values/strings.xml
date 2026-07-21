@@ -68,6 +68,8 @@
     <string name="timer_run_now">立即执行</string>
     <string name="timer_worship">膜拜</string>
     <string name="timer_military">自动军务</string>
+    <string name="timer_military_supply">军团物资</string>
+    <string name="timer_military_wilderness">军团荒野</string>
     <string name="timer_reward">领取福利×2</string>
     <string name="timer_legion_reward">军团奖励</string>
     <string name="timer_dungeon">自动副本</string>

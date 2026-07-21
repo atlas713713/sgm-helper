@@ -60,7 +60,7 @@ final class TrainingAutomation {
 
     private void selectMonster() {
         host.showProgress("自动练级：选择目标怪物 " + wildernessMonster);
-        host.tap(1130, 500,
+        host.openAutoPathPanel(
                 () -> host.tap(1015, 165,
                         () -> wildernessNavigator.navigateToMonster(
                                 wildernessMonster,

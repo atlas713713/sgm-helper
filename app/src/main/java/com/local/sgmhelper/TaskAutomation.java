@@ -1,5 +1,6 @@
 package com.local.sgmhelper;
 
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
@@ -38,6 +39,8 @@ final class TaskAutomation {
     private String militaryZone;
     private boolean supplyQuestCooling;
     private boolean wildernessQuestCooling;
+    private boolean supplyQuestEnabled;
+    private boolean wildernessQuestEnabled;
     private boolean inWildernessTraining;
     private final Set<String> checkedMilitaryQuests = new HashSet<>();
     private final Set<String> retriedUnacceptedQuests = new HashSet<>();
@@ -58,11 +61,8 @@ final class TaskAutomation {
 
     private void beginAfterInventoryCheck() {
         militaryZone = null;
-        supplyQuestCooling = false;
-        wildernessQuestCooling = false;
         inWildernessTraining = false;
-        checkedMilitaryQuests.clear();
-        retriedUnacceptedQuests.clear();
+        resetMilitaryQuestChoices();
         WorshipAlarmReceiver.scheduleMilitary(host.context());
         host.showProgress("自动军务：停止自动攻击");
         host.ensureAutoAttackDisabled(
@@ -93,7 +93,8 @@ final class TaskAutomation {
                     }
                 }
             }
-            String questName = firstOngoingCollectionQuest(leftValues);
+            String questName = firstOngoingCollectionQuest(
+                    leftValues, supplyQuestEnabled, wildernessQuestEnabled);
             if (questName != null) {
                 for (Text.Line line : leftLines) {
                     if (questName.equals(extractMilitaryQuestName(line.getText()))) {
@@ -131,13 +132,18 @@ final class TaskAutomation {
     }
 
     static String firstOngoingCollectionQuest(List<String> values) {
+        return firstOngoingCollectionQuest(values, true, true);
+    }
+
+    static String firstOngoingCollectionQuest(
+            List<String> values, boolean supplyEnabled, boolean wildernessEnabled) {
         boolean supply = false;
         for (String value : values) {
             String questName = extractMilitaryQuestName(value);
-            if ("巡狩军团荒野".equals(questName)) {
+            if (wildernessEnabled && "巡狩军团荒野".equals(questName)) {
                 return questName;
             }
-            supply |= "补充军团物资".equals(questName);
+            supply |= supplyEnabled && "补充军团物资".equals(questName);
         }
         return supply ? "补充军团物资" : null;
     }
@@ -349,14 +355,31 @@ final class TaskAutomation {
     }
 
     private void recheckAvailableMilitaryQuests() {
-        supplyQuestCooling = false;
-        wildernessQuestCooling = false;
-        checkedMilitaryQuests.clear();
-        retriedUnacceptedQuests.clear();
+        resetMilitaryQuestChoices();
         host.showProgress("自动军务：任务完成，重新检查可承接");
         withTaskWindowOpen(
                 () -> host.tap(55, 369,
                         () -> host.tap(316, 101, this::selectMilitaryQuest)));
+    }
+
+    private void resetMilitaryQuestChoices() {
+        SharedPreferences preferences = host.context().getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, 0);
+        supplyQuestEnabled = preferences.getBoolean(
+                HelperAccessibilityService.PREF_MILITARY_SUPPLY_ENABLED, true);
+        wildernessQuestEnabled = preferences.getBoolean(
+                HelperAccessibilityService.PREF_MILITARY_WILDERNESS_ENABLED, true);
+        supplyQuestCooling = !supplyQuestEnabled;
+        wildernessQuestCooling = !wildernessQuestEnabled;
+        checkedMilitaryQuests.clear();
+        checkedMilitaryQuests.add("勇讨军团天将");
+        if (!supplyQuestEnabled) {
+            checkedMilitaryQuests.add("补充军团物资");
+        }
+        if (!wildernessQuestEnabled) {
+            checkedMilitaryQuests.add("巡狩军团荒野");
+        }
+        retriedUnacceptedQuests.clear();
     }
 
     private void withTaskWindowOpen(Runnable next) {

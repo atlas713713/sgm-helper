@@ -106,7 +106,7 @@ final class WildernessNavigator {
         progress("寻找荒野传送官");
         host.closeAutoPathPanel(() -> {
             progress("打开自动寻路");
-            host.tap(1130, 500,
+            host.openAutoPathPanel(
                     () -> host.tap(1165, 165,
                             () -> host.tap(TELEPORTER_X, TELEPORTER_Y,
                                     () -> host.postDelayed(

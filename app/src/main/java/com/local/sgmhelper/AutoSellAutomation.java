@@ -110,9 +110,8 @@ final class AutoSellAutomation {
 
     private void openAutoPath(Runnable next) {
         host.showProgress("Auto sell: opening auto path");
-        host.tap(1248, 147,
-                () -> host.tap(1130, 500,
-                        () -> host.tap(1165, 165, () -> selectInn(next))));
+        host.closeAutoPathPanel(() -> host.openAutoPathPanel(
+                () -> host.tap(1165, 165, () -> selectInn(next))));
     }
 
     private void selectInn(Runnable next) {

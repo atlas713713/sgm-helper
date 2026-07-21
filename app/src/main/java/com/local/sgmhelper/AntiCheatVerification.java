@@ -1,8 +1,9 @@
 package com.local.sgmhelper;
 
 import android.graphics.Bitmap;
+import android.graphics.Matrix;
+import android.graphics.Rect;
 
-import com.google.android.gms.tasks.Task;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.face.Face;
 import com.google.mlkit.vision.face.FaceDetection;
@@ -10,20 +11,24 @@ import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
 import com.google.mlkit.vision.text.Text;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 final class AntiCheatVerification {
-    enum TileDecision {
-        NEXT_TILE,
-        CLICK,
-        RECHECK_CHALLENGE
-    }
+    static final int UNKNOWN_ROTATION = -1;
 
     private static final int[] TILE_X = {530, 640, 750};
     private static final int TILE_Y = 315;
     private static final int TILE_SIZE = 74;
     private static final int VERIFY_X = 640;
     private static final int VERIFY_Y = 430;
+    private static final int TAP_INTERVAL_MS = 250;
+    private static final int MAX_ROUNDS = 2;
+    private static final long ROUND_BUDGET_MS = 25_000;
+
+    /** Whether one tap turns a tile clockwise; corrected the first time a challenge is solved. */
+    private static boolean tapTurnsClockwise = true;
 
     private final AutomationHost host;
 
@@ -31,60 +36,157 @@ final class AntiCheatVerification {
         this.host = host;
     }
 
+    private static final class Attempt {
+        final int round;
+        final long deadlineAt;
+        final boolean clockwise;
+        final Runnable next;
+        boolean turned;
+        boolean allTilesRecognized;
+
+        Attempt(int round, long deadlineAt, boolean clockwise, Runnable next) {
+            this.round = round;
+            this.deadlineAt = deadlineAt;
+            this.clockwise = clockwise;
+            this.next = next;
+        }
+    }
+
     void checkThen(Runnable next) {
         host.showProgress("检查反外挂验证");
         host.recognizeText(text -> {
             if (hasChallenge(text)) {
-                solve(next);
+                solve(new Attempt(1, System.currentTimeMillis() + ROUND_BUDGET_MS,
+                        tapTurnsClockwise, next));
             } else {
                 next.run();
             }
         });
     }
 
-    private void solve(Runnable next) {
-        FaceDetectorOptions options = new FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
-                .setMinFaceSize(0.05f)
-                .build();
-        orientTile(FaceDetection.getClient(options), 0, 0, next);
-    }
-
-    private void orientTile(FaceDetector detector, int tile, int clicks, Runnable next) {
-        if (tile == TILE_X.length) {
-            detector.close();
-            submit(next);
+    private void solve(Attempt attempt) {
+        if (attempt.round > MAX_ROUNDS || System.currentTimeMillis() > attempt.deadlineAt) {
+            giveUp(attempt);
             return;
         }
-        host.showProgress("反外挂：检查头像 " + (tile + 1) + "/" + TILE_X.length);
-        host.captureScreenshot(bitmap -> {
-            if (bitmap == null) {
-                host.postDelayed(() -> orientTile(detector, tile, clicks, next), 500);
+        host.showProgress("反外挂：识别头像方向（第 " + attempt.round + " 轮）");
+        host.captureScreenshot(screenshot -> {
+            if (screenshot == null) {
+                host.postDelayed(() -> solve(attempt), 500);
                 return;
             }
-            Bitmap face = cropTile(bitmap, tile);
-            bitmap.recycle();
-            detectFace(detector, face, upright -> {
-                DiagnosticLog.info("ANTI_CHEAT", "Tile=" + (tile + 1)
-                        + " clicks=" + clicks + " upright=" + upright);
-                TileDecision decision = decideTile(upright, clicks);
-                if (decision == TileDecision.NEXT_TILE) {
-                    orientTile(detector, tile + 1, 0, next);
-                    return;
-                }
-                if (decision == TileDecision.RECHECK_CHALLENGE) {
-                    detector.close();
-                    DiagnosticLog.info("ANTI_CHEAT",
-                            "Tile stayed unrecognized after one cycle; rechecking challenge");
-                    host.postDelayed(() -> checkThen(next), 500);
-                    return;
-                }
-                host.showProgress("反外挂：旋转头像 " + (tile + 1));
-                host.tapFast(TILE_X[tile], TILE_Y,
-                        () -> host.postDelayed(
-                                () -> orientTile(detector, tile, clicks + 1, next), 300));
+            List<Bitmap> tiles = new ArrayList<>();
+            for (int index = 0; index < TILE_X.length; index++) {
+                tiles.add(cropTile(screenshot, index));
+            }
+            screenshot.recycle();
+            FaceDetectorOptions options = new FaceDetectorOptions.Builder()
+                    .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                    .setMinFaceSize(0.05f)
+                    .build();
+            FaceDetector detector = FaceDetection.getClient(options);
+            findRotations(detector, tiles, new int[tiles.size()], 0, rotations -> {
+                detector.close();
+                turnTiles(tiles, rotations, attempt);
             });
         });
+    }
+
+    /** Finds, for every tile, the clockwise rotation that makes its portrait stand upright. */
+    private void findRotations(FaceDetector detector, List<Bitmap> tiles, int[] rotations,
+            int tile, Consumer<int[]> result) {
+        if (tile == tiles.size()) {
+            result.accept(rotations);
+            return;
+        }
+        scoreRotation(detector, tiles.get(tile), 0, UNKNOWN_ROTATION, 0, rotation -> {
+            rotations[tile] = rotation;
+            findRotations(detector, tiles, rotations, tile + 1, result);
+        });
+    }
+
+    /** Scores one rotation of a tile and keeps the orientation showing the largest face. */
+    private void scoreRotation(FaceDetector detector, Bitmap tile, int step,
+            int bestRotation, int bestArea, Consumer<Integer> result) {
+        if (step == 4) {
+            result.accept(bestRotation);
+            return;
+        }
+        Bitmap rotated = rotate(tile, step * 90);
+        detector.process(InputImage.fromBitmap(rotated, 0))
+                .addOnFailureListener(error -> DiagnosticLog.warn("ANTI_CHEAT",
+                        "Face detection failed: " + error.getMessage()))
+                .addOnCompleteListener(done -> {
+                    int area = done.isSuccessful() ? largestFaceArea(done.getResult()) : 0;
+                    if (rotated != tile) {
+                        rotated.recycle();
+                    }
+                    if (area > bestArea) {
+                        scoreRotation(detector, tile, step + 1, step * 90, area, result);
+                    } else {
+                        scoreRotation(detector, tile, step + 1, bestRotation, bestArea, result);
+                    }
+                });
+    }
+
+    private static int largestFaceArea(List<Face> faces) {
+        int largest = 0;
+        if (faces == null) {
+            return largest;
+        }
+        for (Face face : faces) {
+            Rect box = face.getBoundingBox();
+            largest = Math.max(largest, box.width() * box.height());
+        }
+        return largest;
+    }
+
+    private void turnTiles(List<Bitmap> tiles, int[] rotations, Attempt attempt) {
+        StringBuilder plan = new StringBuilder();
+        int totalTaps = 0;
+        attempt.allTilesRecognized = true;
+        for (int index = 0; index < rotations.length; index++) {
+            int taps = tapCount(rotations[index], attempt.clockwise);
+            totalTaps += taps;
+            if (rotations[index] == UNKNOWN_ROTATION) {
+                attempt.allTilesRecognized = false;
+                DiagnosticLog.saveScreenshot(tiles.get(index),
+                        "anticheat-unrecognized-tile" + (index + 1));
+            }
+            plan.append(index == 0 ? "" : " ")
+                    .append("tile").append(index + 1).append('=')
+                    .append(rotations[index] == UNKNOWN_ROTATION
+                            ? "?" : String.valueOf(rotations[index]))
+                    .append("/taps").append(taps);
+        }
+        for (Bitmap tile : tiles) {
+            tile.recycle();
+        }
+        attempt.turned = totalTaps > 0;
+        DiagnosticLog.info("ANTI_CHEAT", "round=" + attempt.round
+                + " clockwise=" + attempt.clockwise + " " + plan);
+        turnTile(rotations, 0, attempt, () -> submit(attempt));
+    }
+
+    private void turnTile(int[] rotations, int tile, Attempt attempt, Runnable done) {
+        if (tile == rotations.length) {
+            done.run();
+            return;
+        }
+        int taps = tapCount(rotations[tile], attempt.clockwise);
+        if (taps > 0) {
+            host.showProgress("反外挂：旋转头像 " + (tile + 1) + " ×" + taps);
+        }
+        tapTile(tile, taps, () -> turnTile(rotations, tile + 1, attempt, done));
+    }
+
+    private void tapTile(int tile, int remaining, Runnable done) {
+        if (remaining <= 0) {
+            done.run();
+            return;
+        }
+        host.tapFast(TILE_X[tile], TILE_Y, () -> host.postDelayed(
+                () -> tapTile(tile, remaining - 1, done), TAP_INTERVAL_MS));
     }
 
     private Bitmap cropTile(Bitmap screenshot, int tile) {
@@ -101,41 +203,63 @@ final class AntiCheatVerification {
         return scaled;
     }
 
-    private void detectFace(FaceDetector detector, Bitmap face,
-            java.util.function.Consumer<Boolean> result) {
-        Task<List<Face>> task = detector.process(InputImage.fromBitmap(face, 0));
-        task.addOnFailureListener(error -> DiagnosticLog.warn(
-                        "ANTI_CHEAT", "Face detection failed: " + error.getMessage()))
-                .addOnCompleteListener(done -> {
-                    boolean upright = done.isSuccessful() && !done.getResult().isEmpty();
-                    face.recycle();
-                    result.accept(upright);
-                });
+    private static Bitmap rotate(Bitmap tile, int degrees) {
+        if (degrees == 0) {
+            return tile;
+        }
+        Matrix matrix = new Matrix();
+        matrix.postRotate(degrees);
+        return Bitmap.createBitmap(tile, 0, 0, tile.getWidth(), tile.getHeight(), matrix, true);
     }
 
-    private void submit(Runnable next) {
+    private void submit(Attempt attempt) {
         host.showProgress("反外挂：提交验证");
         host.tapFast(VERIFY_X, VERIFY_Y,
-                () -> host.postDelayed(() -> confirmSolved(next, 0), 1_000));
+                () -> host.postDelayed(() -> confirmSolved(attempt, 0), 1_000));
     }
 
-    private void confirmSolved(Runnable next, int clearChecks) {
+    private void confirmSolved(Attempt attempt, int clearChecks) {
         host.recognizeText(text -> {
             if (hasChallenge(text)) {
-                solve(next);
+                // Only a round that recognised every tile and actually turned one says anything
+                // about the turning direction; otherwise keep the current guess.
+                boolean flip = attempt.turned && attempt.allTilesRecognized;
+                DiagnosticLog.info("ANTI_CHEAT", "round=" + attempt.round
+                        + " did not clear the challenge; flipDirection=" + flip);
+                solve(new Attempt(attempt.round + 1, attempt.deadlineAt,
+                        flip != attempt.clockwise, attempt.next));
             } else if (clearChecks == 0) {
-                host.postDelayed(() -> confirmSolved(next, 1), 500);
+                host.postDelayed(() -> confirmSolved(attempt, 1), 500);
             } else {
-                next.run();
+                if (attempt.turned && attempt.allTilesRecognized) {
+                    tapTurnsClockwise = attempt.clockwise;
+                }
+                DiagnosticLog.info("ANTI_CHEAT", "solved in round=" + attempt.round
+                        + " clockwise=" + attempt.clockwise);
+                attempt.next.run();
             }
         });
     }
 
-    static TileDecision decideTile(boolean upright, int clicks) {
-        if (upright) {
-            return TileDecision.NEXT_TILE;
+    private void giveUp(Attempt attempt) {
+        DiagnosticLog.warn("ANTI_CHEAT",
+                "Giving up after " + (attempt.round - 1) + " rounds; challenge still open");
+        host.captureScreenshot(screenshot -> {
+            if (screenshot != null) {
+                DiagnosticLog.saveScreenshot(screenshot, "anticheat-unsolved");
+                screenshot.recycle();
+            }
+            host.failAutomation("反外挂验证未通过");
+        });
+    }
+
+    /** Taps needed to turn a tile clockwise by {@code rotation} degrees. */
+    static int tapCount(int rotation, boolean clockwise) {
+        if (rotation == UNKNOWN_ROTATION) {
+            return 0;
         }
-        return clicks < 3 ? TileDecision.CLICK : TileDecision.RECHECK_CHALLENGE;
+        int steps = Math.floorMod(rotation / 90, 4);
+        return clockwise ? steps : Math.floorMod(-steps, 4);
     }
 
     static boolean hasChallenge(Text text) {
