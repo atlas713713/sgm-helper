@@ -2,8 +2,6 @@ package com.local.sgmhelper;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
-
 final class HeavenfallAutomation {
     private static final int MAP_CENTER_X = 300;
     private static final int MAP_CENTER_Y = 25;
@@ -109,15 +107,7 @@ final class HeavenfallAutomation {
     }
 
     private void findRedBoss(java.util.function.Consumer<BossAutomation.BossTarget> result) {
-        host.recognizeText(text -> host.captureScreenshot(bitmap -> {
-            try {
-                result.accept(bitmap == null ? null : BossAutomation.findRedBoss(text, bitmap));
-            } finally {
-                if (bitmap != null) {
-                    bitmap.recycle();
-                }
-            }
-        }));
+        host.recognizeRedBoss(result);
     }
 
     private boolean finishIfExpired() {

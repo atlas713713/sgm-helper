@@ -27,6 +27,8 @@ interface AutomationHost {
 
     void startAutomation(String progress, Runnable firstAction);
 
+    void startInGameAutomation(String progress, Runnable firstAction);
+
     void startPrimaryAutomation(PrimaryTask task, String progress, Runnable firstAction);
 
     void showProgress(String value);
@@ -86,9 +88,15 @@ interface AutomationHost {
 
     void recognizeText(Consumer<Text> result);
 
+    void recognizeRedBoss(Consumer<BossAutomation.BossTarget> result);
+
+    void recognizeHudChannel(Bitmap screenshot, Consumer<Integer> result);
+
     void recognizeMapCoordinate(Consumer<String> result);
 
     void recognizeBackpackCapacity(Consumer<String> result);
+
+    void recognizeYuanbaoQuickSell(Consumer<Boolean> result);
 
     void captureScreenshot(Consumer<Bitmap> result);
 
@@ -107,6 +115,8 @@ interface AutomationHost {
 
     void waitForText(String expected, int attempts, Runnable next);
 
+    void waitForMapReady(int attempts, Runnable next);
+
     default void closeWelfareWindow(Runnable next) {
         showProgress("关闭福利：关闭福利界面");
         tap(1225, 38, () -> {
@@ -114,6 +124,8 @@ interface AutomationHost {
             clickText("关闭界面", true, next, 5, next);
         });
     }
+
+    void claimWelfare(Runnable next);
 
     void closeAutoPathPanel(Runnable next);
 

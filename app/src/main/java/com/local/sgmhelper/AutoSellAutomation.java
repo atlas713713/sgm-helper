@@ -17,7 +17,8 @@ final class AutoSellAutomation {
     }
 
     void start(Runnable next) {
-        host.startAutomation("Auto sell: opening game", () -> recycleYuanbao(next));
+        host.startInGameAutomation(
+                "Auto sell: starting", () -> recycleYuanbao(next, true));
     }
 
     void checkNearlyFull(int minimumFreeSlots, Consumer<Boolean> result) {
@@ -96,45 +97,64 @@ final class AutoSellAutomation {
         return firstNearlyFull == secondNearlyFull ? firstNearlyFull : null;
     }
 
-    private void recycleYuanbao(Runnable next) {
+    private void recycleYuanbao(Runnable next, boolean quickSellRetryAvailable) {
         host.showProgress("Auto sell: opening yuanbao recycle");
         host.ensureGameHudVisible(() -> host.tap(1215, 58,
                 () -> host.swipe(1120, 500, 1120, 250,
                         () -> host.clickText("元宝回收", true,
-                                () -> sellGoldYuanbao(next), 3, () -> {
+                                () -> sellGoldYuanbao(next, quickSellRetryAvailable),
+                                3, () -> {
                                     DiagnosticLog.warn("AUTO_SELL",
                                             "Yuanbao recycle OCR missed; using menu position");
                                     host.showProgress(
                                             "Auto sell: opening yuanbao recycle by position");
                                     host.tap(1190, 465,
-                                            () -> sellGoldYuanbao(next));
+                                            () -> sellGoldYuanbao(
+                                                    next, quickSellRetryAvailable));
                                 }))));
     }
 
-    private void sellGoldYuanbao(Runnable next) {
+    private void sellGoldYuanbao(Runnable next, boolean quickSellRetryAvailable) {
         host.showProgress("Auto sell: recycling gold yuanbao equipment");
         host.tap(450, 105,
                 () -> quickSellYuanbao(() -> host.waitForText("元宝回收", 5,
-                        () -> sellSilverYuanbao(next))));
+                        () -> sellSilverYuanbao(next, quickSellRetryAvailable)),
+                        next, quickSellRetryAvailable));
     }
 
-    private void sellSilverYuanbao(Runnable next) {
+    private void sellSilverYuanbao(Runnable next, boolean quickSellRetryAvailable) {
         host.showProgress("Auto sell: recycling silver yuanbao equipment");
         host.tap(575, 105,
                 () -> quickSellYuanbao(() -> host.tap(1233, 55, () -> {
                     host.showProgress("Auto sell: yuanbao recycle completed");
                     returnToTown(next);
-                })));
+                }), next, quickSellRetryAvailable));
     }
 
-    private void quickSellYuanbao(Runnable next) {
-        host.clickText("快速贩卖装备", true, () -> {
-            host.showProgress("Auto sell: confirming yuanbao equipment sale");
-            host.clickText("确定贩卖", false, () -> {
-                host.showProgress("Auto sell: closing quick sale");
-                host.tap(1233, 55, next);
-            }, 5);
-        }, 5);
+    private void quickSellYuanbao(
+            Runnable afterSale, Runnable afterRecycle, boolean retryAvailable) {
+        host.showProgress("Auto sell: recognizing quick sale button");
+        host.recognizeYuanbaoQuickSell(found -> {
+            if (!found) {
+                if (retryAvailable) {
+                    DiagnosticLog.warn("AUTO_SELL",
+                            "Quick sale ROI OCR missed; closing and retrying once");
+                    host.showProgress("Auto sell: reopening yuanbao recycle once");
+                    host.tap(1233, 55,
+                            () -> recycleYuanbao(afterRecycle, false));
+                } else {
+                    host.failAutomation("Screen text was not found: 快速贩卖装备");
+                }
+                return;
+            }
+            host.tap(495, 621, () -> {
+                host.showProgress("Auto sell: confirming yuanbao equipment sale");
+                host.clickText("确定贩卖", false, () -> {
+                    host.showProgress("Auto sell: closing quick sale");
+                    host.tap(1233, 55, afterSale);
+                }, 5);
+            });
+        });
     }
 
     private void returnToTown(Runnable next) {
@@ -158,7 +178,13 @@ final class AutoSellAutomation {
     private void selectInn(Runnable next) {
         host.showProgress("Auto sell: selecting Inn");
         host.clickRightText("客栈", () -> waitForInn(next), 5,
-                () -> host.failAutomation("Auto sell: Inn was not found"));
+                () -> {
+                    host.showProgress("Auto sell: scrolling to Inn");
+                    host.swipe(1100, 390, 1100, 250,
+                            () -> host.clickRightText("客栈", () -> waitForInn(next), 5,
+                                    () -> host.failAutomation(
+                                            "Auto sell: Inn was not found after scrolling")));
+                });
     }
 
     private void waitForInn(Runnable next) {

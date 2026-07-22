@@ -66,15 +66,17 @@ final class DiagnosticLog {
     }
 
     private static String simulatorName(String androidId) {
-        if ("077e5a706d186981".equals(androidId)) {
+        if ("e8bc951d645bea2c".equals(androidId)
+                || "5fe0495ccad09f13".equals(androidId)) {
             return "地球瘦子";
         }
-        if ("d30b62f2263b6d49".equals(androidId)) {
+        if ("82b65b00b0a740bd".equals(androidId)
+                || "0944ab5bedb6535a".equals(androidId)) {
             return "栗威";
         }
-        if ("60377771f3d25b63".equals(androidId)
-                || "81efa78434210a97".equals(androidId)) {
-            return "地球";
+        if ("81efa78434210a97".equals(androidId)
+                || "60377771f3d25b63".equals(androidId)) {
+            return "米饭";
         }
         return "未知模拟器";
     }

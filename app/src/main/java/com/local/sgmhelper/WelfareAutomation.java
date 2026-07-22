@@ -17,7 +17,6 @@ final class WelfareAutomation {
     private static final int MAX_PAGES = 4;
     private static final int TOP_SWIPES = 4;
     private final AutomationHost host;
-    private final TrainingAutomation trainingAutomation;
     private final List<WelfareCategory> categories = List.of(
             new HeroesStoreCategory(),
             new OnlineRewardCategory(),
@@ -27,14 +26,20 @@ final class WelfareAutomation {
             new HeroesGloryCategory(),
             new DailySupportCategory());
     private final Set<String> processed = new HashSet<>();
+    private Runnable completion;
 
-    WelfareAutomation(AutomationHost host, TrainingAutomation trainingAutomation) {
+    WelfareAutomation(AutomationHost host) {
         this.host = host;
-        this.trainingAutomation = trainingAutomation;
     }
 
     void start() {
+        completion = host::resumePrimaryTask;
         host.startAutomation("领取福利：打开游戏", this::begin);
+    }
+
+    void startInGame(Runnable next) {
+        completion = next;
+        begin();
     }
 
     private void begin() {
@@ -130,8 +135,8 @@ final class WelfareAutomation {
 
     private void finish() {
         Runnable resume = () -> {
-            host.showProgress("领取福利完成，10秒后恢复练级");
-            host.postDelayed(trainingAutomation::start, 10_000);
+            host.showProgress("领取福利完成，10秒后继续之前任务");
+            host.postDelayed(completion, 10_000);
         };
         host.closeWelfareWindow(resume);
     }

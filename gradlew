@@ -114,7 +114,11 @@ case "$( uname )" in                #(
   NONSTOP* )        nonstop=true ;;
 esac
 
-
+# Use this Mac's stable Homebrew JDK when no Java environment is configured.
+if [ -z "$JAVA_HOME" ] && [ -x /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin/java ]; then
+    JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+    export JAVA_HOME
+fi
 
 # Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then

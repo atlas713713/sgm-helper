@@ -36,14 +36,18 @@ public final class HelperAccessibilityServiceTest {
 
     @Test
     public void createsOneSafeLogFilePerSimulator() {
-        assertEquals("sgmhelper-地球瘦子-077e5a706d186981.log",
-                DiagnosticLog.logFileName("077e5a706d186981"));
-        assertEquals("sgmhelper-栗威-d30b62f2263b6d49.log",
-                DiagnosticLog.logFileName("d30b62f2263b6d49"));
-        assertEquals("sgmhelper-地球-60377771f3d25b63.log",
-                DiagnosticLog.logFileName("60377771f3d25b63"));
-        assertEquals("sgmhelper-地球-81efa78434210a97.log",
+        assertEquals("sgmhelper-地球瘦子-e8bc951d645bea2c.log",
+                DiagnosticLog.logFileName("e8bc951d645bea2c"));
+        assertEquals("sgmhelper-栗威-82b65b00b0a740bd.log",
+                DiagnosticLog.logFileName("82b65b00b0a740bd"));
+        assertEquals("sgmhelper-米饭-81efa78434210a97.log",
                 DiagnosticLog.logFileName("81efa78434210a97"));
+        assertEquals("sgmhelper-地球瘦子-5fe0495ccad09f13.log",
+                DiagnosticLog.logFileName("5fe0495ccad09f13"));
+        assertEquals("sgmhelper-栗威-0944ab5bedb6535a.log",
+                DiagnosticLog.logFileName("0944ab5bedb6535a"));
+        assertEquals("sgmhelper-米饭-60377771f3d25b63.log",
+                DiagnosticLog.logFileName("60377771f3d25b63"));
         assertEquals("sgmhelper-未知模拟器-unsafe_id.log",
                 DiagnosticLog.logFileName("unsafe/id"));
     }
@@ -209,8 +213,27 @@ public final class HelperAccessibilityServiceTest {
     @Test
     public void isolatesWhiteCapacityTextFromColoredGameBackground() {
         assertTrue(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFFF8F8F8));
+        assertTrue(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFFAAAAAA));
         assertFalse(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFF91C2EF));
         assertFalse(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFFE1B743));
+    }
+
+    @Test
+    public void recognizesQuickSaleOnlyInsideItsFixedButtonCrop() {
+        assertTrue(HelperAccessibilityService.matchesYuanbaoQuickSell(
+                "快速\n贩卖装备"));
+        assertTrue(HelperAccessibilityService.matchesYuanbaoQuickSell(
+                "快速 贩卖"));
+        assertFalse(HelperAccessibilityService.matchesYuanbaoQuickSell(
+                "批次贩卖"));
+        assertFalse(HelperAccessibilityService.matchesYuanbaoQuickSell(null));
+    }
+
+    @Test
+    public void recognizesTheFixedMapButtonAfterUpscaledOcr() {
+        assertTrue(HelperAccessibilityService.isMapButtonText("地 图"));
+        assertTrue(HelperAccessibilityService.isMapButtonText("地图"));
+        assertFalse(HelperAccessibilityService.isMapButtonText("商城"));
     }
 
     @Test
@@ -424,6 +447,49 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void classifiesOnlyKnownHudBlockers() {
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("指挥命令", "发布对象", "作战内容")));
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("军团", "公告", "主页", "成员")));
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("信件", "全部领取", "全部删除", "附件")));
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("副本快速通关奖励", "剩余29",
+                        "全部领取", "全部删除")));
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("副本快速通关奖励", "利余29",
+                        "全部领取", "全都刪除", "13/100")));
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("能力资料", "装备资料", "传家宝")));
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("能カ资料 装备资料", "传家宝")));
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("任务", "进行中", "可承接")));
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("敌人", "寻路", "炼造房", "客栈")));
+        assertEquals(ScreenGuard.Blocker.GAME_WINDOW,
+                ScreenGuard.blockerFor(Arrays.asList("名称", "职业", "所在地",
+                        "点击此处增加队伍成员")));
+        assertEquals(ScreenGuard.Blocker.DEFEATED,
+                ScreenGuard.blockerFor(Arrays.asList("角色被击倒，自动功能已停止。", "确定")));
+        assertEquals(ScreenGuard.Blocker.DEFEATED,
+                ScreenGuard.blockerFor(Arrays.asList("地球胖子想要帮你复活，接受吗？", "确定")));
+        assertEquals(ScreenGuard.Blocker.DISCONNECTED,
+                ScreenGuard.blockerFor(Arrays.asList("与地图服务器失去联机。是否立刻尝试重连？", "确定")));
+        assertEquals(ScreenGuard.Blocker.DUPLICATE_LOGIN,
+                ScreenGuard.blockerFor(Arrays.asList("相同账号已在其他设备上登录", "确定", "开始游戏")));
+        assertEquals(ScreenGuard.Blocker.ANTI_CHEAT,
+                ScreenGuard.blockerFor(Arrays.asList("反外挂验证", "请点击下方图片，旋转至正确方向")));
+        assertEquals(ScreenGuard.Blocker.NONE,
+                ScreenGuard.blockerFor(Arrays.asList("商城", "福利", "竞技场", "菜单")));
+        assertEquals(ScreenGuard.Blocker.NONE,
+                ScreenGuard.blockerFor(Arrays.asList("信件", "军团任务", "你获得布匹")));
+        assertEquals(ScreenGuard.Blocker.NONE,
+                ScreenGuard.blockerFor(Arrays.asList("经验分配", "均分", "离开", "管理")));
+    }
+
+    @Test
     public void recognizesEveryLoginScreenBeforeTheCoveredStartButton() {
         assertEquals(LoginAutomation.Screen.ANNOUNCEMENT,
                 LoginAutomation.screenFor(Arrays.asList("最新公告", "今日内不再弹出")));
@@ -487,6 +553,23 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(Integer.valueOf(8), BossAutomation.parseChannel("临渊道·分流8"));
         assertEquals(Integer.valueOf(1), BossAutomation.parseChannel("分流\n1"));
         assertNull(BossAutomation.parseChannel("第9分流"));
+        assertEquals(Integer.valueOf(3), BossAutomation.parseLeaderChannel("3"));
+        assertEquals(Integer.valueOf(7), BossAutomation.parseLeaderChannel("分流7"));
+        assertNull(BossAutomation.parseLeaderChannel("63/72"));
+        assertTrue(BossAutomation.isPartyManageDialogText(
+                "名称  职业  等级  所在地  分流  操作"));
+        assertTrue(BossAutomation.isPartyManageDialogText(
+                "点击此处增加队伍成员"));
+        assertFalse(BossAutomation.isPartyManageDialogText(
+                "经验分配 均分 离开 管理"));
+        assertEquals(Integer.valueOf(8),
+                HelperAccessibilityService.parseHudChannelContext("国分流8"));
+        assertEquals(Integer.valueOf(8),
+                HelperAccessibilityService.parseHudChannelContext(
+                        "S4白虎(4、7国分流8"));
+        assertEquals(Integer.valueOf(2),
+                HelperAccessibilityService.parseHudChannelContext("分流 2"));
+        assertNull(HelperAccessibilityService.parseHudChannelContext("9"));
         assertEquals(4, ChannelSwitcher.nextChannel(3));
         assertEquals(1, ChannelSwitcher.nextChannel(8));
         assertTrue(BossAutomation.isChannelSelectionGold(180, 130, 45));
@@ -503,6 +586,8 @@ public final class HelperAccessibilityServiceTest {
                 20, 80, 4, 12, 100, 20));
         assertFalse(BossAutomation.hasRedTextDistribution(
                 30, 100, 30, 10, 100, 20));
+        assertEquals(10, BossAutomation.toOriginalStart(30, 3));
+        assertEquals(31, BossAutomation.toOriginalEnd(91, 3));
     }
 
     @Test
@@ -573,11 +658,14 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void checksLeaderChannelOnlyForAGrayPortrait() {
-        assertTrue(BossAutomation.isLeaderPortraitGray(0));
-        assertTrue(BossAutomation.isLeaderPortraitGray(11));
-        assertFalse(BossAutomation.isLeaderPortraitGray(12));
-        assertFalse(BossAutomation.isLeaderPortraitGray(23));
+    public void followsWudangCaptainSlotAndPortraitThresholds() {
+        assertEquals(0, TeamFollowerVision.captainSlotForFlagCenter(28));
+        assertEquals(1, TeamFollowerVision.captainSlotForFlagCenter(80));
+        assertEquals(2, TeamFollowerVision.captainSlotForFlagCenter(132));
+        assertEquals(-1, TeamFollowerVision.captainSlotForFlagCenter(300));
+        assertFalse(TeamFollowerVision.isSameMap(0.199));
+        assertTrue(TeamFollowerVision.isSameMap(0.20));
+        assertTrue(TeamFollowerVision.isSameMap(0.75));
     }
 
     @Test

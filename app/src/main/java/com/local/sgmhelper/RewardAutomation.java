@@ -5,11 +5,9 @@ import android.graphics.Color;
 
 final class RewardAutomation {
     private final AutomationHost host;
-    private final TrainingAutomation trainingAutomation;
 
-    RewardAutomation(AutomationHost host, TrainingAutomation trainingAutomation) {
+    RewardAutomation(AutomationHost host) {
         this.host = host;
-        this.trainingAutomation = trainingAutomation;
     }
 
     void startWorship() {
@@ -81,8 +79,8 @@ final class RewardAutomation {
     }
 
     private void resumeTraining() {
-        host.showProgress("军团奖励已完成，10秒后恢复练级");
-        host.postDelayed(trainingAutomation::start, 10_000);
+        host.showProgress("军团奖励已完成，10秒后恢复主要任务");
+        host.postDelayed(host::resumePrimaryTask, 10_000);
     }
 
     static boolean hasRankingIcon(Bitmap bitmap) {

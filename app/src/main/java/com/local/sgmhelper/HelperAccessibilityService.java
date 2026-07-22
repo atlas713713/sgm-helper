@@ -122,11 +122,11 @@ public final class HelperAccessibilityService extends AccessibilityService
     private final AutoSellAutomation autoSellAutomation = new AutoSellAutomation(this);
     private final TaskAutomation taskAutomation =
             new TaskAutomation(this, this::startTrainingWithOptionalRevival);
-    private final RewardAutomation rewardAutomation =
-            new RewardAutomation(this, trainingAutomation);
-    private final WelfareAutomation welfareAutomation =
-            new WelfareAutomation(this, trainingAutomation);
+    private final RewardAutomation rewardAutomation = new RewardAutomation(this);
+    private final WelfareAutomation welfareAutomation = new WelfareAutomation(this);
     private final LoginAutomation loginAutomation = new LoginAutomation(this);
+    private final AntiCheatVerification hudAntiCheatVerification =
+            new AntiCheatVerification(this);
     private final DungeonSweepAutomation dungeonSweepAutomation =
             new DungeonSweepAutomation(this);
     private final BossAutomation bossAutomation = new BossAutomation(this);
@@ -1113,15 +1113,26 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     void startScheduledLegionReward() {
-        rewardAutomation.startLegionReward();
+        startPriorityScheduledTask("军团福利", rewardAutomation::startLegionReward);
     }
 
     void startScheduledWelfare() {
-        welfareAutomation.start();
+        startPriorityScheduledTask("自动领福利", welfareAutomation::start);
     }
 
     void startScheduledHeavenfall() {
-        heavenfallAutomation.start();
+        startPriorityScheduledTask("天降", heavenfallAutomation::start);
+    }
+
+    private void startPriorityScheduledTask(String name, Runnable start) {
+        DiagnosticLog.info("SCHEDULE", name + " taking priority; primary task="
+                + primaryTaskLabel(primaryTask));
+        handler.removeCallbacksAndMessages(null);
+        stopInventoryMonitoring();
+        inventorySelling = false;
+        automationRunning = false;
+        clearAutomationRecovery();
+        start.run();
     }
 
     void startScheduledDungeon() {
@@ -1195,6 +1206,17 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public void startAutomation(String progress, Runnable firstAction) {
         startScheduledAutomation(progress, firstAction);
+    }
+
+    @Override
+    public void startInGameAutomation(String progress, Runnable firstAction) {
+        if (!prepareWorshipAutomation()) {
+            return;
+        }
+        showProgress(progress);
+        currentAutomationAction = firstAction;
+        automationRecoveryAttempts = 0;
+        firstAction.run();
     }
 
     @Override
@@ -1412,16 +1434,30 @@ public final class HelperAccessibilityService extends AccessibilityService
         ensureGameHudVisible(next, TEXT_RETRY_COUNT);
     }
 
-    private void ensureGameHudVisible(Runnable next, int remainingAttempts) {
-        showProgress("准备游戏画面：关闭遮挡窗口（1/2）");
-        performTap(640, 20, () -> {
-            showProgress("准备游戏画面：关闭遮挡窗口（2/2）");
-            performTap(640, 20,
-                    () -> closeBlockingWindowIfNeeded(next, remainingAttempts));
-        });
+    @Override
+    public void claimWelfare(Runnable next) {
+        welfareAutomation.startInGame(next);
     }
 
-    private void closeBlockingWindowIfNeeded(Runnable next, int remainingAttempts) {
+    private void ensureGameHudVisible(Runnable next, int remainingAttempts) {
+        if (!automationRunning) {
+            return;
+        }
+        int attempt = TEXT_RETRY_COUNT - remainingAttempts + 1;
+        if (menuView != null) {
+            DiagnosticLog.info("SCREEN_GUARD", "state=ASSISTANT_MENU action=close attempt="
+                    + attempt);
+            showProgress("准备游戏画面：关闭助手菜单");
+            closeMenu();
+            retryGameHudGuard(next, remainingAttempts, "助手菜单未关闭");
+            return;
+        }
+        showProgress("准备游戏画面：检查遮挡窗口");
+        closeBlockingWindowIfNeeded(next, remainingAttempts, attempt);
+    }
+
+    private void closeBlockingWindowIfNeeded(
+            Runnable next, int remainingAttempts, int attempt) {
         recognizeScreenText(text -> {
             if (!automationRunning) {
                 return;
@@ -1432,27 +1468,114 @@ public final class HelperAccessibilityService extends AccessibilityService
                     values.add(line.getText());
                 }
             }
+            ScreenGuard.Blocker blocker = ScreenGuard.blockerFor(values);
+            DiagnosticLog.info("SCREEN_GUARD", "state=" + blocker
+                    + " attempt=" + attempt);
+            if (blocker == ScreenGuard.Blocker.DUPLICATE_LOGIN) {
+                failGameHudGuard("相同账号已在其他设备上登录");
+                return;
+            }
+            if (remainingAttempts <= 1 && blocker != ScreenGuard.Blocker.NONE) {
+                failGameHudGuard("连续尝试后仍无法关闭遮挡窗口：" + blocker);
+                return;
+            }
+            if (blocker == ScreenGuard.Blocker.DISCONNECTED) {
+                DiagnosticLog.info("SCREEN_GUARD", "state=DISCONNECTED action=reconnect");
+                showProgress("准备游戏画面：重连地图服务器");
+                clickScreenText("确定", true,
+                        () -> handler.postDelayed(
+                                () -> ensureGameHudVisible(
+                                        next, remainingAttempts - 1),
+                                8_000),
+                        3, () -> failGameHudGuard("地图掉线弹窗无法确认"));
+                return;
+            }
+            if (blocker == ScreenGuard.Blocker.DEFEATED) {
+                DiagnosticLog.info("SCREEN_GUARD", "state=DEFEATED action=confirm");
+                showProgress("准备游戏画面：关闭角色被击倒提示");
+                clickScreenText("确定", true,
+                        () -> retryGameHudGuard(next, remainingAttempts,
+                                "角色被击倒提示未关闭"),
+                        3, () -> retryGameHudGuard(next, remainingAttempts,
+                                "角色被击倒提示无法确认"));
+                return;
+            }
+            if (blocker == ScreenGuard.Blocker.ANTI_CHEAT) {
+                DiagnosticLog.info("SCREEN_GUARD", "state=ANTI_CHEAT action=solve");
+                hudAntiCheatVerification.checkThen(
+                        () -> retryGameHudGuard(next, remainingAttempts,
+                                "反外挂验证未清除"));
+                return;
+            }
+            if (blocker == ScreenGuard.Blocker.GAME_WINDOW) {
+                DiagnosticLog.info("SCREEN_GUARD", "state=GAME_WINDOW action=back");
+                showProgress("准备游戏画面：关闭游戏窗口");
+                if (!performGlobalAction(GLOBAL_ACTION_BACK)) {
+                    failGameHudGuard("无法发送返回键关闭游戏窗口");
+                } else {
+                    retryGameHudGuard(next, remainingAttempts, "游戏窗口未关闭");
+                }
+                return;
+            }
+
             LoginAutomation.Screen screen = LoginAutomation.screenFor(values);
             if (screen == LoginAutomation.Screen.REWARD_RECOVERY) {
                 if (remainingAttempts > 1) {
+                    DiagnosticLog.info("SCREEN_GUARD",
+                            "state=REWARD_RECOVERY action=close");
                     showProgress("准备游戏画面：关闭奖励找回");
                     performTap(1092, 42, () -> ensureGameHudVisible(
                             next, remainingAttempts - 1));
                 } else {
-                    failAutomation("奖励找回窗口未关闭");
+                    failGameHudGuard("奖励找回窗口未关闭");
                 }
-            } else if (screen == LoginAutomation.Screen.WELFARE
-                    || screen == LoginAutomation.Screen.UNCLAIMED_REWARDS) {
+            } else if (screen == LoginAutomation.Screen.WELFARE) {
                 if (remainingAttempts > 1) {
+                    DiagnosticLog.info("SCREEN_GUARD", "state=" + screen
+                            + " action=close");
                     closeWelfareWindow(() -> ensureGameHudVisible(
                             next, remainingAttempts - 1));
                 } else {
-                    failAutomation("福利窗口未关闭");
+                    failGameHudGuard("福利窗口未关闭");
                 }
-            } else {
+            } else if (screen == LoginAutomation.Screen.UNCLAIMED_REWARDS) {
+                if (remainingAttempts > 1) {
+                    DiagnosticLog.info("SCREEN_GUARD",
+                            "state=UNCLAIMED_REWARDS action=close_then_claim");
+                    closeWelfareWindow(() -> claimWelfare(
+                            () -> ensureGameHudVisible(next, remainingAttempts - 1)));
+                } else {
+                    failGameHudGuard("未领取奖励窗口未关闭");
+                }
+            } else if (screen == LoginAutomation.Screen.LOGGED_IN) {
+                DiagnosticLog.info("SCREEN_GUARD", "state=CLEAN_HUD action=continue");
                 next.run();
+            } else if (screen == LoginAutomation.Screen.UNKNOWN) {
+                DiagnosticLog.info("SCREEN_GUARD", "state=UNKNOWN action=wait");
+                retryGameHudGuard(next, remainingAttempts,
+                        "无法识别干净游戏画面");
+            } else {
+                DiagnosticLog.info("SCREEN_GUARD", "state=" + screen
+                        + " action=login");
+                loginAutomation.start(next);
             }
         });
+    }
+
+    private void retryGameHudGuard(
+            Runnable next, int remainingAttempts, String failureMessage) {
+        if (remainingAttempts > 1) {
+            handler.postDelayed(
+                    () -> ensureGameHudVisible(next, remainingAttempts - 1),
+                    ACTION_DELAY_MS);
+        } else {
+            failGameHudGuard(failureMessage);
+        }
+    }
+
+    private void failGameHudGuard(String message) {
+        currentAutomationAction = null;
+        failAutomation("游戏画面恢复失败：" + message);
     }
 
     private void ensureAutoAttackState(
@@ -1524,7 +1647,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public void openAutoPathPanel(Runnable next) {
         showProgress("打开自动寻路栏");
-        performTap(1130, 500,
+        performTap(1150, 500,
                 () -> waitForAutoPathPanel(next, TEXT_RETRY_COUNT));
     }
 
@@ -1610,6 +1733,88 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void recognizeRedBoss(Consumer<BossAutomation.BossTarget> result) {
+        captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                result.accept(null);
+                return;
+            }
+            int left = 920 * bitmap.getWidth() / 1280;
+            Bitmap cropped = Bitmap.createBitmap(
+                    bitmap, left, 0, bitmap.getWidth() - left, bitmap.getHeight());
+            bitmap.recycle();
+            int scale = 3;
+            Bitmap enlarged = Bitmap.createScaledBitmap(
+                    cropped, cropped.getWidth() * scale,
+                    cropped.getHeight() * scale, true);
+
+            if (textRecognizer == null) {
+                textRecognizer = TextRecognition.getClient(
+                        new ChineseTextRecognizerOptions.Builder().build());
+            }
+            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
+                    .addOnSuccessListener(text -> result.accept(
+                            BossAutomation.findRedBoss(text, cropped, left, scale)))
+                    .addOnFailureListener(error -> {
+                        DiagnosticLog.error("OCR", "Red boss recognition failed", error);
+                        failAutomation("红名 BOSS 识别失败");
+                    })
+                    .addOnCompleteListener(task -> {
+                        enlarged.recycle();
+                        cropped.recycle();
+                    });
+        });
+    }
+
+    @Override
+    public void recognizeHudChannel(Bitmap screenshot, Consumer<Integer> result) {
+        if (screenshot == null) {
+            result.accept(null);
+            return;
+        }
+        int left = 1190 * screenshot.getWidth() / 1280;
+        int top = 690 * screenshot.getHeight() / 720;
+        int right = 1250 * screenshot.getWidth() / 1280;
+        int bottom = 716 * screenshot.getHeight() / 720;
+        Bitmap context = Bitmap.createBitmap(
+                screenshot, left, top, right - left, bottom - top);
+        screenshot.recycle();
+        Bitmap enlarged = Bitmap.createScaledBitmap(
+                context, context.getWidth() * 5, context.getHeight() * 5, true);
+        context.recycle();
+        if (textRecognizer == null) {
+            textRecognizer = TextRecognition.getClient(
+                    new ChineseTextRecognizerOptions.Builder().build());
+        }
+        textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
+                .addOnSuccessListener(text -> {
+                    Integer channel = parseHudChannelContext(text.getText());
+                    DiagnosticLog.info("BOSS", "HUD channel context OCR='"
+                            + text.getText().replace('\n', ' ') + "' parsed=" + channel);
+                    result.accept(channel);
+                })
+                .addOnFailureListener(error -> {
+                    DiagnosticLog.warn("BOSS", "HUD channel context OCR failed: "
+                            + error.getMessage());
+                    result.accept(null);
+                })
+                .addOnCompleteListener(task -> enlarged.recycle());
+    }
+
+    static Integer parseHudChannelContext(String value) {
+        Integer channel = null;
+        if (value != null) {
+            for (int index = 0; index < value.length(); index++) {
+                int digit = value.charAt(index) - '0';
+                if (digit >= 1 && digit <= 8) {
+                    channel = digit;
+                }
+            }
+        }
+        return channel;
+    }
+
+    @Override
     public void recognizeMapCoordinate(Consumer<String> result) {
         captureScreenshot(bitmap -> {
             if (bitmap == null) {
@@ -1649,47 +1854,124 @@ public final class HelperAccessibilityService extends AccessibilityService
                 result.accept("");
                 return;
             }
-            int left = 1088 * bitmap.getWidth() / 1280;
-            int top = 66 * bitmap.getHeight() / 720;
-            int right = 1176 * bitmap.getWidth() / 1280;
-            int bottom = 98 * bitmap.getHeight() / 720;
+            int left = 1060 * bitmap.getWidth() / 1280;
+            int top = 55 * bitmap.getHeight() / 720;
+            int right = 1195 * bitmap.getWidth() / 1280;
+            int bottom = 110 * bitmap.getHeight() / 720;
             Bitmap cropped = Bitmap.createBitmap(
                     bitmap, left, top, right - left, bottom - top);
             bitmap.recycle();
-            int width = cropped.getWidth();
-            int height = cropped.getHeight();
-            int[] pixels = new int[width * height];
-            cropped.getPixels(pixels, 0, width, 0, 0, width, height);
-            for (int index = 0; index < pixels.length; index++) {
-                pixels[index] = isBackpackCapacityTextPixel(pixels[index])
-                        ? Color.BLACK : Color.WHITE;
-            }
-            Bitmap cleaned = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            cleaned.setPixels(pixels, 0, width, 0, 0, width, height);
-            cropped.recycle();
             Bitmap enlarged = Bitmap.createScaledBitmap(
-                    cleaned, width * 8, height * 8, false);
-            cleaned.recycle();
+                    cropped, cropped.getWidth() * 6, cropped.getHeight() * 6, true);
 
             if (textRecognizer == null) {
                 textRecognizer = TextRecognition.getClient(
                         new ChineseTextRecognizerOptions.Builder().build());
             }
             textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> result.accept(text.getText()))
+                    .addOnSuccessListener(text -> {
+                        String value = text.getText();
+                        DiagnosticLog.info("AUTO_SELL",
+                                "Backpack original OCR='" + normalizeText(value) + "'");
+                        if (AutoSellAutomation.parseCapacity(value) != null) {
+                            cropped.recycle();
+                            result.accept(value);
+                        } else {
+                            recognizeBackpackCapacityBinary(cropped, result);
+                        }
+                    })
                     .addOnFailureListener(error -> {
                         DiagnosticLog.warn("AUTO_SELL",
-                                "Backpack OCR failed: " + error.getMessage());
-                        result.accept("");
+                                "Backpack original OCR failed: " + error.getMessage());
+                        recognizeBackpackCapacityBinary(cropped, result);
                     })
                     .addOnCompleteListener(task -> enlarged.recycle());
         });
     }
 
+    private void recognizeBackpackCapacityBinary(Bitmap cropped, Consumer<String> result) {
+        int width = cropped.getWidth();
+        int height = cropped.getHeight();
+        int[] pixels = new int[width * height];
+        cropped.getPixels(pixels, 0, width, 0, 0, width, height);
+        cropped.recycle();
+        for (int index = 0; index < pixels.length; index++) {
+            pixels[index] = isBackpackCapacityTextPixel(pixels[index])
+                    ? Color.BLACK : Color.WHITE;
+        }
+        Bitmap cleaned = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        cleaned.setPixels(pixels, 0, width, 0, 0, width, height);
+        Bitmap enlarged = Bitmap.createScaledBitmap(cleaned, width * 8, height * 8, false);
+        cleaned.recycle();
+
+        textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
+                .addOnSuccessListener(text -> {
+                    String value = text.getText();
+                    DiagnosticLog.info("AUTO_SELL",
+                            "Backpack binary OCR='" + normalizeText(value) + "'");
+                    result.accept(value);
+                })
+                .addOnFailureListener(error -> {
+                    DiagnosticLog.warn("AUTO_SELL",
+                            "Backpack binary OCR failed: " + error.getMessage());
+                    result.accept("");
+                })
+                .addOnCompleteListener(task -> enlarged.recycle());
+    }
+
+    @Override
+    public void recognizeYuanbaoQuickSell(Consumer<Boolean> result) {
+        captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                result.accept(false);
+                return;
+            }
+            int left = 395 * bitmap.getWidth() / 1280;
+            int top = 595 * bitmap.getHeight() / 720;
+            int right = 600 * bitmap.getWidth() / 1280;
+            int bottom = 645 * bitmap.getHeight() / 720;
+            Bitmap cropped = Bitmap.createBitmap(
+                    bitmap, left, top, right - left, bottom - top);
+            bitmap.recycle();
+            Bitmap enlarged = Bitmap.createScaledBitmap(
+                    cropped, cropped.getWidth() * 4, cropped.getHeight() * 4, true);
+            cropped.recycle();
+
+            if (textRecognizer == null) {
+                textRecognizer = TextRecognition.getClient(
+                        new ChineseTextRecognizerOptions.Builder().build());
+            }
+            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
+                    .addOnSuccessListener(text -> {
+                        String value = text.getText();
+                        boolean matched = matchesYuanbaoQuickSell(value);
+                        DiagnosticLog.info("AUTO_SELL",
+                                "quick sale ROI OCR='" + normalizeText(value)
+                                        + "' matched=" + matched);
+                        result.accept(matched);
+                    })
+                    .addOnFailureListener(error -> {
+                        DiagnosticLog.warn("AUTO_SELL",
+                                "Quick sale ROI OCR failed: " + error.getMessage());
+                        result.accept(false);
+                    })
+                    .addOnCompleteListener(task -> enlarged.recycle());
+        });
+    }
+
+    static boolean matchesYuanbaoQuickSell(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = normalizeText(value);
+        return normalized.contains("快速贩卖装备")
+                || normalized.contains("快速") && normalized.contains("贩卖");
+    }
+
     static boolean isBackpackCapacityTextPixel(int color) {
-        return ((color >> 16) & 0xFF) >= 200
-                && ((color >> 8) & 0xFF) >= 200
-                && (color & 0xFF) >= 200;
+        return ((color >> 16) & 0xFF) >= 160
+                && ((color >> 8) & 0xFF) >= 160
+                && (color & 0xFF) >= 160;
     }
 
     @Override
@@ -1975,6 +2257,62 @@ public final class HelperAccessibilityService extends AccessibilityService
         waitForScreenText(expected, attempts, next);
     }
 
+    @Override
+    public void waitForMapReady(int attempts, Runnable next) {
+        captureScreenshot(bitmap -> {
+            if (bitmap == null || !automationRunning) {
+                if (bitmap != null) {
+                    bitmap.recycle();
+                }
+                return;
+            }
+            int left = 740 * bitmap.getWidth() / 1280;
+            int top = 555 * bitmap.getHeight() / 720;
+            int right = 860 * bitmap.getWidth() / 1280;
+            int bottom = 620 * bitmap.getHeight() / 720;
+            Bitmap cropped = Bitmap.createBitmap(
+                    bitmap, left, top, right - left, bottom - top);
+            bitmap.recycle();
+            Bitmap enlarged = Bitmap.createScaledBitmap(
+                    cropped, cropped.getWidth() * 6, cropped.getHeight() * 6, true);
+            cropped.recycle();
+            if (textRecognizer == null) {
+                textRecognizer = TextRecognition.getClient(
+                        new ChineseTextRecognizerOptions.Builder().build());
+            }
+            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
+                    .addOnSuccessListener(text -> {
+                        String value = text.getText();
+                        boolean ready = isMapButtonText(value);
+                        DiagnosticLog.info("BOSS", "map button OCR='"
+                                + normalizeText(value) + "' ready=" + ready);
+                        if (ready) {
+                            next.run();
+                        } else {
+                            retryMapReady(attempts, next);
+                        }
+                    })
+                    .addOnFailureListener(error -> {
+                        DiagnosticLog.warn("BOSS", "map button OCR failed: "
+                                + error.getMessage());
+                        retryMapReady(attempts, next);
+                    })
+                    .addOnCompleteListener(task -> enlarged.recycle());
+        });
+    }
+
+    private void retryMapReady(int attempts, Runnable next) {
+        if (attempts > 1) {
+            handler.postDelayed(() -> waitForMapReady(attempts - 1, next), ACTION_DELAY_MS);
+        } else {
+            failAutomation("传送后未检测到地图加载完成");
+        }
+    }
+
+    static boolean isMapButtonText(String value) {
+        return normalizeText(value == null ? "" : value).contains("地图");
+    }
+
     private static String normalizeText(String value) {
         return value.replaceAll("\\s+", "")
                 .replace('(', '（')
@@ -2067,12 +2405,9 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void resumePrimaryTask() {
-        Runnable resume = primaryTaskAction;
         automationRunning = false;
         clearAutomationRecovery();
-        if (resume != null) {
-            resume.run();
-        }
+        restartPrimaryTask(primaryTask);
     }
 
     @Override
@@ -2110,17 +2445,19 @@ public final class HelperAccessibilityService extends AccessibilityService
         automationRecoveryAttempts++;
         automationRunning = true;
         if (!shouldRetryAutomation(automationRecoveryAttempts)) {
+            Runnable finalRecovery = primaryTaskAction;
+            String taskLabel = primaryTaskLabel(primaryTask);
             currentAutomationAction = null;
-            resetPrimaryTaskToTraining();
             setTaskState(STATE_RUNNING);
             showProgress("错误：" + message
-                    + " · 连续失败，60秒后最后恢复练级，不再自动重试");
+                    + " · 连续失败，60秒后最后恢复"
+                    + taskLabel + "，不再自动重试");
             handler.postDelayed(() -> {
-                if (!automationRunning) {
+                if (!automationRunning || finalRecovery == null) {
                     return;
                 }
-                showProgress("错误恢复：最后恢复练级");
-                trainingAutomation.start();
+                showProgress("错误恢复：最后恢复" + taskLabel);
+                finalRecovery.run();
             }, RECOVERY_LONG_DELAY_MS);
             return;
         }
@@ -2266,7 +2603,7 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void restartPrimaryTask(PrimaryTask task) {
         automationRunning = false;
-        DiagnosticLog.info("AUTO_SELL", "resuming primary task=" + primaryTaskLabel(task));
+        DiagnosticLog.info("AUTOMATION", "resuming primary task=" + primaryTaskLabel(task));
         if (task == PrimaryTask.BOSS) {
             bossAutomation.start();
         } else if (task == PrimaryTask.DUNGEON) {

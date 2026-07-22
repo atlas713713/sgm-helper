@@ -20,9 +20,9 @@
 
 | 名称 | BlueStacks 实例 | ADB 地址 |
 | --- | --- | --- |
-| 地球瘦子 | `Tiramisu64` | `127.0.0.1:5555`；部分环境也显示为 `emulator-5554` |
-| 栗威 | `Tiramisu64_14` | `127.0.0.1:5695` |
-| 地球 | `Tiramisu64_15` | `127.0.0.1:5705` |
+| 米饭 | `Tiramisu64_15` | `127.0.0.1:5705` |
+| 栗威 | `Tiramisu64_17` | `127.0.0.1:5725` |
+| 地球瘦子 | `Tiramisu64_18` | `127.0.0.1:5735` |
 
 ## 构建与验证
 
@@ -51,21 +51,15 @@ ADB="/Applications/BlueStacks.app/Contents/MacOS/hd-adb"
 APK="$PWD/app/build/outputs/apk/debug/app-debug.apk"
 
 "$ADB" devices
-"$ADB" -s 127.0.0.1:5555 install -r -t "$APK"
-"$ADB" -s 127.0.0.1:5695 install -r -t "$APK"
 "$ADB" -s 127.0.0.1:5705 install -r -t "$APK"
-```
-
-如果 `127.0.0.1:5555` 在传输 APK 时断开，改用设备列表中的 `emulator-5554`：
-
-```sh
-"$ADB" -s emulator-5554 install -r -t "$APK"
+"$ADB" -s 127.0.0.1:5725 install -r -t "$APK"
+"$ADB" -s 127.0.0.1:5735 install -r -t "$APK"
 ```
 
 安装后可核对版本：
 
 ```sh
-"$ADB" -s 127.0.0.1:5695 shell dumpsys package com.local.sgmhelper \
+"$ADB" -s 127.0.0.1:5705 shell dumpsys package com.local.sgmhelper \
   | grep -E 'versionCode|versionName'
 ```
 
@@ -103,7 +97,7 @@ APK="$PWD/app/build/outputs/apk/debug/app-debug.apk"
 只重启一台：
 
 ```sh
-./restart_bluestacks_instance.sh Tiramisu64_14 127.0.0.1:5695
+./restart_bluestacks_instance.sh Tiramisu64_17 127.0.0.1:5725
 ```
 
 脚本不会替代 APK 安装。应用代码更新后，应先构建并安装新版 APK。
@@ -125,9 +119,9 @@ APK="$PWD/app/build/outputs/apk/debug/app-debug.apk"
 每台模拟器有独立日志，例如：
 
 ```text
-sgmhelper-地球瘦子-077e5a706d186981.log
-sgmhelper-栗威-d30b62f2263b6d49.log
-sgmhelper-地球-60377771f3d25b63.log
+sgmhelper-米饭-81efa78434210a97.log
+sgmhelper-栗威-82b65b00b0a740bd.log
+sgmhelper-地球瘦子-e8bc951d645bea2c.log
 ```
 
 - 主日志按时间正序追加，最大约 `2 MB`；超出后保留一个 `.log.1` 备份。

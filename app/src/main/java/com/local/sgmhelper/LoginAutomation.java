@@ -27,7 +27,12 @@ final class LoginAutomation {
     private void inspectScreen(Runnable next, int attempts) {
         host.showProgress("登录：检查游戏画面");
         host.recognizeText(text -> {
-            Screen screen = screenFor(lines(text));
+            List<String> values = lines(text);
+            if (ScreenGuard.blockerFor(values) != ScreenGuard.Blocker.NONE) {
+                host.ensureGameHudVisible(next);
+                return;
+            }
+            Screen screen = screenFor(values);
             switch (screen) {
                 case ANNOUNCEMENT -> closeAnnouncement(next);
                 case QUICK_LOGIN -> openAccountLogin(next);
@@ -36,8 +41,13 @@ final class LoginAutomation {
                 case WELFARE -> closeWelfare(next);
                 case UNCLAIMED_REWARDS -> closeUnclaimedRewards(next);
                 case REWARD_RECOVERY -> closeRewardRecovery(next);
-                case LOGGED_IN -> next.run();
-                case UNKNOWN -> retry(next, attempts);
+                case LOGGED_IN -> host.ensureGameHudVisible(next);
+                case UNKNOWN -> {
+                    if (attempts == SCREEN_ATTEMPTS) {
+                        DiagnosticLog.warn("LOGIN", "unknown screen OCR lines=" + values);
+                    }
+                    retry(next, attempts);
+                }
             }
         });
     }
@@ -90,7 +100,7 @@ final class LoginAutomation {
     }
 
     private void closeUnclaimedRewards(Runnable next) {
-        host.closeWelfareWindow(() -> inspectScreen(next, SCREEN_ATTEMPTS));
+        host.closeWelfareWindow(() -> host.claimWelfare(next));
     }
 
     private void closeRewardRecovery(Runnable next) {

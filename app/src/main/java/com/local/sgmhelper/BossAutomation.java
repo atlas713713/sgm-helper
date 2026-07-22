@@ -29,16 +29,15 @@ final class BossAutomation {
     private static final long BOSS_CHECK_MS = 5_000;
     private static final long LEADER_CHECK_MS = 10_000;
     private static final int PARTY_OCR_ATTEMPTS = 5;
-    private static final int PARTY_TOGGLE_X = 20;
-    private static final int PARTY_TOGGLE_Y = 160;
     private static final int PARTY_MANAGE_X = 190;
     private static final int PARTY_MANAGE_Y = 279;
-    private static final int PARTY_CLOSE_X = 294;
-    private static final int PARTY_CLOSE_Y = 121;
+    private static final int PARTY_DIALOG_CLOSE_X = 1260;
+    private static final int PARTY_DIALOG_CLOSE_Y = 150;
 
     private final AutomationHost host;
     private final ChannelSwitcher channelSwitcher;
     private final AntiCheatVerification antiCheatVerification;
+    private TeamFollowerVision teamFollowerVision;
     private List<Integer> route = new ArrayList<>();
     private int routeIndex;
     private boolean followLeader;
@@ -84,7 +83,8 @@ final class BossAutomation {
 
     private void useMarker() {
         host.showProgress("野王：停止自动攻击后前往标记点");
-        host.useFirstMarker(() -> host.postDelayed(this::openEnemyPanel, MAP_LOAD_MS));
+        host.useFirstMarker(() -> host.postDelayed(
+                () -> host.waitForMapReady(20, this::openEnemyPanel), MAP_LOAD_MS));
     }
 
     private void openEnemyPanel() {
@@ -121,11 +121,7 @@ final class BossAutomation {
             return;
         }
         if (routeIndex >= route.size()) {
-            if (followLeader) {
-                readCurrentPosition();
-            } else {
-                switchChannel();
-            }
+            switchChannel();
             return;
         }
         int x = route.get(routeIndex);
@@ -176,15 +172,7 @@ final class BossAutomation {
     }
 
     private void findRedBoss(java.util.function.Consumer<BossTarget> result) {
-        host.recognizeText(text -> host.captureScreenshot(bitmap -> {
-            try {
-                result.accept(bitmap == null ? null : findRedBoss(text, bitmap));
-            } finally {
-                if (bitmap != null) {
-                    bitmap.recycle();
-                }
-            }
-        }));
+        host.recognizeRedBoss(result);
     }
 
     private void switchChannel() {
@@ -226,68 +214,86 @@ final class BossAutomation {
             return;
         }
         nextLeaderCheckAt = System.currentTimeMillis() + LEADER_CHECK_MS;
-        ensurePartyPanelOpen(PARTY_OCR_ATTEMPTS, () -> host.captureScreenshot(bitmap -> {
+        host.captureScreenshot(bitmap -> {
             if (bitmap == null) {
-                host.failAutomation("野王跟随队长：无法检测队长头像");
-                return;
-            }
-            int chroma = averageLeaderPortraitChroma(bitmap);
-            bitmap.recycle();
-            DiagnosticLog.info("BOSS", "leader portrait chroma=" + chroma);
-            if (isLeaderPortraitGray(chroma)) {
-                host.showProgress("野王跟随队长：队长头像变灰，检查分流");
-                followLeaderChannel(this::openEnemyPanel);
-            } else {
-                host.tap(PARTY_CLOSE_X, PARTY_CLOSE_Y, next);
-            }
-        }));
-    }
-
-    private void followLeaderChannel(Runnable next) {
-        host.showProgress("野王跟随队长：检查队伍栏");
-        ensurePartyPanelOpen(PARTY_OCR_ATTEMPTS,
-                () -> readCurrentHudChannel(PARTY_OCR_ATTEMPTS, current -> {
-                    host.showProgress("野王跟随队长：当前第 " + current + " 分流");
-                    host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
-                            () -> host.postDelayed(
-                                    () -> readLeaderChannel(
-                                            PARTY_OCR_ATTEMPTS, current, next),
-                                    CHANNEL_DIALOG_MS));
-                }));
-    }
-
-    private void ensurePartyPanelOpen(int remainingAttempts, Runnable next) {
-        host.recognizeText(text -> {
-            if (hasPartyPanel(text)) {
+                DiagnosticLog.warn("BOSS", "follow leader screenshot unavailable");
                 next.run();
                 return;
             }
-            if (remainingAttempts == 4) {
-                host.showProgress("野王跟随队长：打开队伍栏");
-                host.tap(PARTY_TOGGLE_X, PARTY_TOGGLE_Y,
-                        () -> host.postDelayed(
-                                () -> ensurePartyPanelOpen(3, next), 1_000));
-            } else if (remainingAttempts > 1) {
-                host.postDelayed(
-                        () -> ensurePartyPanelOpen(remainingAttempts - 1, next), 1_000);
+            TeamFollowerVision.Inspection inspection;
+            try {
+                inspection = teamFollowerVision().inspect(bitmap);
+            } catch (Exception error) {
+                DiagnosticLog.error("BOSS", "follow leader vision failed", error);
+                bitmap.recycle();
+                next.run();
+                return;
+            }
+            DiagnosticLog.info("BOSS", String.format(java.util.Locale.US,
+                    "captain self=%s slot=%d template=%.3f brightRatio=%.3f",
+                    inspection.selfCaptain, inspection.captainSlot,
+                    inspection.templateScore, inspection.brightRatio));
+            if (inspection.selfCaptain) {
+                bitmap.recycle();
+                next.run();
+            } else if (!inspection.hasTeammateCaptain()) {
+                bitmap.recycle();
+                DiagnosticLog.warn("BOSS", "captain flag not found; skip leader check");
+                next.run();
+            } else if (inspection.captainIsOnSameMap()) {
+                bitmap.recycle();
+                next.run();
             } else {
-                failPartyOcr("队伍栏“经验分配”", text);
+                host.showProgress("野王跟随队长：队长头像变灰，检查分流");
+                followLeaderChannel(bitmap, this::openEnemyPanel);
             }
         });
     }
 
-    private void readCurrentHudChannel(int remainingAttempts,
+    private TeamFollowerVision teamFollowerVision() {
+        if (teamFollowerVision == null) {
+            teamFollowerVision = new TeamFollowerVision(host.context().getAssets());
+        }
+        return teamFollowerVision;
+    }
+
+    private void followLeaderChannel(Bitmap screenshot, Runnable next) {
+        readCurrentHudChannel(screenshot, PARTY_OCR_ATTEMPTS, current -> {
+            host.showProgress("野王跟随队长：当前第 " + current + " 分流");
+            host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
+                    () -> host.postDelayed(
+                            () -> readLeaderChannel(PARTY_OCR_ATTEMPTS, current, next),
+                            CHANNEL_DIALOG_MS));
+        });
+    }
+
+    private void readCurrentHudChannel(Bitmap screenshot, int remainingAttempts,
             java.util.function.Consumer<Integer> next) {
         host.showProgress("野王跟随队长：读取当前分流");
-        host.recognizeText(text -> {
-            Integer channel = findCurrentHudChannel(text);
+        host.recognizeHudChannel(screenshot, channel -> {
             if (channel != null) {
+                DiagnosticLog.info("BOSS", "leader follow current channel=" + channel);
                 next.accept(channel);
             } else if (remainingAttempts > 1) {
-                host.postDelayed(() -> readCurrentHudChannel(
+                host.postDelayed(() -> captureCurrentHudChannel(
                         remainingAttempts - 1, next), 1_000);
             } else {
-                failPartyOcr("右下角当前分流", text);
+                DiagnosticLog.warn("BOSS", "OCR miss: 右下角当前分流数字");
+                host.failAutomation("野王跟随队长：未识别到右下角当前分流");
+            }
+        });
+    }
+
+    private void captureCurrentHudChannel(int remainingAttempts,
+            java.util.function.Consumer<Integer> next) {
+        host.captureScreenshot(bitmap -> {
+            if (bitmap != null) {
+                readCurrentHudChannel(bitmap, remainingAttempts, next);
+            } else if (remainingAttempts > 1) {
+                host.postDelayed(() -> captureCurrentHudChannel(
+                        remainingAttempts - 1, next), 1_000);
+            } else {
+                host.failAutomation("野王跟随队长：无法截图读取当前分流");
             }
         });
     }
@@ -296,37 +302,76 @@ final class BossAutomation {
         host.showProgress("野王跟随队长：读取队长分流");
         host.recognizeText(text -> {
             Integer leader = findLeaderChannel(text);
+            boolean dialogOpen = hasPartyManageDialog(text);
             if (leader != null) {
-                closePartyAndFollow(current, leader, next);
+                DiagnosticLog.info("BOSS", "leader follow channels current=" + current
+                        + " leader=" + leader + " same=" + (current == leader));
+                closePartyDialog(() -> handleLeaderChannel(current, leader, next));
             } else if (remainingAttempts > 1) {
-                host.postDelayed(() -> readLeaderChannel(
-                        remainingAttempts - 1, current, next), 1_000);
+                if (dialogOpen) {
+                    host.postDelayed(() -> readLeaderChannel(
+                            remainingAttempts - 1, current, next), 1_000);
+                } else {
+                    DiagnosticLog.warn("BOSS", "party dialog is not open; tapping Manage again");
+                    host.showProgress("野王跟随队长：重新打开队伍管理");
+                    host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
+                            () -> host.postDelayed(
+                                    () -> readLeaderChannel(
+                                            remainingAttempts - 1, current, next),
+                                    CHANNEL_DIALOG_MS));
+                }
             } else {
-                failPartyOcr("队长分流", text);
+                if (dialogOpen) {
+                    closePartyDialog(() -> failPartyOcr("队长分流", text));
+                } else {
+                    failPartyOcr("队长分流", text);
+                }
             }
         });
     }
 
-    private void closePartyAndFollow(int current, int leader, Runnable next) {
-        host.showProgress("野王跟随队长：队长在第 " + leader + " 分流");
-        host.tap(PARTY_CLOSE_X, PARTY_CLOSE_Y, () -> {
-            if (current == leader) {
-                nextLeaderCheckAt = System.currentTimeMillis() + LEADER_CHECK_MS;
-                next.run();
-                return;
-            }
-            host.showProgress("野王跟随队长：第 " + current
-                    + " 分流 → 第 " + leader + " 分流");
-            host.tap(1215, 705, () -> host.postDelayed(
-                    () -> channelSwitcher.switchOpenTo(leader,
-                            () -> host.postDelayed(
-                                    () -> checkAfterChannelSwitch(() -> {
-                                        nextLeaderCheckAt = System.currentTimeMillis()
-                                                + LEADER_CHECK_MS;
-                                        next.run();
-                                    }), CHANNEL_CHECK_MS)),
-                    CHANNEL_DIALOG_MS));
+    private static boolean hasPartyManageDialog(Text text) {
+        return isPartyManageDialogText(text.getText());
+    }
+
+    static boolean isPartyManageDialogText(String value) {
+        String normalized = value == null ? "" : value.replaceAll("\\s+", "");
+        return normalized.contains("点击此处增加队伍成员")
+                || normalized.contains("所在地")
+                || (normalized.contains("名称") && normalized.contains("职业"));
+    }
+
+    private void closePartyDialog(Runnable next) {
+        host.showProgress("野王跟随队长：关闭队伍管理");
+        DiagnosticLog.info("BOSS", "closing party dialog at "
+                + PARTY_DIALOG_CLOSE_X + "," + PARTY_DIALOG_CLOSE_Y);
+        host.tap(PARTY_DIALOG_CLOSE_X, PARTY_DIALOG_CLOSE_Y, () -> {
+            DiagnosticLog.info("BOSS", "party dialog close tap completed");
+            next.run();
         });
+    }
+
+    private void handleLeaderChannel(int current, int leader, Runnable next) {
+        host.showProgress("野王跟随队长：队长在第 " + leader + " 分流");
+        if (current == leader) {
+            DiagnosticLog.info("BOSS", "leader follow decision=stay channel=" + current);
+            nextLeaderCheckAt = System.currentTimeMillis() + LEADER_CHECK_MS;
+            next.run();
+            return;
+        }
+        DiagnosticLog.info("BOSS", "leader follow decision=switch from="
+                + current + " to=" + leader);
+        host.showProgress("野王跟随队长：第 " + current
+                + " 分流 → 第 " + leader + " 分流");
+        host.tap(1215, 705, () -> host.postDelayed(
+                () -> channelSwitcher.switchOpenTo(leader,
+                        () -> host.postDelayed(
+                                () -> checkAfterChannelSwitch(() -> {
+                                    nextLeaderCheckAt = System.currentTimeMillis()
+                                            + LEADER_CHECK_MS;
+                                    next.run();
+                                }), CHANNEL_CHECK_MS)),
+                CHANNEL_DIALOG_MS));
     }
 
     private void failPartyOcr(String target, Text text) {
@@ -345,72 +390,42 @@ final class BossAutomation {
         return values.toString();
     }
 
-    private static boolean hasPartyPanel(Text text) {
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            if (block.getText().replaceAll("\\s+", "").contains("经验分配")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static Integer findCurrentHudChannel(Text text) {
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
-                Rect bounds = line.getBoundingBox();
-                if (bounds != null && bounds.centerX() >= 950 && bounds.centerY() >= 640) {
-                    Integer channel = parseChannel(line.getText());
-                    if (channel != null) {
-                        return channel;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
     private static Integer findLeaderChannel(Text text) {
         Integer leader = null;
         int firstRow = Integer.MAX_VALUE;
+        List<String> candidates = new ArrayList<>();
         for (Text.TextBlock block : text.getTextBlocks()) {
             for (Text.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();
-                if (bounds == null || bounds.centerX() >= 950 || bounds.centerY() >= 640) {
+                if (bounds == null
+                        || bounds.centerX() < 850 || bounds.centerX() > 950
+                        || bounds.centerY() < 190 || bounds.centerY() > 270) {
                     continue;
                 }
-                Integer channel = parseChannel(line.getText());
+                Integer channel = parseLeaderChannel(line.getText());
+                candidates.add(line.getText() + "@" + bounds + "=>" + channel);
                 if (channel != null && bounds.top < firstRow) {
                     firstRow = bounds.top;
                     leader = channel;
                 }
             }
         }
+        DiagnosticLog.info("BOSS", "leader channel OCR candidates="
+                + candidates + " selected=" + leader);
         return leader;
     }
 
-    private static int averageLeaderPortraitChroma(Bitmap bitmap) {
-        int left = 26 * bitmap.getWidth() / 1280;
-        int right = 61 * bitmap.getWidth() / 1280;
-        int top = 132 * bitmap.getHeight() / 720;
-        int bottom = 174 * bitmap.getHeight() / 720;
-        long total = 0;
-        int count = 0;
-        for (int y = top; y < bottom; y += 2) {
-            for (int x = left; x < right; x += 2) {
-                int color = bitmap.getPixel(x, y);
-                int red = Color.red(color);
-                int green = Color.green(color);
-                int blue = Color.blue(color);
-                total += Math.max(red, Math.max(green, blue))
-                        - Math.min(red, Math.min(green, blue));
-                count++;
-            }
+    static Integer parseLeaderChannel(String value) {
+        Integer channel = parseChannel(value);
+        if (channel != null) {
+            return channel;
         }
-        return count == 0 ? 0 : (int) (total / count);
-    }
-
-    static boolean isLeaderPortraitGray(int averageChroma) {
-        return averageChroma < 12;
+        String digits = value == null ? "" : value.replaceAll("\\D", "");
+        if (digits.length() != 1) {
+            return null;
+        }
+        int digit = digits.charAt(0) - '0';
+        return digit >= 1 && digit <= 8 ? digit : null;
     }
 
     static Integer parseMapX(String value) {
@@ -514,22 +529,42 @@ final class BossAutomation {
         }
     }
 
-    static BossTarget findRedBoss(Text text, Bitmap bitmap) {
+    static BossTarget findRedBoss(
+            Text text, Bitmap bitmap, int screenLeft, int ocrScale) {
         for (Text.TextBlock block : text.getTextBlocks()) {
             for (Text.Line line : block.getLines()) {
                 for (Text.Element element : line.getElements()) {
-                    Rect bounds = element.getBoundingBox();
+                    Rect ocrBounds = element.getBoundingBox();
                     String name = element.getText().replaceAll("\\s+", "");
-                    if (bounds != null && containsChinese(name)
-                            && bounds.centerX() >= 930
-                            && bounds.centerY() >= 170 && bounds.centerY() <= 430
-                            && hasRedText(bitmap, bounds)) {
-                        return new BossTarget(name, bounds);
+                    if (ocrBounds != null && containsChinese(name)) {
+                        Rect bounds = toOriginalBounds(ocrBounds, ocrScale,
+                                bitmap.getWidth(), bitmap.getHeight());
+                        if (hasRedText(bitmap, bounds)) {
+                            bounds.offset(screenLeft, 0);
+                            return new BossTarget(name, bounds);
+                        }
                     }
                 }
             }
         }
         return null;
+    }
+
+    static Rect toOriginalBounds(
+            Rect bounds, int scale, int bitmapWidth, int bitmapHeight) {
+        return new Rect(
+                Math.max(0, toOriginalStart(bounds.left, scale)),
+                Math.max(0, toOriginalStart(bounds.top, scale)),
+                Math.min(bitmapWidth, toOriginalEnd(bounds.right, scale)),
+                Math.min(bitmapHeight, toOriginalEnd(bounds.bottom, scale)));
+    }
+
+    static int toOriginalStart(int coordinate, int scale) {
+        return coordinate / scale;
+    }
+
+    static int toOriginalEnd(int coordinate, int scale) {
+        return (coordinate + scale - 1) / scale;
     }
 
     private static boolean containsChinese(String value) {
@@ -547,6 +582,9 @@ final class BossAutomation {
                 Math.max(0, rawBounds.left), Math.max(0, rawBounds.top),
                 Math.min(bitmap.getWidth(), rawBounds.right),
                 Math.min(bitmap.getHeight(), rawBounds.bottom));
+        if (bounds.isEmpty()) {
+            return false;
+        }
         int red = 0;
         int neutral = 0;
         boolean[] redColumns = new boolean[bounds.width()];
