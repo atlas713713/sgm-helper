@@ -27,6 +27,7 @@ final class BossAutomation {
     private static final long MOVE_DURATION_MS = 4_000;
     private static final long MOVE_SCAN_INTERVAL_MS = 250;
     private static final long BOSS_CHECK_MS = 5_000;
+    private static final int BOSS_DEFEAT_CONFIRMATIONS = 3;
     private static final long LEADER_CHECK_MS = 10_000;
     private static final int PARTY_OCR_ATTEMPTS = 5;
     private static final int PARTY_MANAGE_X = 190;
@@ -150,25 +151,40 @@ final class BossAutomation {
         host.showProgress("野王：攻击 " + target.name);
         host.tap(target.bounds.centerX(), target.bounds.centerY(),
                 () -> host.postDelayed(
-                        () -> waitForBossDefeated(target.name), BOSS_CHECK_MS));
+                        () -> waitForBossDefeated(target.name, 0), BOSS_CHECK_MS));
     }
 
-    private void waitForBossDefeated(String currentBoss) {
-        maybeFollowLeader(() -> waitForBossDefeatedAfterLeaderCheck(currentBoss));
+    private void waitForBossDefeated(String currentBoss, int consecutiveMisses) {
+        maybeFollowLeader(() -> waitForBossDefeatedAfterLeaderCheck(
+                currentBoss, consecutiveMisses));
     }
 
-    private void waitForBossDefeatedAfterLeaderCheck(String currentBoss) {
+    private void waitForBossDefeatedAfterLeaderCheck(
+            String currentBoss, int consecutiveMisses) {
         findRedBoss(target -> {
             if (target == null) {
-                host.showProgress("野王：已击败 " + currentBoss);
-                moveNext();
+                int misses = consecutiveMisses + 1;
+                if (isBossDefeatConfirmed(misses)) {
+                    host.showProgress("野王：已击败 " + currentBoss);
+                    moveNext();
+                } else {
+                    host.showProgress("野王：确认击败 " + currentBoss
+                            + "（" + misses + "/" + BOSS_DEFEAT_CONFIRMATIONS + "）");
+                    host.postDelayed(
+                            () -> waitForBossDefeated(currentBoss, misses), BOSS_CHECK_MS);
+                }
             } else if (!target.name.equals(currentBoss)) {
                 attack(target);
             } else {
                 host.showProgress("野王：战斗中 " + currentBoss);
-                host.postDelayed(() -> waitForBossDefeated(currentBoss), BOSS_CHECK_MS);
+                host.postDelayed(
+                        () -> waitForBossDefeated(currentBoss, 0), BOSS_CHECK_MS);
             }
         });
+    }
+
+    static boolean isBossDefeatConfirmed(int consecutiveMisses) {
+        return consecutiveMisses >= BOSS_DEFEAT_CONFIRMATIONS;
     }
 
     private void findRedBoss(java.util.function.Consumer<BossTarget> result) {

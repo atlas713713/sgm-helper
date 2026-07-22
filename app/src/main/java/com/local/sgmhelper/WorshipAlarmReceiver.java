@@ -38,6 +38,14 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
         } else {
             scheduleWorship(context);
         }
+        boolean manuallyStopped = context.getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(HelperAccessibilityService.PREF_MANUALLY_STOPPED, false);
+        if (!shouldStartScheduledAutomation(manuallyStopped)) {
+            DiagnosticLog.info("SCHEDULE", "task skipped because automation was manually stopped: "
+                    + action);
+            return;
+        }
         HelperAccessibilityService service = HelperAccessibilityService.getInstance();
         if (service != null) {
             if (ACTION_LEGION_REWARD.equals(action)) {
@@ -153,6 +161,10 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
     static boolean shouldScheduleMilitary(
             boolean militaryEnabled, boolean supplyEnabled, boolean wildernessEnabled) {
         return militaryEnabled && (supplyEnabled || wildernessEnabled);
+    }
+
+    static boolean shouldStartScheduledAutomation(boolean manuallyStopped) {
+        return !manuallyStopped;
     }
 
     private static long nextRegularMilitaryAt(SharedPreferences preferences) {

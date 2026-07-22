@@ -237,6 +237,13 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void confirmsBossDefeatOnlyAfterThreeConsecutiveMisses() {
+        assertFalse(BossAutomation.isBossDefeatConfirmed(1));
+        assertFalse(BossAutomation.isBossDefeatConfirmed(2));
+        assertTrue(BossAutomation.isBossDefeatConfirmed(3));
+    }
+
+    @Test
     public void matchesTheStableSupplyTaskSuffixAfterOcrSubstitution() {
         assertTrue(HelperAccessibilityService.matchesTextFragments(
                 Arrays.asList("一补充至团物资E門"), "团物资", false));
@@ -297,6 +304,12 @@ public final class HelperAccessibilityServiceTest {
                 1_000, 900, 500_000, 1_000_000));
         assertEquals(10_000, WorshipAlarmReceiver.nextMilitaryAt(
                 1_000, 0, 0, 10_000));
+    }
+
+    @Test
+    public void manualStopBlocksScheduledAutomationUntilTheUserStartsAgain() {
+        assertFalse(WorshipAlarmReceiver.shouldStartScheduledAutomation(true));
+        assertTrue(WorshipAlarmReceiver.shouldStartScheduledAutomation(false));
     }
 
     @Test
@@ -511,6 +524,8 @@ public final class HelperAccessibilityServiceTest {
                 LoginAutomation.screenFor(Arrays.asList("重复任务", "副本奖励", "领取80%", "铜钱找回")));
         assertEquals(LoginAutomation.Screen.LOGGED_IN,
                 LoginAutomation.screenFor(Arrays.asList("商城", "福利", "竞技场", "菜单")));
+        assertEquals(LoginAutomation.Screen.LOGGED_IN,
+                LoginAutomation.screenFor(Arrays.asList("对话", "地图", "南城地", "克标场")));
         assertEquals(LoginAutomation.Screen.UNKNOWN,
                 LoginAutomation.screenFor(Arrays.asList("正在连接服务器")));
         assertEquals(LoginAutomation.Screen.UNKNOWN,

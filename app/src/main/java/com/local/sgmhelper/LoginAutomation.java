@@ -146,6 +146,9 @@ final class LoginAutomation {
         if (all.contains("开始游戏")) {
             return Screen.START;
         }
+        if (all.contains("对话") && all.contains("地图")) {
+            return Screen.LOGGED_IN;
+        }
         int hudLabels = 0;
         for (String label : List.of("商城", "福利", "竞技场", "菜单")) {
             if (all.contains(label)) {

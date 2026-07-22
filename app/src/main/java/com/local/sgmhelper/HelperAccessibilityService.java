@@ -104,6 +104,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_AUTO_SELL_ENABLED = "auto_sell_enabled";
     static final String PREF_AUTO_SELL_MIN_FREE_SLOTS = "auto_sell_min_free_slots";
     static final String PREF_PRIMARY_TASK = "primary_task";
+    static final String PREF_MANUALLY_STOPPED = "manually_stopped";
     static final String PREF_SOLDIER_REVIVAL_ENABLED = "soldier_revival_before_training";
     static final String PREF_BOSS_FOLLOW_LEADER = "boss_follow_leader";
     static final String PREF_MILITARY_RETRY_AT = "military_retry_at";
@@ -1239,6 +1240,9 @@ public final class HelperAccessibilityService extends AccessibilityService
             return false;
         }
 
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .putBoolean(PREF_MANUALLY_STOPPED, false)
+                .apply();
         automationRunning = true;
         setTaskState(STATE_RUNNING);
         closeMenu();
@@ -1475,6 +1479,12 @@ public final class HelperAccessibilityService extends AccessibilityService
                 failGameHudGuard("相同账号已在其他设备上登录");
                 return;
             }
+            if (blocker == ScreenGuard.Blocker.GAME_WINDOW) {
+                DiagnosticLog.info("SCREEN_GUARD", "state=GAME_WINDOW action=back_3");
+                showProgress("准备游戏画面：连续返回三次");
+                pressBackThreeTimesThen(next, 3);
+                return;
+            }
             if (remainingAttempts <= 1 && blocker != ScreenGuard.Blocker.NONE) {
                 failGameHudGuard("连续尝试后仍无法关闭遮挡窗口：" + blocker);
                 return;
@@ -1507,17 +1517,6 @@ public final class HelperAccessibilityService extends AccessibilityService
                                 "反外挂验证未清除"));
                 return;
             }
-            if (blocker == ScreenGuard.Blocker.GAME_WINDOW) {
-                DiagnosticLog.info("SCREEN_GUARD", "state=GAME_WINDOW action=back");
-                showProgress("准备游戏画面：关闭游戏窗口");
-                if (!performGlobalAction(GLOBAL_ACTION_BACK)) {
-                    failGameHudGuard("无法发送返回键关闭游戏窗口");
-                } else {
-                    retryGameHudGuard(next, remainingAttempts, "游戏窗口未关闭");
-                }
-                return;
-            }
-
             LoginAutomation.Screen screen = LoginAutomation.screenFor(values);
             if (screen == LoginAutomation.Screen.REWARD_RECOVERY) {
                 if (remainingAttempts > 1) {
@@ -1551,15 +1550,32 @@ public final class HelperAccessibilityService extends AccessibilityService
                 DiagnosticLog.info("SCREEN_GUARD", "state=CLEAN_HUD action=continue");
                 next.run();
             } else if (screen == LoginAutomation.Screen.UNKNOWN) {
-                DiagnosticLog.info("SCREEN_GUARD", "state=UNKNOWN action=wait");
-                retryGameHudGuard(next, remainingAttempts,
-                        "无法识别干净游戏画面");
+                DiagnosticLog.info("SCREEN_GUARD", "state=UNKNOWN action=back_3");
+                showProgress("准备游戏画面：连续返回三次");
+                pressBackThreeTimesThen(next, 3);
             } else {
                 DiagnosticLog.info("SCREEN_GUARD", "state=" + screen
                         + " action=login");
                 loginAutomation.start(next);
             }
         });
+    }
+
+    private void pressBackThreeTimesThen(Runnable next, int remaining) {
+        if (!automationRunning) {
+            return;
+        }
+        if (remaining == 0) {
+            DiagnosticLog.info("SCREEN_GUARD", "state=BACK_3_COMPLETE action=continue");
+            next.run();
+            return;
+        }
+        boolean sent = performGlobalAction(GLOBAL_ACTION_BACK);
+        DiagnosticLog.info("SCREEN_GUARD", "state=BACK action="
+                + (sent ? "sent" : "failed") + " remaining=" + (remaining - 1));
+        handler.postDelayed(
+                () -> pressBackThreeTimesThen(next, remaining - 1),
+                ACTION_DELAY_MS);
     }
 
     private void retryGameHudGuard(
@@ -2476,6 +2492,11 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void stopAutomation(int state) {
         DiagnosticLog.info("AUTOMATION", "stopped state=" + state);
+        if (state == STATE_STOPPED) {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                    .putBoolean(PREF_MANUALLY_STOPPED, true)
+                    .apply();
+        }
         automationRunning = false;
         inventorySelling = false;
         stopInventoryMonitoring();
@@ -2518,7 +2539,9 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void resumePersistedPrimaryTask() {
-        if (!automationRunning && primaryTask != PrimaryTask.TRAINING) {
+        if (!automationRunning && primaryTask != PrimaryTask.TRAINING
+                && !getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .getBoolean(PREF_MANUALLY_STOPPED, false)) {
             restartPrimaryTask(primaryTask);
         }
     }
