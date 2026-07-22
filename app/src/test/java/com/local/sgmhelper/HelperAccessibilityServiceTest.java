@@ -42,6 +42,8 @@ public final class HelperAccessibilityServiceTest {
                 DiagnosticLog.logFileName("d30b62f2263b6d49"));
         assertEquals("sgmhelper-地球-60377771f3d25b63.log",
                 DiagnosticLog.logFileName("60377771f3d25b63"));
+        assertEquals("sgmhelper-地球-81efa78434210a97.log",
+                DiagnosticLog.logFileName("81efa78434210a97"));
         assertEquals("sgmhelper-未知模拟器-unsafe_id.log",
                 DiagnosticLog.logFileName("unsafe/id"));
     }
@@ -429,6 +431,8 @@ public final class HelperAccessibilityServiceTest {
                 LoginAutomation.screenFor(Arrays.asList("快捷登录", "账号登录/注册", "开始游戏")));
         assertEquals(LoginAutomation.Screen.ACCOUNT_LOGIN,
                 LoginAutomation.screenFor(Arrays.asList("账号登录", "账号", "密码", "开始游戏")));
+        assertEquals(LoginAutomation.Screen.ACCOUNT_LOGIN,
+                LoginAutomation.screenFor(Arrays.asList("帐号登录", "帐号", "密码", "开始游戏")));
         assertEquals(LoginAutomation.Screen.START,
                 LoginAutomation.screenFor(Arrays.asList("开始游戏", "S4-白虎")));
         assertEquals(LoginAutomation.Screen.WELFARE,
@@ -483,8 +487,8 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(Integer.valueOf(8), BossAutomation.parseChannel("临渊道·分流8"));
         assertEquals(Integer.valueOf(1), BossAutomation.parseChannel("分流\n1"));
         assertNull(BossAutomation.parseChannel("第9分流"));
-        assertEquals(4, BossAutomation.nextChannel(3));
-        assertEquals(1, BossAutomation.nextChannel(8));
+        assertEquals(4, ChannelSwitcher.nextChannel(3));
+        assertEquals(1, ChannelSwitcher.nextChannel(8));
         assertTrue(BossAutomation.isChannelSelectionGold(180, 130, 45));
         assertTrue(BossAutomation.isChannelSelectionGold(150, 120, 80));
         assertFalse(BossAutomation.isChannelSelectionGold(160, 150, 140));
@@ -515,24 +519,50 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void turnsEachTileByTheRotationThatUprightsItsPortrait() {
-        assertEquals(0, AntiCheatVerification.tapCount(0, true));
-        assertEquals(1, AntiCheatVerification.tapCount(90, true));
-        assertEquals(2, AntiCheatVerification.tapCount(180, true));
-        assertEquals(3, AntiCheatVerification.tapCount(270, true));
-
-        assertEquals(0, AntiCheatVerification.tapCount(0, false));
-        assertEquals(3, AntiCheatVerification.tapCount(90, false));
-        assertEquals(2, AntiCheatVerification.tapCount(180, false));
-        assertEquals(1, AntiCheatVerification.tapCount(270, false));
+    public void findsTheTemplateAfterAnInMemoryRotation() {
+        byte[] upright = {
+                0, 10, 40,
+                20, 80, 30,
+                90, 60, 50
+        };
+        byte[] counterClockwise = upright;
+        for (int i = 0; i < 3; i++) {
+            counterClockwise = AntiCheatTemplateMatcher.rotateClockwise(
+                    counterClockwise, 3);
+        }
+        AntiCheatTemplateMatcher.OrientationMatch match =
+                AntiCheatTemplateMatcher.bestOrientation(
+                        counterClockwise, new byte[][] {upright}, 3);
+        assertEquals(1, match.orientation);
+        assertEquals(1.0, match.score, 0.000001);
+        assertEquals(1.0,
+                AntiCheatTemplateMatcher.correlation(upright, upright), 0.000001);
     }
 
     @Test
-    public void leavesTilesAloneWhenNoOrientationShowsAFace() {
-        assertEquals(0, AntiCheatVerification.tapCount(
-                AntiCheatVerification.UNKNOWN_ROTATION, true));
-        assertEquals(0, AntiCheatVerification.tapCount(
-                AntiCheatVerification.UNKNOWN_ROTATION, false));
+    public void ignoresTheProgressOverlayWhenCheckingForAntiCheat() {
+        assertFalse(AntiCheatVerification.isChallengeLabel(
+                "【BOSS】检查反外挂验证", 640, 20));
+        assertTrue(AntiCheatVerification.isChallengeLabel(
+                "反外挂验证", 640, 220));
+        assertTrue(AntiCheatVerification.isChallengeLabel(
+                "请旋转至正确方向", 640, 260));
+        assertTrue(AntiCheatVerification.isChallengeText(
+                "反外挂验证\n请点击下方图片，旋转至正确方向"));
+        assertFalse(AntiCheatVerification.isChallengeText(
+                "【BOSS】野王：打开自动设置"));
+    }
+
+    @Test
+    public void restoresEveryPrimaryTaskAfterServiceRestart() {
+        assertEquals(AutomationHost.PrimaryTask.TRAINING,
+                HelperAccessibilityService.parsePrimaryTask("TRAINING"));
+        assertEquals(AutomationHost.PrimaryTask.BOSS,
+                HelperAccessibilityService.parsePrimaryTask("BOSS"));
+        assertEquals(AutomationHost.PrimaryTask.DUNGEON,
+                HelperAccessibilityService.parsePrimaryTask("DUNGEON"));
+        assertEquals(AutomationHost.PrimaryTask.TRAINING,
+                HelperAccessibilityService.parsePrimaryTask("invalid"));
     }
 
     @Test

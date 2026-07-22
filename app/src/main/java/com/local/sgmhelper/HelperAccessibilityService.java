@@ -103,6 +103,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_START_TRAINING_ON_LAUNCH = "start_training";
     static final String PREF_AUTO_SELL_ENABLED = "auto_sell_enabled";
     static final String PREF_AUTO_SELL_MIN_FREE_SLOTS = "auto_sell_min_free_slots";
+    static final String PREF_PRIMARY_TASK = "primary_task";
     static final String PREF_SOLDIER_REVIVAL_ENABLED = "soldier_revival_before_training";
     static final String PREF_BOSS_FOLLOW_LEADER = "boss_follow_leader";
     static final String PREF_MILITARY_RETRY_AT = "military_retry_at";
@@ -129,6 +130,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private final DungeonSweepAutomation dungeonSweepAutomation =
             new DungeonSweepAutomation(this);
     private final BossAutomation bossAutomation = new BossAutomation(this);
+    private final ChannelSwitchTest channelSwitchTest = new ChannelSwitchTest(this);
     private final HeavenfallAutomation heavenfallAutomation = new HeavenfallAutomation(this);
     private final SoldierRevivalAutomation soldierRevivalAutomation =
             new SoldierRevivalAutomation(this);
@@ -163,8 +165,12 @@ public final class HelperAccessibilityService extends AccessibilityService
         super.onServiceConnected();
         instance = this;
         DiagnosticLog.info("SERVICE", "accessibility service connected");
+        restorePrimaryTask();
         showOverlay();
         WorshipAlarmReceiver.scheduleAll(this);
+        if (primaryTask != PrimaryTask.TRAINING) {
+            handler.postDelayed(this::resumePersistedPrimaryTask, 1_000);
+        }
     }
 
     @Override
@@ -341,10 +347,11 @@ public final class HelperAccessibilityService extends AccessibilityService
         setMenuSize(dp(230), WindowManager.LayoutParams.WRAP_CONTENT);
         stateView = addMenuText(menu, R.string.menu_status_idle);
         addMenuButton(menu, R.string.menu_training, view -> startTrainingMain());
-        addMenuButton(menu, R.string.menu_boss, view -> bossAutomation.start());
+        addMenuButton(menu, R.string.menu_boss, this::startBossFromMenu);
         addMenuButton(menu, R.string.menu_dungeon_sweep,
                 view -> dungeonSweepAutomation.start(selectedDungeonLevels(
                         getSharedPreferences(PREFS_NAME, MODE_PRIVATE))));
+        addMenuButton(menu, R.string.menu_channel_test, view -> channelSwitchTest.start());
         addMenuButton(menu, R.string.menu_stop, view -> stopAutomation(STATE_STOPPED));
         addMenuButton(menu, R.string.menu_settings, view -> showTrainingSettings());
         addMenuButton(menu, R.string.menu_exit, view -> exitService());
@@ -424,6 +431,15 @@ public final class HelperAccessibilityService extends AccessibilityService
         setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
         stopInventoryMonitoring();
         startTrainingAfterPreparation();
+    }
+
+    private void startBossFromMenu(View button) {
+        if (automationRunning) {
+            bossAutomation.start();
+            return;
+        }
+        button.setEnabled(false);
+        handler.postDelayed(bossAutomation::start, 300);
     }
 
     private void startTrainingAfterPreparation() {
@@ -880,7 +896,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         worldBoss.setAlpha(0.4f);
         addSettingsButtonRow(menu,
                 createSettingsButton(R.string.boss_wilderness, true,
-                        view -> bossAutomation.start()),
+                        this::startBossFromMenu),
                 worldBoss);
         addSettingsButtonRow(menu,
                 createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
@@ -1228,16 +1244,20 @@ public final class HelperAccessibilityService extends AccessibilityService
         }
         showProgress("启动前检查背包");
         int minimumFreeSlots = preferences.getInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, 5);
-        autoSellAutomation.checkNearlyFullBeforeStart(minimumFreeSlots, nearlyFull -> {
-            if (taskState != STATE_RUNNING) {
-                return;
-            }
-            if (nearlyFull) {
-                interruptForAutoSell(next);
-            } else {
-                next.run();
-            }
-        });
+        ensureGameHudVisible(() -> autoSellAutomation.checkNearlyFullBeforeStart(
+                minimumFreeSlots, nearlyFull -> {
+                    if (taskState != STATE_RUNNING) {
+                        return;
+                    }
+                    if (Boolean.TRUE.equals(nearlyFull)) {
+                        interruptForAutoSell(next);
+                    } else {
+                        if (nearlyFull == null) {
+                            showProgress("启动前未识别到背包容量，跳过本次检查");
+                        }
+                        next.run();
+                    }
+                }));
     }
 
     static boolean shouldCheckInventoryBeforePrimary(boolean enabled, PrimaryTask task) {
@@ -1389,14 +1409,19 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void ensureGameHudVisible(Runnable next) {
+        ensureGameHudVisible(next, TEXT_RETRY_COUNT);
+    }
+
+    private void ensureGameHudVisible(Runnable next, int remainingAttempts) {
         showProgress("准备游戏画面：关闭遮挡窗口（1/2）");
         performTap(640, 20, () -> {
             showProgress("准备游戏画面：关闭遮挡窗口（2/2）");
-            performTap(640, 20, () -> closeWelfareWindowIfNeeded(next));
+            performTap(640, 20,
+                    () -> closeBlockingWindowIfNeeded(next, remainingAttempts));
         });
     }
 
-    private void closeWelfareWindowIfNeeded(Runnable next) {
+    private void closeBlockingWindowIfNeeded(Runnable next, int remainingAttempts) {
         recognizeScreenText(text -> {
             if (!automationRunning) {
                 return;
@@ -1407,8 +1432,23 @@ public final class HelperAccessibilityService extends AccessibilityService
                     values.add(line.getText());
                 }
             }
-            if (ScreenGuard.isWelfareWindow(values)) {
-                closeWelfareWindow(next);
+            LoginAutomation.Screen screen = LoginAutomation.screenFor(values);
+            if (screen == LoginAutomation.Screen.REWARD_RECOVERY) {
+                if (remainingAttempts > 1) {
+                    showProgress("准备游戏画面：关闭奖励找回");
+                    performTap(1092, 42, () -> ensureGameHudVisible(
+                            next, remainingAttempts - 1));
+                } else {
+                    failAutomation("奖励找回窗口未关闭");
+                }
+            } else if (screen == LoginAutomation.Screen.WELFARE
+                    || screen == LoginAutomation.Screen.UNCLAIMED_REWARDS) {
+                if (remainingAttempts > 1) {
+                    closeWelfareWindow(() -> ensureGameHudVisible(
+                            next, remainingAttempts - 1));
+                } else {
+                    failAutomation("福利窗口未关闭");
+                }
             } else {
                 next.run();
             }
@@ -2121,6 +2161,29 @@ public final class HelperAccessibilityService extends AccessibilityService
     private void setPrimaryTask(PrimaryTask task, Runnable action) {
         primaryTask = task;
         primaryTaskAction = action;
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .putString(PREF_PRIMARY_TASK, task.name())
+                .apply();
+    }
+
+    private void restorePrimaryTask() {
+        primaryTask = parsePrimaryTask(getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(PREF_PRIMARY_TASK, PrimaryTask.TRAINING.name()));
+        if (primaryTask == PrimaryTask.BOSS) {
+            primaryTaskAction = bossAutomation::start;
+        } else if (primaryTask == PrimaryTask.DUNGEON) {
+            primaryTaskAction = () -> dungeonSweepAutomation.start(selectedDungeonLevels(
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE)));
+        } else {
+            primaryTaskAction = trainingAutomation::start;
+        }
+        DiagnosticLog.info("AUTOMATION", "restored primary task=" + primaryTaskLabel(primaryTask));
+    }
+
+    private void resumePersistedPrimaryTask() {
+        if (!automationRunning && primaryTask != PrimaryTask.TRAINING) {
+            restartPrimaryTask(primaryTask);
+        }
     }
 
     private void startInventoryMonitoring() {
@@ -2198,13 +2261,35 @@ public final class HelperAccessibilityService extends AccessibilityService
             continuation.run();
             return;
         }
+        restartPrimaryTask(interruptedTask);
+    }
+
+    private void restartPrimaryTask(PrimaryTask task) {
         automationRunning = false;
-        if (interruptedTask == PrimaryTask.BOSS) {
+        DiagnosticLog.info("AUTO_SELL", "resuming primary task=" + primaryTaskLabel(task));
+        if (task == PrimaryTask.BOSS) {
             bossAutomation.start();
-            return;
+        } else if (task == PrimaryTask.DUNGEON) {
+            List<Integer> levels = selectedDungeonLevels(
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE));
+            if (levels.isEmpty()) {
+                resetPrimaryTaskToTraining();
+                startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
+            } else {
+                dungeonSweepAutomation.start(levels);
+            }
+        } else {
+            setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
+            startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
         }
-        setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
-        startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
+    }
+
+    static PrimaryTask parsePrimaryTask(String value) {
+        try {
+            return PrimaryTask.valueOf(value);
+        } catch (IllegalArgumentException | NullPointerException ignored) {
+            return PrimaryTask.TRAINING;
+        }
     }
 
     private static String primaryTaskLabel(PrimaryTask task) {

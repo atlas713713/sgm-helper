@@ -29,8 +29,8 @@ final class BossAutomation {
     private static final long BOSS_CHECK_MS = 5_000;
     private static final long LEADER_CHECK_MS = 10_000;
     private static final int PARTY_OCR_ATTEMPTS = 5;
-    private static final int PARTY_TOGGLE_X = 23;
-    private static final int PARTY_TOGGLE_Y = 79;
+    private static final int PARTY_TOGGLE_X = 20;
+    private static final int PARTY_TOGGLE_Y = 160;
     private static final int PARTY_MANAGE_X = 190;
     private static final int PARTY_MANAGE_Y = 279;
     private static final int PARTY_CLOSE_X = 294;
@@ -205,7 +205,7 @@ final class BossAutomation {
                 host.postDelayed(this::readCurrentChannel, 1_000);
                 return;
             }
-            int next = nextChannel(current);
+            int next = ChannelSwitcher.nextChannel(current);
             host.showProgress("野王：第 " + current + " 分流 → 第 " + next + " 分流");
             channelSwitcher.switchOpenTo(next,
                     () -> host.postDelayed(
@@ -483,13 +483,6 @@ final class BossAutomation {
         }
         return Integer.parseInt(matcher.group(1) == null
                 ? matcher.group(2) : matcher.group(1));
-    }
-
-    static int nextChannel(int current) {
-        if (current < 1 || current > 8) {
-            throw new IllegalArgumentException("current channel must be between 1 and 8");
-        }
-        return current == 8 ? 1 : current + 1;
     }
 
     static long moveScanDelayMillis(long now, long deadline) {

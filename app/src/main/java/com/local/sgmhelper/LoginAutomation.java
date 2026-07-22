@@ -129,7 +129,8 @@ final class LoginAutomation {
         if (all.contains("账号登录/注册") || all.contains("快捷登录")) {
             return Screen.QUICK_LOGIN;
         }
-        if (all.contains("账号登录") && all.contains("密码")) {
+        if ((all.contains("账号登录") || all.contains("帐号登录"))
+                && all.contains("密码")) {
             return Screen.ACCOUNT_LOGIN;
         }
         if (all.contains("开始游戏")) {

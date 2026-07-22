@@ -72,7 +72,8 @@ final class DiagnosticLog {
         if ("d30b62f2263b6d49".equals(androidId)) {
             return "栗威";
         }
-        if ("60377771f3d25b63".equals(androidId)) {
+        if ("60377771f3d25b63".equals(androidId)
+                || "81efa78434210a97".equals(androidId)) {
             return "地球";
         }
         return "未知模拟器";

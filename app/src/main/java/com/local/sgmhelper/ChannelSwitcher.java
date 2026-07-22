@@ -62,4 +62,11 @@ final class ChannelSwitcher {
         }
         return BOTTOM_FIRST_ROW_Y + (channel - 4) * BOTTOM_ROW_GAP_Y;
     }
+
+    static int nextChannel(int current) {
+        if (current < 1 || current > 8) {
+            throw new IllegalArgumentException("current channel must be between 1 and 8");
+        }
+        return current == 8 ? 1 : current + 1;
+    }
 }
