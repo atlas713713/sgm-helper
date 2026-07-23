@@ -60,10 +60,11 @@
     <string name="boss_world_pending">世界王（暂未实现）</string>
     <string name="settings_back">返回</string>
     <string name="settings_placeholder">配置项待定义</string>
-    <string name="dungeon_sweep_title">选择扫荡副本</string>
+    <string name="dungeon_sweep_title">选择副本</string>
     <string name="dungeon_select_all">全选</string>
     <string name="dungeon_clear">清空</string>
-    <string name="dungeon_start_sweep">开始扫荡</string>
+    <string name="dungeon_start_sweep">扫荡副本</string>
+    <string name="dungeon_start_battle">一般副本（支持10–75级）</string>
     <string name="timer_task_time">%1$s %2$02d:%3$02d</string>
     <string name="timer_task_unset">%1$s 未设置</string>
     <string name="timer_run_now">立即执行</string>

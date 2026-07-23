@@ -57,17 +57,25 @@ interface AutomationHost {
         tap(mapScreenX(mapX), mapScreenY(mapY), next);
     }
 
+    default void tapMapCoordinate(int mapX, int mapY, int mapMaxX, Runnable next) {
+        tap(mapScreenX(mapX, mapMaxX), mapScreenY(mapY), next);
+    }
+
     default void tapMapCoordinateFast(int mapX, int mapY, Runnable next) {
         tapFast(mapScreenX(mapX), mapScreenY(mapY), next);
     }
 
     static int mapScreenX(int mapX) {
-        if (mapX < 0 || mapX > MAP_GAME_MAX_X) {
-            throw new IllegalArgumentException("mapX must be between 0 and 600");
+        return mapScreenX(mapX, MAP_GAME_MAX_X);
+    }
+
+    static int mapScreenX(int mapX, int mapMaxX) {
+        if (mapMaxX <= 1 || mapX < 0 || mapX > mapMaxX) {
+            throw new IllegalArgumentException("mapX must be inside the supplied map width");
         }
-        int safeX = Math.max(1, Math.min(mapX, MAP_GAME_MAX_X - 1));
+        int safeX = Math.max(1, Math.min(mapX, mapMaxX - 1));
         int screenX = MAP_SCREEN_LEFT
-                + (int) Math.ceil(safeX * MAP_SCREEN_WIDTH / (double) MAP_GAME_MAX_X);
+                + (int) Math.ceil(safeX * MAP_SCREEN_WIDTH / (double) mapMaxX);
         return Math.min(screenX, MAP_SCREEN_LEFT + MAP_SCREEN_WIDTH - 1);
     }
 

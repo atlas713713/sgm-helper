@@ -104,6 +104,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_AUTO_SELL_ENABLED = "auto_sell_enabled";
     static final String PREF_AUTO_SELL_MIN_FREE_SLOTS = "auto_sell_min_free_slots";
     static final String PREF_PRIMARY_TASK = "primary_task";
+    private static final String PREF_DUNGEON_BATTLE_MODE = "dungeon_battle_mode";
     static final String PREF_SOLDIER_REVIVAL_ENABLED = "soldier_revival_before_training";
     static final String PREF_BOSS_FOLLOW_LEADER = "boss_follow_leader";
     static final String PREF_MILITARY_RETRY_AT = "military_retry_at";
@@ -129,6 +130,8 @@ public final class HelperAccessibilityService extends AccessibilityService
             new AntiCheatVerification(this);
     private final DungeonSweepAutomation dungeonSweepAutomation =
             new DungeonSweepAutomation(this);
+    private final DungeonBattleAutomation dungeonBattleAutomation =
+            new DungeonBattleAutomation(this);
     private final BossAutomation bossAutomation = new BossAutomation(this);
     private final ChannelSwitchTest channelSwitchTest = new ChannelSwitchTest(this);
     private final HeavenfallAutomation heavenfallAutomation = new HeavenfallAutomation(this);
@@ -349,8 +352,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         addMenuButton(menu, R.string.menu_training, view -> startTrainingMain());
         addMenuButton(menu, R.string.menu_boss, this::startBossFromMenu);
         addMenuButton(menu, R.string.menu_dungeon_sweep,
-                view -> dungeonSweepAutomation.start(selectedDungeonLevels(
-                        getSharedPreferences(PREFS_NAME, MODE_PRIVATE))));
+                view -> startDungeonSweep(false));
         addMenuButton(menu, R.string.menu_channel_test, view -> channelSwitchTest.start());
         addMenuButton(menu, R.string.menu_stop, view -> stopAutomation(STATE_STOPPED));
         addMenuButton(menu, R.string.menu_settings, view -> showTrainingSettings());
@@ -865,8 +867,11 @@ public final class HelperAccessibilityService extends AccessibilityService
                 createSettingsButton(R.string.dungeon_clear, false,
                         view -> boxes.forEach(box -> box.setChecked(false))));
         addSettingsButtonRow(menu,
+                createSettingsButton(R.string.dungeon_start_battle, true,
+                        view -> startDungeonBattle()),
                 createSettingsButton(R.string.dungeon_start_sweep, true,
-                        view -> dungeonSweepAutomation.start(selectedDungeonLevels(preferences))),
+                        view -> startDungeonSweep(false)));
+        addSettingsButtonRow(menu,
                 createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
         updateMenuPosition();
     }
@@ -1141,8 +1146,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             handler.postDelayed(this::startScheduledDungeon, 60_000);
             return;
         }
-        dungeonSweepAutomation.startScheduled(selectedDungeonLevels(
-                getSharedPreferences(PREFS_NAME, MODE_PRIVATE)));
+        startDungeonSweep(true);
     }
 
     void startScheduledMilitary() {
@@ -2509,8 +2513,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (primaryTask == PrimaryTask.BOSS) {
             primaryTaskAction = bossAutomation::start;
         } else if (primaryTask == PrimaryTask.DUNGEON) {
-            primaryTaskAction = () -> dungeonSweepAutomation.start(selectedDungeonLevels(
-                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE)));
+            primaryTaskAction = this::restartDungeonTask;
         } else {
             primaryTaskAction = trainingAutomation::start;
         }
@@ -2607,17 +2610,40 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (task == PrimaryTask.BOSS) {
             bossAutomation.start();
         } else if (task == PrimaryTask.DUNGEON) {
-            List<Integer> levels = selectedDungeonLevels(
-                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE));
-            if (levels.isEmpty()) {
-                resetPrimaryTaskToTraining();
-                startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
-            } else {
-                dungeonSweepAutomation.start(levels);
-            }
+            restartDungeonTask();
         } else {
             setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
             startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
+        }
+    }
+
+    private void startDungeonSweep(boolean scheduled) {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        preferences.edit().putBoolean(PREF_DUNGEON_BATTLE_MODE, false).apply();
+        List<Integer> levels = selectedDungeonLevels(preferences);
+        if (scheduled) {
+            dungeonSweepAutomation.startScheduled(levels);
+        } else {
+            dungeonSweepAutomation.start(levels);
+        }
+    }
+
+    private void startDungeonBattle() {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        preferences.edit().putBoolean(PREF_DUNGEON_BATTLE_MODE, true).apply();
+        dungeonBattleAutomation.start(selectedDungeonLevels(preferences));
+    }
+
+    private void restartDungeonTask() {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        List<Integer> levels = selectedDungeonLevels(preferences);
+        if (levels.isEmpty()) {
+            resetPrimaryTaskToTraining();
+            startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
+        } else if (preferences.getBoolean(PREF_DUNGEON_BATTLE_MODE, false)) {
+            dungeonBattleAutomation.start(levels);
+        } else {
+            dungeonSweepAutomation.start(levels);
         }
     }
 
