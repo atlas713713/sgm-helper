@@ -1,0 +1,7 @@
+This module contains source code from PaddlePaddle/PaddleOCR,
+deploy/ppocr-android/ppocr-sdk, licensed under the Apache License 2.0.
+
+Source: https://github.com/PaddlePaddle/PaddleOCR
+
+The bundled PP-OCRv5 mobile detection and recognition ONNX models are
+distributed by PaddlePaddle from its official model repository.

@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "SgmHelper"
 include(":app")
 include(":mlkitprobe")
+include(":ppocr-sdk")
