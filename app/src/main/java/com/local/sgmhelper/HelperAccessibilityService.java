@@ -2026,15 +2026,15 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void recognizeMapName(Consumer<String> result) {
-        recognizeTextCrop(430, 550, 760, 615, 4, "Map name", result);
+        recognizePaddleTextCrop(430, 550, 760, 615, 4, "Map name", result);
     }
 
     @Override
     public void recognizeWorldBossMap(Consumer<String> result) {
-        recognizeTextCrop(25, 165, 335, 315, 6, "World boss rows", result);
+        recognizePaddleTextCrop(25, 165, 335, 315, 6, "World boss rows", result);
     }
 
-    private void recognizeTextCrop(int baseLeft, int baseTop, int baseRight,
+    private void recognizePaddleTextCrop(int baseLeft, int baseTop, int baseRight,
             int baseBottom, int scale, String label, Consumer<String> result) {
         captureScreenshot(bitmap -> {
             if (bitmap == null) {
@@ -2052,22 +2052,25 @@ public final class HelperAccessibilityService extends AccessibilityService
                     cropped, cropped.getWidth() * scale,
                     cropped.getHeight() * scale, true);
             cropped.recycle();
-            if (textRecognizer == null) {
-                textRecognizer = TextRecognition.getClient(
-                        new ChineseTextRecognizerOptions.Builder().build());
+            if (paddleDungeonTextRecognizer == null) {
+                paddleDungeonTextRecognizer = new PaddleDungeonTextRecognizer(this);
             }
-            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> {
-                        DiagnosticLog.info("BOSS", label + " OCR='"
-                                + text.getText().replace('\n', ' ') + "'");
-                        result.accept(text.getText());
-                    })
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.warn("BOSS", label + " OCR failed: "
-                                + error.getMessage());
-                        result.accept("");
-                    })
-                    .addOnCompleteListener(task -> enlarged.recycle());
+            paddleDungeonTextRecognizer.recognize(enlarged, lines -> handler.post(() -> {
+                enlarged.recycle();
+                StringBuilder value = new StringBuilder();
+                for (OcrLine line : lines) {
+                    if (value.length() > 0) {
+                        value.append(' ');
+                    }
+                    value.append(line.text);
+                }
+                DiagnosticLog.info("BOSS", label + " Paddle OCR='" + value + "'");
+                result.accept(value.toString());
+            }), error -> handler.post(() -> {
+                enlarged.recycle();
+                DiagnosticLog.error("OCR", label + " Paddle OCR failed", error);
+                result.accept("");
+            }));
         });
     }
 
