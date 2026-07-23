@@ -571,6 +571,9 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(Integer.valueOf(3), BossAutomation.parseLeaderChannel("3"));
         assertEquals(Integer.valueOf(7), BossAutomation.parseLeaderChannel("分流7"));
         assertNull(BossAutomation.parseLeaderChannel("63/72"));
+        assertTrue(BossAutomation.isMenuAutoCandidate("自 动", 1150, 320));
+        assertFalse(BossAutomation.isMenuAutoCandidate("自动", 530, 320));
+        assertFalse(BossAutomation.isMenuAutoCandidate("打开自动设置", 1170, 320));
         assertTrue(BossAutomation.isPartyManageDialogText(
                 "名称  职业  等级  所在地  分流  操作"));
         assertTrue(BossAutomation.isPartyManageDialogText(
@@ -603,6 +606,10 @@ public final class HelperAccessibilityServiceTest {
                 30, 100, 30, 10, 100, 20));
         assertEquals(10, BossAutomation.toOriginalStart(30, 3));
         assertEquals(31, BossAutomation.toOriginalEnd(91, 3));
+        assertTrue(BossAutomation.isEnemyListCandidate(290, 720));
+        assertTrue(BossAutomation.isEnemyListCandidate(410, 720));
+        assertFalse(BossAutomation.isEnemyListCandidate(465, 720));
+        assertFalse(BossAutomation.isEnemyListCandidate(90, 720));
     }
 
     @Test

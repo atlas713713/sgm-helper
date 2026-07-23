@@ -1817,6 +1817,44 @@ public final class HelperAccessibilityService extends AccessibilityService
                 .addOnCompleteListener(task -> enlarged.recycle());
     }
 
+    @Override
+    public void recognizeLeaderChannel(Consumer<Integer> result) {
+        captureScreenshot(screenshot -> {
+            if (screenshot == null) {
+                result.accept(null);
+                return;
+            }
+            int left = 850 * screenshot.getWidth() / 1280;
+            int top = 195 * screenshot.getHeight() / 720;
+            int right = 950 * screenshot.getWidth() / 1280;
+            int bottom = 260 * screenshot.getHeight() / 720;
+            Bitmap context = Bitmap.createBitmap(
+                    screenshot, left, top, right - left, bottom - top);
+            screenshot.recycle();
+            Bitmap enlarged = Bitmap.createScaledBitmap(
+                    context, context.getWidth() * 6, context.getHeight() * 6, true);
+            context.recycle();
+            if (textRecognizer == null) {
+                textRecognizer = TextRecognition.getClient(
+                        new ChineseTextRecognizerOptions.Builder().build());
+            }
+            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
+                    .addOnSuccessListener(text -> {
+                        Integer channel = BossAutomation.parseLeaderChannel(text.getText());
+                        DiagnosticLog.info("BOSS", "leader channel crop OCR='"
+                                + text.getText().replace('\n', ' ')
+                                + "' parsed=" + channel);
+                        result.accept(channel);
+                    })
+                    .addOnFailureListener(error -> {
+                        DiagnosticLog.warn("BOSS", "leader channel crop OCR failed: "
+                                + error.getMessage());
+                        result.accept(null);
+                    })
+                    .addOnCompleteListener(task -> enlarged.recycle());
+        });
+    }
+
     static Integer parseHudChannelContext(String value) {
         Integer channel = null;
         if (value != null) {

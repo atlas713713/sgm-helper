@@ -92,6 +92,8 @@ interface AutomationHost {
 
     void recognizeHudChannel(Bitmap screenshot, Consumer<Integer> result);
 
+    void recognizeLeaderChannel(Consumer<Integer> result);
+
     void recognizeMapCoordinate(Consumer<String> result);
 
     void recognizeBackpackCapacity(Consumer<String> result);

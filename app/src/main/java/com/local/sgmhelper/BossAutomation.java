@@ -30,10 +30,12 @@ final class BossAutomation {
     private static final int BOSS_DEFEAT_CONFIRMATIONS = 3;
     private static final long LEADER_CHECK_MS = 10_000;
     private static final int PARTY_OCR_ATTEMPTS = 5;
+    private static final int CHANNEL_OCR_ATTEMPTS = 5;
     private static final int PARTY_MANAGE_X = 190;
     private static final int PARTY_MANAGE_Y = 279;
     private static final int PARTY_DIALOG_CLOSE_X = 1260;
     private static final int PARTY_DIALOG_CLOSE_Y = 150;
+    private static final int AUTO_SETTINGS_ATTEMPTS = 2;
 
     private final AutomationHost host;
     private final ChannelSwitcher channelSwitcher;
@@ -72,14 +74,62 @@ final class BossAutomation {
     }
 
     private void prepareModeOne() {
+        openAutoSettings(AUTO_SETTINGS_ATTEMPTS);
+    }
+
+    private void openAutoSettings(int remainingAttempts) {
         host.showProgress("野王：打开菜单");
         host.tap(1215, 58, () -> {
-            host.showProgress("野王：打开自动设置");
-            host.tap(1190, 360, () -> {
-                host.showProgress("野王：选择模式 1");
-                host.tap(1025, 75, () -> host.tap(1240, 45, this::useMarker));
-            });
+            host.showProgress("野王：向上滑动菜单");
+            host.swipe(1150, 600, 1150, 220,
+                    () -> clickAutoSettings(remainingAttempts));
         });
+    }
+
+    private void clickAutoSettings(int remainingAttempts) {
+        host.showProgress("野王：识别自动设置");
+        host.recognizeText(text -> {
+            Rect bounds = findMenuAutoBounds(text);
+            if (bounds != null) {
+                host.tap(bounds.centerX(), bounds.centerY(), this::selectModeOne);
+            } else if (remainingAttempts > 1) {
+                host.showProgress("野王：未识别到自动，检查遮挡窗口");
+                host.tap(1240, 45, () -> host.ensureGameHudVisible(
+                        () -> openAutoSettings(remainingAttempts - 1)));
+            } else {
+                DiagnosticLog.warn("BOSS", "auto settings OCR missed twice; skipping");
+                host.showProgress("野王：未识别到自动，跳过自动设置");
+                host.tap(1240, 45, this::useMarker);
+            }
+        });
+    }
+
+    private void selectModeOne() {
+        host.showProgress("野王：选择模式 1");
+        host.tap(1025, 75, () -> host.tap(1240, 45, this::useMarker));
+    }
+
+    private static Rect findMenuAutoBounds(Text text) {
+        for (Text.TextBlock block : text.getTextBlocks()) {
+            for (Text.Line line : block.getLines()) {
+                Rect bounds = line.getBoundingBox();
+                if (isMenuAutoCandidate(line.getText(), bounds)) {
+                    return bounds;
+                }
+            }
+        }
+        return null;
+    }
+
+    static boolean isMenuAutoCandidate(String value, Rect bounds) {
+        return bounds != null
+                && isMenuAutoCandidate(value, bounds.centerX(), bounds.centerY());
+    }
+
+    static boolean isMenuAutoCandidate(String value, int centerX, int centerY) {
+        return "自动".equals(value == null ? "" : value.replaceAll("\\s+", ""))
+                && centerX >= 850 && centerX <= 1270
+                && centerY >= 100 && centerY <= 650;
     }
 
     private void useMarker() {
@@ -194,21 +244,43 @@ final class BossAutomation {
     private void switchChannel() {
         host.showProgress("野王：打开分流信息");
         host.tap(1215, 705,
-                () -> host.postDelayed(this::readCurrentChannel, CHANNEL_DIALOG_MS));
+                () -> host.postDelayed(
+                        () -> readCurrentChannel(CHANNEL_OCR_ATTEMPTS, false),
+                        CHANNEL_DIALOG_MS));
     }
 
-    private void readCurrentChannel() {
+    private void readCurrentChannel(int remainingAttempts, boolean blockerChecked) {
         host.showProgress("野王：判断当前分流");
         host.recognizeText(text -> host.captureScreenshot(bitmap -> {
             Integer current = bitmap == null ? null : findCurrentChannel(text, bitmap);
-            if (bitmap != null) {
-                bitmap.recycle();
-            }
             if (current == null) {
-                host.showProgress("野王：未读取到当前分流，重新检测");
-                host.postDelayed(this::readCurrentChannel, 1_000);
+                if (remainingAttempts <= 1) {
+                    if (bitmap != null) {
+                        DiagnosticLog.saveScreenshot(
+                                bitmap, "boss-current-channel-ocr-miss");
+                        bitmap.recycle();
+                    }
+                    host.failAutomation("野王：未识别到当前分流");
+                    return;
+                }
+                if (bitmap != null) {
+                    bitmap.recycle();
+                }
+                if (!blockerChecked) {
+                    host.showProgress("野王：分流读取失败，检查遮挡窗口");
+                    host.ensureGameHudVisible(() -> host.tap(1215, 705,
+                            () -> host.postDelayed(
+                                    () -> readCurrentChannel(
+                                            remainingAttempts - 1, true),
+                                    CHANNEL_DIALOG_MS)));
+                } else {
+                    host.showProgress("野王：未读取到当前分流，重新检测");
+                    host.postDelayed(() -> readCurrentChannel(
+                            remainingAttempts - 1, true), 1_000);
+                }
                 return;
             }
+            bitmap.recycle();
             int next = ChannelSwitcher.nextChannel(current);
             host.showProgress("野王：第 " + current + " 分流 → 第 " + next + " 分流");
             channelSwitcher.switchOpenTo(next,
@@ -315,35 +387,65 @@ final class BossAutomation {
     }
 
     private void readLeaderChannel(int remainingAttempts, int current, Runnable next) {
+        readLeaderChannel(remainingAttempts, current, next, false);
+    }
+
+    private void readLeaderChannel(int remainingAttempts, int current,
+            Runnable next, boolean blockerChecked) {
         host.showProgress("野王跟随队长：读取队长分流");
-        host.recognizeText(text -> {
-            Integer leader = findLeaderChannel(text);
-            boolean dialogOpen = hasPartyManageDialog(text);
+        host.recognizeLeaderChannel(leader -> {
             if (leader != null) {
                 DiagnosticLog.info("BOSS", "leader follow channels current=" + current
                         + " leader=" + leader + " same=" + (current == leader));
                 closePartyDialog(() -> handleLeaderChannel(current, leader, next));
-            } else if (remainingAttempts > 1) {
-                if (dialogOpen) {
-                    host.postDelayed(() -> readLeaderChannel(
-                            remainingAttempts - 1, current, next), 1_000);
-                } else {
-                    DiagnosticLog.warn("BOSS", "party dialog is not open; tapping Manage again");
-                    host.showProgress("野王跟随队长：重新打开队伍管理");
-                    host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
-                            () -> host.postDelayed(
-                                    () -> readLeaderChannel(
-                                            remainingAttempts - 1, current, next),
-                                    CHANNEL_DIALOG_MS));
-                }
             } else {
-                if (dialogOpen) {
-                    closePartyDialog(() -> failPartyOcr("队长分流", text));
-                } else {
-                    failPartyOcr("队长分流", text);
-                }
+                host.recognizeText(text -> retryLeaderChannelAfterMiss(
+                        remainingAttempts, current, next, blockerChecked, text));
             }
         });
+    }
+
+    private void retryLeaderChannelAfterMiss(int remainingAttempts, int current,
+            Runnable next, boolean blockerChecked, Text text) {
+        boolean dialogOpen = hasPartyManageDialog(text);
+        Integer fullScreenLeader = dialogOpen ? findLeaderChannel(text) : null;
+        if (fullScreenLeader != null) {
+            DiagnosticLog.info("BOSS", "leader channel crop missed; full screen="
+                    + fullScreenLeader);
+            closePartyDialog(() -> handleLeaderChannel(
+                    current, fullScreenLeader, next));
+            return;
+        }
+        if (remainingAttempts <= 1) {
+            if (dialogOpen) {
+                closePartyDialog(() -> failPartyOcr("队长分流", text));
+            } else {
+                failPartyOcr("队长分流", text);
+            }
+            return;
+        }
+        if (!blockerChecked) {
+            host.showProgress("野王跟随队长：分流读取失败，检查遮挡窗口");
+            host.ensureGameHudVisible(() -> {
+                host.showProgress("野王跟随队长：重新打开队伍管理");
+                host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
+                        () -> host.postDelayed(
+                                () -> readLeaderChannel(remainingAttempts - 1,
+                                        current, next, true),
+                                CHANNEL_DIALOG_MS));
+            });
+        } else if (dialogOpen) {
+            host.postDelayed(() -> readLeaderChannel(
+                    remainingAttempts - 1, current, next, true), 1_000);
+        } else {
+            DiagnosticLog.warn("BOSS", "party dialog is not open; tapping Manage again");
+            host.showProgress("野王跟随队长：重新打开队伍管理");
+            host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
+                    () -> host.postDelayed(
+                            () -> readLeaderChannel(remainingAttempts - 1,
+                                    current, next, true),
+                            CHANNEL_DIALOG_MS));
+        }
     }
 
     private static boolean hasPartyManageDialog(Text text) {
@@ -426,7 +528,7 @@ final class BossAutomation {
                 }
             }
         }
-        DiagnosticLog.info("BOSS", "leader channel OCR candidates="
+        DiagnosticLog.info("BOSS", "leader channel full-screen candidates="
                 + candidates + " selected=" + leader);
         return leader;
     }
@@ -555,7 +657,8 @@ final class BossAutomation {
                     if (ocrBounds != null && containsChinese(name)) {
                         Rect bounds = toOriginalBounds(ocrBounds, ocrScale,
                                 bitmap.getWidth(), bitmap.getHeight());
-                        if (hasRedText(bitmap, bounds)) {
+                        if (isEnemyListCandidate(bounds.centerY(), bitmap.getHeight())
+                                && hasRedText(bitmap, bounds)) {
                             bounds.offset(screenLeft, 0);
                             return new BossTarget(name, bounds);
                         }
@@ -564,6 +667,11 @@ final class BossAutomation {
             }
         }
         return null;
+    }
+
+    static boolean isEnemyListCandidate(int centerY, int bitmapHeight) {
+        return centerY >= 180 * bitmapHeight / 720
+                && centerY <= 435 * bitmapHeight / 720;
     }
 
     static Rect toOriginalBounds(
