@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 
 import com.google.mlkit.vision.text.Text;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 interface AutomationHost {
@@ -96,6 +97,8 @@ interface AutomationHost {
 
     void recognizeText(Consumer<Text> result);
 
+    void recognizeDungeonText(Consumer<List<OcrLine>> result);
+
     void recognizeRedBoss(Consumer<BossAutomation.BossTarget> result);
 
     void recognizeHudChannel(Bitmap screenshot, Consumer<Integer> result);
@@ -113,6 +116,9 @@ interface AutomationHost {
     void clickText(String expected, boolean exact, Runnable next, int attempts);
 
     void clickText(String expected, boolean exact, Runnable next,
+            int attempts, Runnable ifMissing);
+
+    void clickDungeonText(String expected, boolean exact, Runnable next,
             int attempts, Runnable ifMissing);
 
     void clickLeftText(String expected, Runnable next, int attempts, Runnable ifMissing);

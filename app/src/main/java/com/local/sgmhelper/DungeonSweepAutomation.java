@@ -2,8 +2,6 @@ package com.local.sgmhelper;
 
 import android.graphics.Rect;
 
-import com.google.mlkit.vision.text.Text;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -77,11 +75,11 @@ final class DungeonSweepAutomation {
     private void findCurrentLevel(int remainingScrolls) {
         int level = selectedLevels.get(currentIndex);
         host.showProgress("扫荡副本：查找 " + level + " 级");
-        host.recognizeText(text -> {
+        host.recognizeDungeonText(lines -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            Rect bounds = findLevelBounds(text, level);
+            Rect bounds = findLevelBounds(lines, level);
             if (bounds != null) {
                 host.tap(bounds.centerX(), bounds.centerY(), this::sweepCurrentLevel);
             } else if (remainingScrolls > 0) {
@@ -122,14 +120,12 @@ final class DungeonSweepAutomation {
         host.postDelayed(host::resumePrimaryTask, 10_000);
     }
 
-    static Rect findLevelBounds(Text text, int expectedLevel) {
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
-                Rect bounds = line.getBoundingBox();
-                if (bounds != null && bounds.centerX() < 420
-                        && parseLevel(line.getText()) == expectedLevel) {
-                    return bounds;
-                }
+    static Rect findLevelBounds(List<OcrLine> lines, int expectedLevel) {
+        for (OcrLine line : lines) {
+            Rect bounds = line.bounds;
+            if (bounds != null && bounds.centerX() < 420
+                    && parseLevel(line.text) == expectedLevel) {
+                return bounds;
             }
         }
         return null;

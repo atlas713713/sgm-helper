@@ -2,8 +2,6 @@ package com.local.sgmhelper;
 
 import android.graphics.Rect;
 
-import com.google.mlkit.vision.text.Text;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -78,8 +76,8 @@ final class DungeonBattleAutomation {
     private void findCurrentLevel(int remainingScrolls) {
         int level = selectedLevels.get(currentIndex);
         host.showProgress("实战副本：查找 " + level + " 级");
-        host.recognizeText(text -> {
-            Rect bounds = DungeonSweepAutomation.findLevelBounds(text, level);
+        host.recognizeDungeonText(lines -> {
+            Rect bounds = DungeonSweepAutomation.findLevelBounds(lines, level);
             if (bounds != null) {
                 host.tap(bounds.centerX(), bounds.centerY(), this::enterCamp);
             } else if (remainingScrolls > 0) {
@@ -109,37 +107,37 @@ final class DungeonBattleAutomation {
     private void openEntryNpc() {
         host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, () -> {
             if (currentLevel() == 20) {
-                host.clickText("详情告知", true,
-                        () -> host.clickText("下一步", true, this::waitForDungeon, 8,
+                host.clickDungeonText("详情告知", true,
+                        () -> host.clickDungeonText("下一步", true, this::waitForDungeon, 8,
                                 () -> failMissing("下一步")),
                         8, () -> failMissing("详情告知"));
             } else if (currentLevel() == 30) {
-                host.clickText("黄天", true,
-                        () -> host.clickText("进入", true, this::waitForDungeon, 8,
+                host.clickDungeonText("黄天", true,
+                        () -> host.clickDungeonText("进入", true, this::waitForDungeon, 8,
                                 () -> failMissing("进入")),
                         8, () -> failMissing("黄天"));
             } else if (currentLevel() == 40) {
-                host.clickText("闯入", false, this::waitForDungeon, 8,
+                host.clickDungeonText("闯入", false, this::waitForDungeon, 8,
                         () -> failMissing("闯入"));
             } else if (currentLevel() == 50) {
-                host.clickText("下一步", true,
-                        () -> host.clickText("入场", true, this::waitForDungeon, 5,
-                                () -> host.clickText("进入", true, this::waitForDungeon, 5,
+                host.clickDungeonText("下一步", true,
+                        () -> host.clickDungeonText("入场", true, this::waitForDungeon, 5,
+                                () -> host.clickDungeonText("进入", true, this::waitForDungeon, 5,
                                         () -> failMissing("入场/进入"))),
                         8, () -> failMissing("下一步"));
             } else if (currentLevel() == 60 || currentLevel() == 65) {
-                host.clickText("开始神游", true,
-                        () -> host.clickText("进入", true, this::waitForDungeon, 8,
+                host.clickDungeonText("开始神游", true,
+                        () -> host.clickDungeonText("进入", true, this::waitForDungeon, 8,
                                 () -> failMissing("进入")),
                         8, () -> failMissing("开始神游"));
             } else if (currentLevel() >= 70) {
-                host.clickText("下一步", true,
-                        () -> host.clickText("出发", true, this::waitForDungeon, 5,
-                                () -> host.clickText("进入", true, this::waitForDungeon, 5,
+                host.clickDungeonText("下一步", true,
+                        () -> host.clickDungeonText("出发", true, this::waitForDungeon, 5,
+                                () -> host.clickDungeonText("进入", true, this::waitForDungeon, 5,
                                         () -> failMissing("出发/进入"))),
                         8, () -> failMissing("下一步"));
             } else {
-                host.clickText("进入", true, this::waitForDungeon, 8,
+                host.clickDungeonText("进入", true, this::waitForDungeon, 8,
                         () -> failMissing("进入"));
             }
         });
@@ -189,7 +187,7 @@ final class DungeonBattleAutomation {
             gotoExit();
         } else if (decision.interactionText != null) {
             host.showProgress(currentLevel() + "级副本：" + decision.interactionText);
-            Runnable click = () -> host.clickText(decision.interactionText, true,
+            Runnable click = () -> host.clickDungeonText(decision.interactionText, true,
                     () -> host.postDelayed(this::inspectPosition, 2_000), 8,
                     () -> failMissing(decision.interactionText));
             if (decision.openNpc) {
@@ -206,8 +204,8 @@ final class DungeonBattleAutomation {
 
     private void findEnemy(RouteDecision decision) {
         host.showProgress(currentLevel() + "级副本：搜索 " + decision.enemyDescription());
-        host.recognizeText(text -> {
-            EnemyRow enemy = selectEnemyRow(readEnemyRows(text), decision.enemyLevels,
+        host.recognizeDungeonText(lines -> {
+            EnemyRow enemy = selectEnemyRow(readEnemyRows(lines), decision.enemyLevels,
                     decision.priorityEnemyNames, decision.protectName,
                     decision.acceptAnyEnemy);
             if (enemy == null) {
@@ -251,36 +249,36 @@ final class DungeonBattleAutomation {
     private void claimReward() {
         if (currentLevel() == 30) {
             host.showProgress("30级副本：与黄巾太平道长对话离开");
-            host.clickText("黄天", true,
-                    () -> host.clickText("进入", true, this::finishCurrent, 8,
+            host.clickDungeonText("黄天", true,
+                    () -> host.clickDungeonText("进入", true, this::finishCurrent, 8,
                             () -> failMissing("进入")),
                     8, () -> failMissing("黄天"));
             return;
         }
         if (currentLevel() == 50) {
             host.showProgress("50级副本：与孙坚对话离开");
-            host.clickText("离开", true, this::finishCurrent, 10,
+            host.clickDungeonText("离开", true, this::finishCurrent, 10,
                     () -> failMissing("离开"));
             return;
         }
         if (currentLevel() == 60) {
             host.showProgress("60级副本：答谢公孙瓒");
-            host.clickText("答谢公孙瓒", true, this::finishCurrent, 10,
+            host.clickDungeonText("答谢公孙瓒", true, this::finishCurrent, 10,
                     () -> failMissing("答谢公孙瓒"));
             return;
         }
         if (currentLevel() == 65) {
             host.showProgress("65级副本：收下战利品");
-            host.clickText("收下战利品", true, this::finishCurrent, 10,
+            host.clickDungeonText("收下战利品", true, this::finishCurrent, 10,
                     () -> failMissing("收下战利品"));
             return;
         }
         if (currentLevel() >= 70) {
             host.showProgress(currentLevel() + "级副本：收下战利品");
-            host.clickText("下一步", true,
-                    () -> host.clickText("收下战利品", true, this::finishCurrent, 10,
+            host.clickDungeonText("下一步", true,
+                    () -> host.clickDungeonText("收下战利品", true, this::finishCurrent, 10,
                             () -> failMissing("收下战利品")),
-                    8, () -> host.clickText("收下战利品", true,
+                    8, () -> host.clickDungeonText("收下战利品", true,
                             this::finishCurrent, 10, () -> failMissing("下一步/收下战利品")));
             return;
         }
@@ -293,7 +291,7 @@ final class DungeonBattleAutomation {
             reward = "收下奖赏";
         }
         host.showProgress(currentLevel() + "级副本：" + reward);
-        host.clickText(reward, true, this::finishCurrent, 10,
+        host.clickDungeonText(reward, true, this::finishCurrent, 10,
                 () -> failMissing(reward));
     }
 
@@ -595,28 +593,26 @@ final class DungeonBattleAutomation {
         return null;
     }
 
-    static List<EnemyRow> readEnemyRows(Text text) {
+    static List<EnemyRow> readEnemyRows(List<OcrLine> lines) {
         List<EnemyRow> rows = new ArrayList<>();
         int[] centers = {151, 206, 261, 316, 371};
         for (int centerY : centers) {
             StringBuilder label = new StringBuilder();
             Integer level = null;
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
-                    Rect bounds = line.getBoundingBox();
-                    if (bounds == null || bounds.right < 950 || bounds.centerY() < centerY - 22
-                            || bounds.centerY() > centerY + 22) {
-                        continue;
-                    }
-                    if (label.length() > 0) {
-                        label.append(' ');
-                    }
-                    label.append(line.getText());
-                    if (bounds.left < 1030) {
-                        Integer parsed = firstInteger(line.getText());
-                        if (parsed != null) {
-                            level = parsed;
-                        }
+            for (OcrLine line : lines) {
+                Rect bounds = line.bounds;
+                if (bounds == null || bounds.right < 950 || bounds.centerY() < centerY - 22
+                        || bounds.centerY() > centerY + 22) {
+                    continue;
+                }
+                if (label.length() > 0) {
+                    label.append(' ');
+                }
+                label.append(line.text);
+                if (bounds.left < 1030) {
+                    Integer parsed = firstInteger(line.text);
+                    if (parsed != null) {
+                        level = parsed;
                     }
                 }
             }

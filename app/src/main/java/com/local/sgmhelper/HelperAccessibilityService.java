@@ -159,6 +159,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private boolean inventoryCheckRunning;
     private boolean inventorySelling;
     private TextRecognizer textRecognizer;
+    private PaddleDungeonTextRecognizer paddleDungeonTextRecognizer;
 
     static HelperAccessibilityService getInstance() {
         return instance;
@@ -1753,6 +1754,49 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void recognizeDungeonText(Consumer<List<OcrLine>> result) {
+        captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                recognizeDungeonTextWithMlKit(result);
+                return;
+            }
+            if (paddleDungeonTextRecognizer == null) {
+                paddleDungeonTextRecognizer = new PaddleDungeonTextRecognizer(this);
+            }
+            paddleDungeonTextRecognizer.recognize(bitmap, lines -> handler.post(() -> {
+                bitmap.recycle();
+                if (lines.isEmpty()) {
+                    DiagnosticLog.warn("OCR",
+                            "Paddle dungeon OCR returned no text; using ML Kit fallback");
+                    recognizeDungeonTextWithMlKit(result);
+                } else {
+                    result.accept(lines);
+                }
+            }), error -> handler.post(() -> {
+                bitmap.recycle();
+                DiagnosticLog.error("OCR",
+                        "Paddle dungeon OCR failed; using ML Kit fallback", error);
+                recognizeDungeonTextWithMlKit(result);
+            }));
+        });
+    }
+
+    private void recognizeDungeonTextWithMlKit(Consumer<List<OcrLine>> result) {
+        recognizeScreenText(text -> {
+            List<OcrLine> lines = new ArrayList<>();
+            for (Text.TextBlock block : text.getTextBlocks()) {
+                for (Text.Line line : block.getLines()) {
+                    Rect bounds = line.getBoundingBox();
+                    if (bounds != null) {
+                        lines.add(new OcrLine(line.getText(), bounds, 0f));
+                    }
+                }
+            }
+            result.accept(lines);
+        });
+    }
+
+    @Override
     public void recognizeRedBoss(Consumer<BossAutomation.BossTarget> result) {
         captureScreenshot(bitmap -> {
             if (bitmap == null) {
@@ -2157,6 +2201,37 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void clickDungeonText(String expected, boolean exact, Runnable next,
+            int attempts, Runnable ifMissing) {
+        clickDungeonScreenText(expected, exact, next, attempts, ifMissing);
+    }
+
+    private void clickDungeonScreenText(String expected, boolean exact, Runnable next,
+            int remainingAttempts, Runnable ifMissing) {
+        if (!automationRunning) {
+            return;
+        }
+        recognizeDungeonText(lines -> {
+            if (!automationRunning) {
+                return;
+            }
+            Rect match = findOcrTextBounds(lines, expected, exact);
+            if (match != null) {
+                performTap(match.centerX(), match.centerY(), next, CLICK_DELAY_MS);
+            } else if (remainingAttempts > 1) {
+                handler.postDelayed(
+                        () -> clickDungeonScreenText(expected, exact, next,
+                                remainingAttempts - 1, ifMissing),
+                        ACTION_DELAY_MS);
+            } else if (ifMissing != null) {
+                ifMissing.run();
+            } else {
+                failAutomation("Dungeon text was not found: " + expected);
+            }
+        });
+    }
+
+    @Override
     public void clickLeftText(String expected, Runnable next,
             int attempts, Runnable ifMissing) {
         clickLeftScreenText(expected, next, attempts, ifMissing);
@@ -2260,6 +2335,38 @@ public final class HelperAccessibilityService extends AccessibilityService
                 }
                 fragments.add(line.getText());
                 mergedBounds.union(bounds);
+                if (matchesTextFragments(fragments, target, exact)) {
+                    return mergedBounds;
+                }
+            }
+        }
+        return null;
+    }
+
+    static Rect findOcrTextBounds(List<OcrLine> lines, String target, boolean exact) {
+        for (OcrLine line : lines) {
+            if (matchesTextFragments(
+                    Collections.singletonList(line.text), target, exact)) {
+                return line.bounds;
+            }
+        }
+        lines.sort((left, right) -> Integer.compare(left.bounds.left, right.bounds.left));
+        for (int start = 0; start < lines.size(); start++) {
+            Rect anchor = lines.get(start).bounds;
+            Rect mergedBounds = new Rect(anchor);
+            List<String> fragments = new ArrayList<>();
+            fragments.add(lines.get(start).text);
+            for (int index = start + 1; index < lines.size(); index++) {
+                OcrLine line = lines.get(index);
+                if (Math.max(anchor.top, line.bounds.top)
+                        > Math.min(anchor.bottom, line.bounds.bottom)) {
+                    continue;
+                }
+                if (line.bounds.left - mergedBounds.right > 80) {
+                    break;
+                }
+                fragments.add(line.text);
+                mergedBounds.union(line.bounds);
                 if (matchesTextFragments(fragments, target, exact)) {
                     return mergedBounds;
                 }
@@ -2870,6 +2977,10 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (textRecognizer != null) {
             textRecognizer.close();
             textRecognizer = null;
+        }
+        if (paddleDungeonTextRecognizer != null) {
+            paddleDungeonTextRecognizer.close();
+            paddleDungeonTextRecognizer = null;
         }
     }
 
