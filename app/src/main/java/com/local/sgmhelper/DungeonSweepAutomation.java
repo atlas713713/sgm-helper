@@ -122,7 +122,7 @@ final class DungeonSweepAutomation {
         host.postDelayed(host::resumePrimaryTask, 10_000);
     }
 
-    private static Rect findLevelBounds(Text text, int expectedLevel) {
+    static Rect findLevelBounds(Text text, int expectedLevel) {
         for (Text.TextBlock block : text.getTextBlocks()) {
             for (Text.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();

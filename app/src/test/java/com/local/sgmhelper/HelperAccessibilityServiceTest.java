@@ -244,6 +244,198 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void scalesCoordinatesForTheShortDungeonCampMap() {
+        assertEquals(642, AutomationHost.mapScreenX(100, 199));
+        assertEquals(842, AutomationHost.mapScreenX(199, 199));
+    }
+
+    @Test
+    public void reproducesTheFiveLevel10DungeonSections() {
+        DungeonBattleAutomation.RouteDecision part0 = DungeonBattleAutomation.decide10(599);
+        assertTrue(part0.searchEnemies);
+        assertEquals(Arrays.asList(7, 10), part0.enemyLevels);
+        assertEquals(500, part0.targetX);
+
+        DungeonBattleAutomation.RouteDecision part1 = DungeonBattleAutomation.decide10(450);
+        assertTrue(part1.searchEnemies);
+        assertEquals(382, part1.targetX);
+
+        DungeonBattleAutomation.RouteDecision part2 = DungeonBattleAutomation.decide10(300);
+        assertFalse(part2.searchEnemies);
+        assertEquals(159, part2.targetX);
+
+        DungeonBattleAutomation.RouteDecision part3 = DungeonBattleAutomation.decide10(100);
+        assertTrue(part3.searchEnemies);
+        assertTrue(part3.acceptAnyEnemy);
+        assertEquals(Arrays.asList(10), part3.enemyLevels);
+
+        assertTrue(DungeonBattleAutomation.decide10(25).exit);
+    }
+
+    @Test
+    public void level10DungeonSelectsOnlyConfiguredEnemyRows() {
+        DungeonBattleAutomation.EnemyRow level18 = new DungeonBattleAutomation.EnemyRow(
+                18, "18级 路人", new android.graphics.Rect(0, 0, 1, 1));
+        DungeonBattleAutomation.EnemyRow level10 = new DungeonBattleAutomation.EnemyRow(
+                10, "10级 黄巾兵", new android.graphics.Rect(0, 0, 1, 1));
+        assertEquals(level10, DungeonBattleAutomation.selectEnemyRow(
+                Arrays.asList(level18, level10), Arrays.asList(7, 10), false));
+        assertEquals(level18, DungeonBattleAutomation.selectEnemyRow(
+                Arrays.asList(level18, level10), Arrays.asList(10), true));
+        assertNull(DungeonBattleAutomation.selectEnemyRow(
+                Arrays.asList(level18), Arrays.asList(7, 10), false));
+    }
+
+    @Test
+    public void reproducesTheSixLevel20DungeonSections() {
+        DungeonBattleAutomation.RouteDecision part0 = DungeonBattleAutomation.decide20(599);
+        assertEquals(Arrays.asList(18, 20), part0.enemyLevels);
+        assertEquals(474, part0.targetX);
+
+        DungeonBattleAutomation.RouteDecision part1 = DungeonBattleAutomation.decide20(400);
+        assertFalse(part1.searchEnemies);
+        assertEquals(338, part1.targetX);
+
+        DungeonBattleAutomation.RouteDecision part2 = DungeonBattleAutomation.decide20(300);
+        assertTrue(part2.acceptAnyEnemy);
+        assertEquals(Arrays.asList(20), part2.enemyLevels);
+
+        DungeonBattleAutomation.RouteDecision part3 = DungeonBattleAutomation.decide20(150);
+        assertFalse(part3.acceptAnyEnemy);
+        assertEquals(Arrays.asList(20), part3.enemyLevels);
+
+        DungeonBattleAutomation.RouteDecision part4 = DungeonBattleAutomation.decide20(60);
+        assertTrue(part4.acceptAnyEnemy);
+        assertEquals(26, part4.targetX);
+
+        DungeonBattleAutomation.RouteDecision part5 = DungeonBattleAutomation.decide20(20);
+        assertTrue(part5.exit);
+        assertEquals(22, part5.targetX);
+    }
+
+    @Test
+    public void reproducesTheFiveLevel30DungeonSectionsAndAlternatingDoorY() {
+        DungeonBattleAutomation.RouteDecision part0 = DungeonBattleAutomation.decide30(599);
+        assertEquals(Arrays.asList(30), part0.enemyLevels);
+        assertEquals(448, part0.targetX);
+        assertEquals(4, part0.targetY);
+
+        DungeonBattleAutomation.RouteDecision part1 = DungeonBattleAutomation.decide30(400);
+        assertEquals(297, part1.targetX);
+        assertEquals(27, part1.targetY);
+
+        DungeonBattleAutomation.RouteDecision part2 = DungeonBattleAutomation.decide30(200);
+        assertTrue(part2.acceptAnyEnemy);
+        assertTrue(part2.enemyLevels.isEmpty());
+        assertEquals(4, part2.targetY);
+
+        DungeonBattleAutomation.RouteDecision part3 = DungeonBattleAutomation.decide30(100);
+        assertEquals(Arrays.asList(30), part3.enemyLevels);
+        assertEquals(32, part3.targetX);
+
+        DungeonBattleAutomation.RouteDecision part4 = DungeonBattleAutomation.decide30(24);
+        assertTrue(part4.exit);
+        assertEquals(24, part4.targetX);
+    }
+
+    @Test
+    public void reproducesTheLevel40BossSweepWaypoints() {
+        int[] positions = {570, 500, 400, 320, 220, 150, 80, 40};
+        int[] targets = {520, 420, 350, 275, 180, 110, 50, 25};
+        for (int index = 0; index < positions.length; index++) {
+            DungeonBattleAutomation.RouteDecision decision =
+                    DungeonBattleAutomation.decide40(positions[index]);
+            assertTrue(decision.searchEnemies);
+            assertTrue(decision.acceptAnyEnemy);
+            assertEquals(targets[index], decision.targetX);
+            assertEquals(25, decision.targetY);
+        }
+        assertTrue(DungeonBattleAutomation.decide40(25).exit);
+    }
+
+    @Test
+    public void reproducesTheLevel50RightwardBossRouteAndCenterDialog() {
+        assertEquals(60, DungeonBattleAutomation.decide50(25).targetX);
+        assertEquals(45, DungeonBattleAutomation.decide50(25).targetY);
+        assertTrue(DungeonBattleAutomation.decide50(80).searchEnemies);
+        assertEquals(205, DungeonBattleAutomation.decide50(150).targetX);
+        assertEquals("交给我吧", DungeonBattleAutomation.decide50(300).interactionText);
+        assertEquals(399, DungeonBattleAutomation.decide50(350).targetX);
+        assertEquals(495, DungeonBattleAutomation.decide50(450).targetX);
+        assertEquals(583, DungeonBattleAutomation.decide50(550).targetX);
+        assertTrue(DungeonBattleAutomation.decide50(590).exit);
+        assertEquals(570, DungeonBattleAutomation.decide50(590).targetX);
+    }
+
+    @Test
+    public void reproducesTheLevel60PortalRoomRoute() {
+        assertEquals(71, DungeonBattleAutomation.decide60(50).targetX);
+        assertEquals(4, DungeonBattleAutomation.decide60(50).targetY);
+        assertEquals(114, DungeonBattleAutomation.decide60(515).targetX);
+        assertEquals(46, DungeonBattleAutomation.decide60(515).targetY);
+        assertEquals(70, DungeonBattleAutomation.decide60(150).targetX);
+        assertEquals(214, DungeonBattleAutomation.decide60(540).targetX);
+        assertEquals(94, DungeonBattleAutomation.decide60(250).targetX);
+        assertEquals(394, DungeonBattleAutomation.decide60(350).targetX);
+        assertEquals(405, DungeonBattleAutomation.decide60(570).targetX);
+        assertEquals(486, DungeonBattleAutomation.decide60(450).targetX);
+        assertTrue(DungeonBattleAutomation.decide60(490).exit);
+    }
+
+    @Test
+    public void reproducesTheLevel65GateAndLuBuRoute() {
+        assertEquals(34, DungeonBattleAutomation.decide65(20).targetX);
+        assertEquals("出击", DungeonBattleAutomation.decide65(34).interactionText);
+        assertTrue(DungeonBattleAutomation.decide65(34).openNpc);
+        assertEquals(245, DungeonBattleAutomation.decide65(150).targetX);
+        assertEquals(Arrays.asList(64), DungeonBattleAutomation.decide65(150).enemyLevels);
+        assertEquals(252, DungeonBattleAutomation.decide65(245).targetX);
+        assertEquals(410, DungeonBattleAutomation.decide65(350).targetX);
+        assertEquals(4, DungeonBattleAutomation.decide65(350).targetY);
+        assertEquals(538, DungeonBattleAutomation.decide65(500).targetX);
+        assertTrue(DungeonBattleAutomation.decide65(550).exit);
+    }
+
+    @Test
+    public void reproducesTheLevel70EscortRouteAndNeverTargetsTheCarriage() {
+        DungeonBattleAutomation.RouteDecision part0 = DungeonBattleAutomation.decide70(80);
+        assertEquals(115, part0.targetX);
+        assertEquals(Arrays.asList("长安城驻军队长", "长安白虎大门"),
+                part0.priorityEnemyNames);
+        assertEquals("马车", part0.protectName);
+        assertEquals(560, DungeonBattleAutomation.decide70(300).targetX);
+        assertTrue(DungeonBattleAutomation.decide70(570).exit);
+
+        DungeonBattleAutomation.EnemyRow carriage = new DungeonBattleAutomation.EnemyRow(
+                70, "70级 马车", new android.graphics.Rect(0, 0, 1, 1));
+        DungeonBattleAutomation.EnemyRow guard = new DungeonBattleAutomation.EnemyRow(
+                70, "长安城驻军队长", new android.graphics.Rect(0, 0, 1, 1));
+        assertEquals(guard, DungeonBattleAutomation.selectEnemyRow(
+                Arrays.asList(carriage, guard), List.of(),
+                part0.priorityEnemyNames, part0.protectName, false));
+    }
+
+    @Test
+    public void reproducesTheLevel75ShortMapGatesAndBossPriority() {
+        DungeonBattleAutomation.RouteDecision part0 = DungeonBattleAutomation.decide75(50);
+        assertEquals(73, part0.targetX);
+        assertEquals(Arrays.asList("吕虔", "于禁", "李典", "夏侯渊"),
+                part0.priorityEnemyNames);
+        assertEquals(73, DungeonBattleAutomation.decide75(70).targetX);
+        assertEquals(130, DungeonBattleAutomation.decide75(100).targetX);
+        assertEquals(187, DungeonBattleAutomation.decide75(150).targetX);
+        assertTrue(DungeonBattleAutomation.decide75(187).exit);
+
+        DungeonBattleAutomation.EnemyRow xiahou = new DungeonBattleAutomation.EnemyRow(
+                75, "夏侯渊", new android.graphics.Rect(0, 0, 1, 1));
+        DungeonBattleAutomation.EnemyRow lvdian = new DungeonBattleAutomation.EnemyRow(
+                75, "李典", new android.graphics.Rect(0, 0, 1, 1));
+        assertEquals(lvdian, DungeonBattleAutomation.selectEnemyRow(
+                Arrays.asList(xiahou, lvdian), List.of(),
+                part0.priorityEnemyNames, null, false));
+    }
+
+    @Test
     public void matchesTheStableSupplyTaskSuffixAfterOcrSubstitution() {
         assertTrue(HelperAccessibilityService.matchesTextFragments(
                 Arrays.asList("一补充至团物资E門"), "团物资", false));
