@@ -107,11 +107,17 @@ interface AutomationHost {
 
     void recognizeMapCoordinate(Consumer<String> result);
 
+    void recognizeMapName(Consumer<String> result);
+
+    void recognizeWorldBossMap(Consumer<String> result);
+
     void recognizeBackpackCapacity(Consumer<String> result);
 
     void recognizeYuanbaoQuickSell(Consumer<Boolean> result);
 
     void captureScreenshot(Consumer<Bitmap> result);
+
+    void pressBack(Runnable next);
 
     void clickText(String expected, boolean exact, Runnable next, int attempts);
 

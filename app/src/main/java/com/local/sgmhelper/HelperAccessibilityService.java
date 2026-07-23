@@ -108,6 +108,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     private static final String PREF_DUNGEON_BATTLE_MODE = "dungeon_battle_mode";
     static final String PREF_SOLDIER_REVIVAL_ENABLED = "soldier_revival_before_training";
     static final String PREF_BOSS_FOLLOW_LEADER = "boss_follow_leader";
+    static final String PREF_WORLD_BOSS_MAP = "world_boss_map";
+    static final String PREF_WORLD_BOSS_TARGET = "world_boss_target";
     static final String PREF_MILITARY_RETRY_AT = "military_retry_at";
     static final String PREF_SUPPLY_RETRY_AT = "supply_retry_at";
     static final String PREF_WILDERNESS_RETRY_AT = "wilderness_retry_at";
@@ -438,12 +440,24 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void startBossFromMenu(View button) {
+        startBossFromMenu(button, bossAutomation::start);
+    }
+
+    private void startWildernessBossFromMenu(View button) {
+        startBossFromMenu(button, bossAutomation::startWilderness);
+    }
+
+    private void startWorldBossFromMenu(View button) {
+        startBossFromMenu(button, bossAutomation::startWorld);
+    }
+
+    private void startBossFromMenu(View button, Runnable start) {
         if (automationRunning) {
-            bossAutomation.start();
+            start.run();
             return;
         }
         button.setEnabled(false);
-        handler.postDelayed(bossAutomation::start, 300);
+        handler.postDelayed(start, 300);
     }
 
     private void startTrainingAfterPreparation() {
@@ -898,13 +912,61 @@ public final class HelperAccessibilityService extends AccessibilityService
                 .putBoolean(PREF_BOSS_FOLLOW_LEADER, checked)
                 .apply());
 
-        Button worldBoss = createSettingsButton(R.string.boss_world_pending, false, null);
-        worldBoss.setEnabled(false);
-        worldBoss.setAlpha(0.4f);
+        String choose = getString(R.string.boss_world_select_required);
+        List<String> mapValues = new ArrayList<>();
+        mapValues.add(choose);
+        mapValues.addAll(WorldBossCatalog.mapNames());
+        WorldBossCatalog.MapEntry savedMap = WorldBossCatalog.findMapByName(
+                preferences.getString(PREF_WORLD_BOSS_MAP, ""));
+        String savedMapDisplay = savedMap == null
+                ? choose : savedMap.name + " " + savedMap.bossInfo();
+        Spinner[] targetSpinner = new Spinner[1];
+        addTextSpinnerRow(menu, R.string.boss_world_map,
+                mapValues, savedMapDisplay, value -> {
+                    WorldBossCatalog.MapEntry selected =
+                            WorldBossCatalog.findMapByDisplayName(value);
+                    if (selected == null) {
+                        preferences.edit().remove(PREF_WORLD_BOSS_MAP)
+                                .remove(PREF_WORLD_BOSS_TARGET).apply();
+                        if (targetSpinner[0] != null) {
+                            setSpinnerValues(targetSpinner[0],
+                                    Collections.singletonList(choose), choose);
+                        }
+                        return;
+                    }
+                    WorldBossCatalog.BossEntry selectedBoss = selected.findBoss(
+                            preferences.getString(PREF_WORLD_BOSS_TARGET, ""));
+                    if (selectedBoss == null) {
+                        selectedBoss = selected.bosses.get(0);
+                    }
+                    preferences.edit().putString(PREF_WORLD_BOSS_MAP, selected.name)
+                            .putString(PREF_WORLD_BOSS_TARGET, selectedBoss.name).apply();
+                    if (targetSpinner[0] != null) {
+                        setSpinnerValues(targetSpinner[0], selected.bossNames(),
+                                selectedBoss.displayName());
+                    }
+                });
+        List<String> targetValues = savedMap == null
+                ? Collections.singletonList(choose) : savedMap.bossNames();
+        WorldBossCatalog.BossEntry savedBoss = savedMap == null ? null
+                : savedMap.findBoss(preferences.getString(PREF_WORLD_BOSS_TARGET, ""));
+        targetSpinner[0] = addTextSpinnerRow(menu, R.string.boss_world_target,
+                targetValues, savedBoss == null ? choose : savedBoss.displayName(), value -> {
+                    WorldBossCatalog.MapEntry selectedMap = WorldBossCatalog.findMapByName(
+                            preferences.getString(PREF_WORLD_BOSS_MAP, ""));
+                    WorldBossCatalog.BossEntry selectedBoss =
+                            selectedMap == null ? null : selectedMap.findBoss(value);
+                    if (selectedBoss != null) {
+                        preferences.edit().putString(
+                                PREF_WORLD_BOSS_TARGET, selectedBoss.name).apply();
+                    }
+                });
+
         addSettingsButtonRow(menu,
                 createSettingsButton(R.string.boss_wilderness, true,
-                        this::startBossFromMenu),
-                worldBoss);
+                        this::startWildernessBossFromMenu),
+                createSettingsButton(R.string.boss_world, false,
+                        this::startWorldBossFromMenu));
         addSettingsButtonRow(menu,
                 createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
         updateMenuPosition();
@@ -1427,6 +1489,18 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void pressBack(Runnable next) {
+        if (!automationRunning) {
+            return;
+        }
+        if (!performGlobalAction(GLOBAL_ACTION_BACK)) {
+            failAutomation("返回键执行失败");
+            return;
+        }
+        scheduleNext(next, 300);
+    }
+
+    @Override
     public void ensureAutoAttackDisabled(Runnable next) {
         ensureGameHudVisible(
                 () -> ensureAutoAttackState(false, next, SCREEN_WAIT_RETRY_COUNT));
@@ -1507,7 +1581,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             }
             if (blocker == ScreenGuard.Blocker.DEFEATED) {
                 DiagnosticLog.info("SCREEN_GUARD", "state=DEFEATED action=confirm");
-                showProgress("准备游戏画面：关闭角色被击倒提示");
+                showProgress("Preparing game screen: closing defeated dialog");
                 clickScreenText("确定", true,
                         () -> retryGameHudGuard(next, remainingAttempts,
                                 "角色被击倒提示未关闭"),
@@ -1526,10 +1600,11 @@ public final class HelperAccessibilityService extends AccessibilityService
             if (screen == LoginAutomation.Screen.REWARD_RECOVERY) {
                 if (remainingAttempts > 1) {
                     DiagnosticLog.info("SCREEN_GUARD",
-                            "state=REWARD_RECOVERY action=close");
+                            "state=REWARD_RECOVERY action=back");
                     showProgress("准备游戏画面：关闭奖励找回");
-                    performTap(1092, 42, () -> ensureGameHudVisible(
-                            next, remainingAttempts - 1));
+                    performGlobalAction(GLOBAL_ACTION_BACK);
+                    handler.postDelayed(() -> ensureGameHudVisible(
+                            next, remainingAttempts - 1), ACTION_DELAY_MS);
                 } else {
                     failGameHudGuard("奖励找回窗口未关闭");
                 }
@@ -1943,6 +2018,53 @@ public final class HelperAccessibilityService extends AccessibilityService
                     .addOnFailureListener(error -> {
                         DiagnosticLog.warn("OCR",
                                 "Map coordinate recognition failed: " + error.getMessage());
+                        result.accept("");
+                    })
+                    .addOnCompleteListener(task -> enlarged.recycle());
+        });
+    }
+
+    @Override
+    public void recognizeMapName(Consumer<String> result) {
+        recognizeTextCrop(430, 550, 760, 615, 4, "Map name", result);
+    }
+
+    @Override
+    public void recognizeWorldBossMap(Consumer<String> result) {
+        recognizeTextCrop(25, 165, 335, 315, 6, "World boss rows", result);
+    }
+
+    private void recognizeTextCrop(int baseLeft, int baseTop, int baseRight,
+            int baseBottom, int scale, String label, Consumer<String> result) {
+        captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                result.accept("");
+                return;
+            }
+            int left = baseLeft * bitmap.getWidth() / 1280;
+            int top = baseTop * bitmap.getHeight() / 720;
+            int right = baseRight * bitmap.getWidth() / 1280;
+            int bottom = baseBottom * bitmap.getHeight() / 720;
+            Bitmap cropped = Bitmap.createBitmap(
+                    bitmap, left, top, right - left, bottom - top);
+            bitmap.recycle();
+            Bitmap enlarged = Bitmap.createScaledBitmap(
+                    cropped, cropped.getWidth() * scale,
+                    cropped.getHeight() * scale, true);
+            cropped.recycle();
+            if (textRecognizer == null) {
+                textRecognizer = TextRecognition.getClient(
+                        new ChineseTextRecognizerOptions.Builder().build());
+            }
+            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
+                    .addOnSuccessListener(text -> {
+                        DiagnosticLog.info("BOSS", label + " OCR='"
+                                + text.getText().replace('\n', ' ') + "'");
+                        result.accept(text.getText());
+                    })
+                    .addOnFailureListener(error -> {
+                        DiagnosticLog.warn("BOSS", label + " OCR failed: "
+                                + error.getMessage());
                         result.accept("");
                     })
                     .addOnCompleteListener(task -> enlarged.recycle());

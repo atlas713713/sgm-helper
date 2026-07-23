@@ -8,6 +8,7 @@ import android.graphics.Rect;
 import com.google.mlkit.vision.text.Text;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,6 +37,14 @@ final class BossAutomation {
     private static final int PARTY_DIALOG_CLOSE_X = 1260;
     private static final int PARTY_DIALOG_CLOSE_Y = 150;
     private static final int AUTO_SETTINGS_ATTEMPTS = 2;
+    private static final int WORLD_MAP_NAME_ATTEMPTS = 5;
+    private static final int WORLD_MAP_X = 800;
+    private static final int WORLD_MAP_Y = 585;
+    private static final int WORLD_LIST_SWITCH_X = 320;
+    private static final int WORLD_LIST_SWITCH_Y = 34;
+    private static final long WORLD_MAP_OPEN_MS = 1_000;
+    private static final String PREF_BOSS_MODE = "boss_mode";
+    private static final String MODE_WORLD = "world";
 
     private final AutomationHost host;
     private final ChannelSwitcher channelSwitcher;
@@ -45,6 +54,13 @@ final class BossAutomation {
     private int routeIndex;
     private boolean followLeader;
     private long nextLeaderCheckAt;
+    private boolean worldMode;
+    private WorldBossCatalog.MapEntry worldMap;
+    private WorldBossCatalog.BossEntry worldBossTarget;
+    private List<WorldBossCatalog.BossEntry> activeWorldBosses = new ArrayList<>();
+    private int searchLeft = MAP_LEFT;
+    private int searchRight = MAP_RIGHT;
+    private int searchY = MAP_Y;
 
     BossAutomation(AutomationHost host) {
         this.host = host;
@@ -53,8 +69,43 @@ final class BossAutomation {
     }
 
     void start() {
+        boolean savedWorldMode = MODE_WORLD.equals(host.context().getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(PREF_BOSS_MODE, "wilderness"));
+        start(savedWorldMode);
+    }
+
+    void startWilderness() {
+        saveMode(false);
+        start(false);
+    }
+
+    void startWorld() {
+        saveMode(true);
+        start(true);
+    }
+
+    private void saveMode(boolean useWorldMode) {
+        host.context().getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putString(PREF_BOSS_MODE, useWorldMode ? MODE_WORLD : "wilderness")
+                .apply();
+    }
+
+    private void start(boolean useWorldMode) {
         if (host.isAutomationRunning()) {
             host.showProgress("已有任务正在运行");
+            return;
+        }
+        worldMode = useWorldMode;
+        worldMap = null;
+        worldBossTarget = null;
+        activeWorldBosses = new ArrayList<>();
+        searchLeft = MAP_LEFT;
+        searchRight = MAP_RIGHT;
+        searchY = MAP_Y;
+        if (worldMode && !loadWorldBossTarget()) {
+            progress("请先在 BOSS 设置中选择世界王目标");
             return;
         }
         followLeader = host.context().getSharedPreferences(
@@ -62,7 +113,39 @@ final class BossAutomation {
                         HelperAccessibilityService.PREF_BOSS_FOLLOW_LEADER, false);
         nextLeaderCheckAt = 0;
         host.startPrimaryAutomation(
-                AutomationHost.PrimaryTask.BOSS, "野王：打开游戏", this::prepareBoss);
+                AutomationHost.PrimaryTask.BOSS, label() + "：打开游戏", this::prepareBoss);
+    }
+
+    private boolean loadWorldBossTarget() {
+        android.content.SharedPreferences preferences = host.context().getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE);
+        worldMap = WorldBossCatalog.findMapByName(preferences.getString(
+                HelperAccessibilityService.PREF_WORLD_BOSS_MAP, ""));
+        if (worldMap == null) {
+            return false;
+        }
+        worldBossTarget = worldMap.findBoss(preferences.getString(
+                HelperAccessibilityService.PREF_WORLD_BOSS_TARGET, ""));
+        if (worldBossTarget == null) {
+            return false;
+        }
+        activeWorldBosses = Collections.singletonList(worldBossTarget);
+        searchLeft = worldBossTarget.searchLeft;
+        searchRight = worldBossTarget.searchRight;
+        searchY = 30;
+        return true;
+    }
+
+    private String label() {
+        return worldMode ? "世界王" : "野王";
+    }
+
+    private void progress(String value) {
+        host.showProgress(label() + "：" + value);
+    }
+
+    private void fail(String value) {
+        host.failAutomation(label() + "：" + value);
     }
 
     private void prepareBoss() {
@@ -78,34 +161,34 @@ final class BossAutomation {
     }
 
     private void openAutoSettings(int remainingAttempts) {
-        host.showProgress("野王：打开菜单");
+        progress("打开菜单");
         host.tap(1215, 58, () -> {
-            host.showProgress("野王：向上滑动菜单");
+            progress("向上滑动菜单");
             host.swipe(1150, 600, 1150, 220,
                     () -> clickAutoSettings(remainingAttempts));
         });
     }
 
     private void clickAutoSettings(int remainingAttempts) {
-        host.showProgress("野王：识别自动设置");
+        progress("识别自动设置");
         host.recognizeText(text -> {
             Rect bounds = findMenuAutoBounds(text);
             if (bounds != null) {
                 host.tap(bounds.centerX(), bounds.centerY(), this::selectModeOne);
             } else if (remainingAttempts > 1) {
-                host.showProgress("野王：未识别到自动，检查遮挡窗口");
+                progress("未识别到自动，检查遮挡窗口");
                 host.tap(1240, 45, () -> host.ensureGameHudVisible(
                         () -> openAutoSettings(remainingAttempts - 1)));
             } else {
                 DiagnosticLog.warn("BOSS", "auto settings OCR missed twice; skipping");
-                host.showProgress("野王：未识别到自动，跳过自动设置");
+                progress("未识别到自动，跳过自动设置");
                 host.tap(1240, 45, this::useMarker);
             }
         });
     }
 
     private void selectModeOne() {
-        host.showProgress("野王：选择模式 1");
+        progress("选择模式 1");
         host.tap(1025, 75, () -> host.tap(1240, 45, this::useMarker));
     }
 
@@ -133,23 +216,92 @@ final class BossAutomation {
     }
 
     private void useMarker() {
-        host.showProgress("野王：停止自动攻击后前往标记点");
+        progress("停止自动攻击后前往标记点");
         host.useFirstMarker(() -> host.postDelayed(
-                () -> host.waitForMapReady(20, this::openEnemyPanel), MAP_LOAD_MS));
+                () -> host.waitForMapReady(20, this::afterMarkerReady), MAP_LOAD_MS));
+    }
+
+    private void afterMarkerReady() {
+        if (worldMode) {
+            readWorldMapName(WORLD_MAP_NAME_ATTEMPTS);
+        } else {
+            openEnemyPanel();
+        }
+    }
+
+    private void readWorldMapName(int remainingAttempts) {
+        progress("识别标记点地图");
+        host.recognizeMapName(value -> {
+            WorldBossCatalog.MapEntry map = WorldBossCatalog.findMap(value);
+            if (map != null && map.name.equals(worldMap.name)) {
+                DiagnosticLog.info("BOSS", "world target map=" + worldMap.name
+                        + " boss=" + worldBossTarget.displayName());
+                openWorldBossMap();
+            } else if (map != null) {
+                fail("标记点地图是 " + map.name + "，目标世界王在 " + worldMap.name);
+            } else if (remainingAttempts > 1) {
+                progress("未识别到当前地图，重新检测");
+                host.postDelayed(
+                        () -> readWorldMapName(remainingAttempts - 1), 1_000);
+            } else {
+                DiagnosticLog.warn("BOSS", "world map OCR miss: " + value);
+                fail("未识别到标记点所在地图");
+            }
+        });
+    }
+
+    private void openWorldBossMap() {
+        progress("打开大地图检查世界王");
+        host.tap(WORLD_MAP_X, WORLD_MAP_Y,
+                () -> host.postDelayed(() -> scanWorldBossMap(false), WORLD_MAP_OPEN_MS));
+    }
+
+    private void scanWorldBossMap(boolean listToggled) {
+        host.recognizeWorldBossMap(value -> {
+            boolean visible = worldBossTarget.isVisible(value);
+            DiagnosticLog.info("BOSS", "world list map=" + worldMap.name
+                    + " target=" + worldBossTarget.displayName()
+                    + " toggled=" + listToggled + " visible=" + visible);
+            if (visible) {
+                progress("大地图发现 " + worldBossTarget.displayName());
+                closeWorldBossMap(this::openEnemyPanel);
+            } else if (!listToggled) {
+                progress("展开大地图世界王列表");
+                host.tap(WORLD_LIST_SWITCH_X, WORLD_LIST_SWITCH_Y,
+                        () -> host.postDelayed(
+                                () -> scanWorldBossMap(true), WORLD_MAP_OPEN_MS));
+            } else {
+                progress("当前分流未发现 " + worldBossTarget.displayName());
+                closeWorldBossMap(this::switchChannel);
+            }
+        });
+    }
+
+    private void closeWorldBossMap(Runnable next) {
+        progress("关闭大地图");
+        host.pressBack(() -> host.ensureGameHudVisible(next));
+    }
+
+    private static String bossNames(List<WorldBossCatalog.BossEntry> bosses) {
+        List<String> names = new ArrayList<>();
+        for (WorldBossCatalog.BossEntry boss : bosses) {
+            names.add(boss.name);
+        }
+        return String.join("/", names);
     }
 
     private void openEnemyPanel() {
-        host.showProgress("野王：打开自动寻敌");
+        progress("打开自动寻敌");
         host.openAutoPathPanel(
                 () -> host.tap(1015, 165, this::readCurrentPosition));
     }
 
     private void readCurrentPosition() {
-        host.showProgress("野王：读取当前位置");
+        progress("读取当前位置");
         host.recognizeMapCoordinate(value -> {
             Integer currentX = parseMapX(value);
             if (currentX == null) {
-                host.showProgress("野王：未读取到坐标，重新检测");
+                progress("未读取到坐标，重新检测");
                 host.postDelayed(this::readCurrentPosition, 1_000);
                 return;
             }
@@ -158,7 +310,7 @@ final class BossAutomation {
     }
 
     private void startRoute(int currentX) {
-        route = buildRoute(currentX);
+        route = buildRoute(currentX, searchLeft, searchRight);
         routeIndex = 0;
         moveNext();
     }
@@ -176,9 +328,9 @@ final class BossAutomation {
             return;
         }
         int x = route.get(routeIndex);
-        host.showProgress("野王：搜索坐标 " + x + "," + MAP_Y);
+        progress("搜索坐标 " + x + "," + searchY);
         long deadline = System.currentTimeMillis() + MOVE_DURATION_MS;
-        host.tapMapCoordinateFast(x, MAP_Y, () -> scanDuringMove(deadline));
+        host.tapMapCoordinateFast(x, searchY, () -> scanDuringMove(deadline));
     }
 
     private void scanDuringMove(long deadline) {
@@ -198,7 +350,7 @@ final class BossAutomation {
     }
 
     private void attack(BossTarget target) {
-        host.showProgress("野王：攻击 " + target.name);
+        progress("攻击 " + target.name);
         host.tap(target.bounds.centerX(), target.bounds.centerY(),
                 () -> host.postDelayed(
                         () -> waitForBossDefeated(target.name, 0), BOSS_CHECK_MS));
@@ -215,10 +367,10 @@ final class BossAutomation {
             if (target == null) {
                 int misses = consecutiveMisses + 1;
                 if (isBossDefeatConfirmed(misses)) {
-                    host.showProgress("野王：已击败 " + currentBoss);
+                    progress("已击败 " + currentBoss);
                     moveNext();
                 } else {
-                    host.showProgress("野王：确认击败 " + currentBoss
+                    progress("确认击败 " + currentBoss
                             + "（" + misses + "/" + BOSS_DEFEAT_CONFIRMATIONS + "）");
                     host.postDelayed(
                             () -> waitForBossDefeated(currentBoss, misses), BOSS_CHECK_MS);
@@ -226,7 +378,7 @@ final class BossAutomation {
             } else if (!target.name.equals(currentBoss)) {
                 attack(target);
             } else {
-                host.showProgress("野王：战斗中 " + currentBoss);
+                progress("战斗中 " + currentBoss);
                 host.postDelayed(
                         () -> waitForBossDefeated(currentBoss, 0), BOSS_CHECK_MS);
             }
@@ -238,11 +390,32 @@ final class BossAutomation {
     }
 
     private void findRedBoss(java.util.function.Consumer<BossTarget> result) {
-        host.recognizeRedBoss(result);
+        host.recognizeRedBoss(target -> {
+            if (!worldMode || target == null || isActiveWorldBoss(target.name)) {
+                result.accept(target);
+            } else {
+                DiagnosticLog.info("BOSS", "world mode ignored red target=" + target.name
+                        + " expected=" + bossNames(activeWorldBosses));
+                result.accept(null);
+            }
+        });
+    }
+
+    private boolean isActiveWorldBoss(String value) {
+        String normalized = value == null ? "" : value.replaceAll("\\s+", "");
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        for (WorldBossCatalog.BossEntry boss : activeWorldBosses) {
+            if (normalized.contains(boss.name) || boss.name.contains(normalized)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void switchChannel() {
-        host.showProgress("野王：打开分流信息");
+        progress("打开分流信息");
         host.tap(1215, 705,
                 () -> host.postDelayed(
                         () -> readCurrentChannel(CHANNEL_OCR_ATTEMPTS, false),
@@ -250,7 +423,7 @@ final class BossAutomation {
     }
 
     private void readCurrentChannel(int remainingAttempts, boolean blockerChecked) {
-        host.showProgress("野王：判断当前分流");
+        progress("判断当前分流");
         host.recognizeText(text -> host.captureScreenshot(bitmap -> {
             Integer current = bitmap == null ? null : findCurrentChannel(text, bitmap);
             if (current == null) {
@@ -260,21 +433,21 @@ final class BossAutomation {
                                 bitmap, "boss-current-channel-ocr-miss");
                         bitmap.recycle();
                     }
-                    host.failAutomation("野王：未识别到当前分流");
+                    fail("未识别到当前分流");
                     return;
                 }
                 if (bitmap != null) {
                     bitmap.recycle();
                 }
                 if (!blockerChecked) {
-                    host.showProgress("野王：分流读取失败，检查遮挡窗口");
+                    progress("分流读取失败，检查遮挡窗口");
                     host.ensureGameHudVisible(() -> host.tap(1215, 705,
                             () -> host.postDelayed(
                                     () -> readCurrentChannel(
                                             remainingAttempts - 1, true),
                                     CHANNEL_DIALOG_MS)));
                 } else {
-                    host.showProgress("野王：未读取到当前分流，重新检测");
+                    progress("未读取到当前分流，重新检测");
                     host.postDelayed(() -> readCurrentChannel(
                             remainingAttempts - 1, true), 1_000);
                 }
@@ -282,10 +455,12 @@ final class BossAutomation {
             }
             bitmap.recycle();
             int next = ChannelSwitcher.nextChannel(current);
-            host.showProgress("野王：第 " + current + " 分流 → 第 " + next + " 分流");
+            progress("第 " + current + " 分流 → 第 " + next + " 分流");
             channelSwitcher.switchOpenTo(next,
                     () -> host.postDelayed(
-                            () -> checkAfterChannelSwitch(this::openEnemyPanel),
+                            () -> checkAfterChannelSwitch(worldMode
+                                    ? () -> readWorldMapName(WORLD_MAP_NAME_ATTEMPTS)
+                                    : this::openEnemyPanel),
                             CHANNEL_CHECK_MS));
         }));
     }
@@ -332,10 +507,18 @@ final class BossAutomation {
                 bitmap.recycle();
                 next.run();
             } else {
-                host.showProgress("野王跟随队长：队长头像变灰，检查分流");
-                followLeaderChannel(bitmap, this::openEnemyPanel);
+                progress("跟随队长：队长头像变灰，检查分流");
+                followLeaderChannel(bitmap, this::resumeAfterLeaderChannel);
             }
         });
+    }
+
+    private void resumeAfterLeaderChannel() {
+        if (worldMode) {
+            readWorldMapName(WORLD_MAP_NAME_ATTEMPTS);
+        } else {
+            openEnemyPanel();
+        }
     }
 
     private TeamFollowerVision teamFollowerVision() {
@@ -347,7 +530,7 @@ final class BossAutomation {
 
     private void followLeaderChannel(Bitmap screenshot, Runnable next) {
         readCurrentHudChannel(screenshot, PARTY_OCR_ATTEMPTS, current -> {
-            host.showProgress("野王跟随队长：当前第 " + current + " 分流");
+            progress("跟随队长：当前第 " + current + " 分流");
             host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
                     () -> host.postDelayed(
                             () -> readLeaderChannel(PARTY_OCR_ATTEMPTS, current, next),
@@ -357,7 +540,7 @@ final class BossAutomation {
 
     private void readCurrentHudChannel(Bitmap screenshot, int remainingAttempts,
             java.util.function.Consumer<Integer> next) {
-        host.showProgress("野王跟随队长：读取当前分流");
+        progress("跟随队长：读取当前分流");
         host.recognizeHudChannel(screenshot, channel -> {
             if (channel != null) {
                 DiagnosticLog.info("BOSS", "leader follow current channel=" + channel);
@@ -367,7 +550,7 @@ final class BossAutomation {
                         remainingAttempts - 1, next), 1_000);
             } else {
                 DiagnosticLog.warn("BOSS", "OCR miss: 右下角当前分流数字");
-                host.failAutomation("野王跟随队长：未识别到右下角当前分流");
+                fail("跟随队长：未识别到右下角当前分流");
             }
         });
     }
@@ -381,7 +564,7 @@ final class BossAutomation {
                 host.postDelayed(() -> captureCurrentHudChannel(
                         remainingAttempts - 1, next), 1_000);
             } else {
-                host.failAutomation("野王跟随队长：无法截图读取当前分流");
+                fail("跟随队长：无法截图读取当前分流");
             }
         });
     }
@@ -392,7 +575,7 @@ final class BossAutomation {
 
     private void readLeaderChannel(int remainingAttempts, int current,
             Runnable next, boolean blockerChecked) {
-        host.showProgress("野王跟随队长：读取队长分流");
+        progress("跟随队长：读取队长分流");
         host.recognizeLeaderChannel(leader -> {
             if (leader != null) {
                 DiagnosticLog.info("BOSS", "leader follow channels current=" + current
@@ -425,9 +608,9 @@ final class BossAutomation {
             return;
         }
         if (!blockerChecked) {
-            host.showProgress("野王跟随队长：分流读取失败，检查遮挡窗口");
+            progress("跟随队长：分流读取失败，检查遮挡窗口");
             host.ensureGameHudVisible(() -> {
-                host.showProgress("野王跟随队长：重新打开队伍管理");
+                progress("跟随队长：重新打开队伍管理");
                 host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
                         () -> host.postDelayed(
                                 () -> readLeaderChannel(remainingAttempts - 1,
@@ -439,7 +622,7 @@ final class BossAutomation {
                     remainingAttempts - 1, current, next, true), 1_000);
         } else {
             DiagnosticLog.warn("BOSS", "party dialog is not open; tapping Manage again");
-            host.showProgress("野王跟随队长：重新打开队伍管理");
+            progress("跟随队长：重新打开队伍管理");
             host.tap(PARTY_MANAGE_X, PARTY_MANAGE_Y,
                     () -> host.postDelayed(
                             () -> readLeaderChannel(remainingAttempts - 1,
@@ -460,7 +643,7 @@ final class BossAutomation {
     }
 
     private void closePartyDialog(Runnable next) {
-        host.showProgress("野王跟随队长：关闭队伍管理");
+        progress("跟随队长：关闭队伍管理");
         DiagnosticLog.info("BOSS", "closing party dialog at "
                 + PARTY_DIALOG_CLOSE_X + "," + PARTY_DIALOG_CLOSE_Y);
         host.tap(PARTY_DIALOG_CLOSE_X, PARTY_DIALOG_CLOSE_Y, () -> {
@@ -470,7 +653,7 @@ final class BossAutomation {
     }
 
     private void handleLeaderChannel(int current, int leader, Runnable next) {
-        host.showProgress("野王跟随队长：队长在第 " + leader + " 分流");
+        progress("跟随队长：队长在第 " + leader + " 分流");
         if (current == leader) {
             DiagnosticLog.info("BOSS", "leader follow decision=stay channel=" + current);
             nextLeaderCheckAt = System.currentTimeMillis() + LEADER_CHECK_MS;
@@ -479,7 +662,7 @@ final class BossAutomation {
         }
         DiagnosticLog.info("BOSS", "leader follow decision=switch from="
                 + current + " to=" + leader);
-        host.showProgress("野王跟随队长：第 " + current
+        progress("跟随队长：第 " + current
                 + " 分流 → 第 " + leader + " 分流");
         host.tap(1215, 705, () -> host.postDelayed(
                 () -> channelSwitcher.switchOpenTo(leader,
@@ -494,7 +677,7 @@ final class BossAutomation {
 
     private void failPartyOcr(String target, Text text) {
         DiagnosticLog.warn("BOSS", "OCR miss: " + target + "; lines=" + ocrLines(text));
-        host.failAutomation("野王跟随队长：未识别到" + target);
+        fail("跟随队长：未识别到" + target);
     }
 
     private static String ocrLines(Text text) {
@@ -623,12 +806,20 @@ final class BossAutomation {
     }
 
     static List<Integer> buildRoute(int currentX) {
+        return buildRoute(currentX, MAP_LEFT, MAP_RIGHT);
+    }
+
+    static List<Integer> buildRoute(int currentX, int routeLeft, int routeRight) {
+        if (routeLeft < 0 || routeRight > AutomationHost.MAP_GAME_MAX_X
+                || routeLeft >= routeRight) {
+            throw new IllegalArgumentException("route bounds are invalid");
+        }
         int current = Math.max(0, Math.min(currentX, AutomationHost.MAP_GAME_MAX_X));
-        int direction = current < 300 ? 1 : -1;
-        int firstTarget = Math.max(MAP_LEFT,
-                Math.min(current + direction * 50, MAP_RIGHT));
-        int firstEdge = direction > 0 ? MAP_RIGHT : MAP_LEFT;
-        int secondEdge = direction > 0 ? MAP_LEFT : MAP_RIGHT;
+        int direction = current < (routeLeft + routeRight) / 2 ? 1 : -1;
+        int firstTarget = Math.max(routeLeft,
+                Math.min(current + direction * 50, routeRight));
+        int firstEdge = direction > 0 ? routeRight : routeLeft;
+        int secondEdge = direction > 0 ? routeLeft : routeRight;
         List<Integer> values = new ArrayList<>();
         values.add(firstTarget);
         appendLeg(values, firstTarget, firstEdge, direction);

@@ -744,6 +744,25 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(Integer.valueOf(50), fromRight.get(8));
         assertEquals(Integer.valueOf(550), fromRight.get(fromRight.size() - 1));
         assertEquals(Integer.valueOf(517), BossAutomation.buildRoute(567).get(0));
+        assertEquals(Arrays.asList(310, 340, 290, 260),
+                BossAutomation.buildRoute(260, 260, 340));
+    }
+
+    @Test
+    public void selectsAnExactWorldBossInsideTheConfiguredMap() {
+        WorldBossCatalog.MapEntry map = WorldBossCatalog.findMap("葫芦谷口\n100,24");
+        assertEquals("葫芦谷口", map.name);
+        WorldBossCatalog.BossEntry target = map.findBoss("50 刘表");
+        assertEquals("刘表", target.name);
+        assertTrue(target.isVisible("50 刘表"));
+        assertFalse(target.isVisible("50 刻表"));
+        assertEquals(map, WorldBossCatalog.findMapByDisplayName(
+                "葫芦谷口 [50 刘表]"));
+
+        WorldBossCatalog.MapEntry cloud = WorldBossCatalog.findMap("峨嵋山云海");
+        WorldBossCatalog.BossEntry dragon = cloud.findBoss("95 青龙");
+        assertEquals(100, dragon.searchLeft);
+        assertEquals(200, dragon.searchRight);
     }
 
     @Test

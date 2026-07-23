@@ -180,7 +180,7 @@ final class AutoSellAutomation {
         host.clickRightText("客栈", () -> waitForInn(next), 5,
                 () -> {
                     host.showProgress("Auto sell: scrolling to Inn");
-                    host.swipe(1100, 390, 1100, 250,
+                    host.swipe(1100, 390, 1100, 310, 600,
                             () -> host.clickRightText("客栈", () -> waitForInn(next), 5,
                                     () -> host.failAutomation(
                                             "Auto sell: Inn was not found after scrolling")));

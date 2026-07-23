@@ -57,7 +57,10 @@
     <string name="settings_boss">BOSS</string>
     <string name="boss_wilderness">开始野王</string>
     <string name="boss_follow_leader">打 BOSS 时跟随队长分流</string>
-    <string name="boss_world_pending">世界王（暂未实现）</string>
+    <string name="boss_world">开始世界王</string>
+    <string name="boss_world_map">世界王地图：</string>
+    <string name="boss_world_target">目标世界王：</string>
+    <string name="boss_world_select_required">请选择</string>
     <string name="settings_back">返回</string>
     <string name="settings_placeholder">配置项待定义</string>
     <string name="dungeon_sweep_title">选择副本</string>
