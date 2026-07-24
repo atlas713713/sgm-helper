@@ -77,14 +77,34 @@ final class AutoSellAutomation {
     static int[] parseCapacity(String value) {
         String normalized = value == null ? "" : value
                 .replace('S', '5').replace('s', '5')
-                .replace('O', '0').replace('o', '0');
+                .replace('O', '0').replace('o', '0')
+                .replace('Y', '/').replace('y', '/')
+                .replace('F', '/').replace('f', '/');
+        normalized = normalized.contains("/")
+                ? normalized.replace('T', '7').replace('t', '7')
+                : normalized.replaceFirst("(?<=\\d)[Tt](?=\\d)", "7/");
         Matcher matcher = CAPACITY.matcher(normalized);
-        if (!matcher.find()) {
-            return null;
+        if (matcher.find()) {
+            return validCapacity(matcher.group(1), matcher.group(2));
         }
-        int used = Integer.parseInt(matcher.group(1));
-        int total = Integer.parseInt(matcher.group(2));
-        return total > 0 && used <= total ? new int[] {used, total} : null;
+        String digits = normalized.replaceAll("\\D", "");
+        if (digits.length() == 4) {
+            return validCapacity(digits.substring(0, 2), digits.substring(2));
+        }
+        if (digits.length() == 5) {
+            return validCapacity(digits.substring(0, 2), digits.substring(2));
+        }
+        if (digits.length() == 6) {
+            return validCapacity(digits.substring(0, 3), digits.substring(3));
+        }
+        return null;
+    }
+
+    private static int[] validCapacity(String usedValue, String totalValue) {
+        int used = Integer.parseInt(usedValue);
+        int total = Integer.parseInt(totalValue);
+        return total >= 40 && total <= 150 && used <= total
+                ? new int[] {used, total} : null;
     }
 
     static Boolean consistentNearlyFull(

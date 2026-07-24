@@ -70,8 +70,10 @@ final class DiagnosticLog {
                 || "5fe0495ccad09f13".equals(androidId)) {
             return "地球瘦子";
         }
-        if ("82b65b00b0a740bd".equals(androidId)
-                || "0944ab5bedb6535a".equals(androidId)) {
+        if ("82b65b00b0a740bd".equals(androidId)) {
+            return "地球";
+        }
+        if ("0944ab5bedb6535a".equals(androidId)) {
             return "栗威";
         }
         if ("81efa78434210a97".equals(androidId)

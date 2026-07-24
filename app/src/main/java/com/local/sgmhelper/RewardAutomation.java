@@ -50,7 +50,7 @@ final class RewardAutomation {
                                         host.tap(167, 351,
                                                 () -> host.tap(636, 623,
                                                         () -> host.tap(1233, 55,
-                                                                host::completeAutomation)));
+                                                                this::resumePrimaryTask)));
                                     }));
                 });
     }
@@ -75,11 +75,11 @@ final class RewardAutomation {
                                                 () -> host.tap(380, 569,
                                                         () -> host.tap(1106, 49,
                                                                 () -> host.tap(1106, 49,
-                                                                        this::resumeTraining))))))));
+                                                                        this::resumePrimaryTask))))))));
     }
 
-    private void resumeTraining() {
-        host.showProgress("军团奖励已完成，10秒后恢复主要任务");
+    private void resumePrimaryTask() {
+        host.showProgress("定时奖励已完成，10秒后恢复主要任务");
         host.postDelayed(host::resumePrimaryTask, 10_000);
     }
 

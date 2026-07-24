@@ -7,6 +7,7 @@ import com.google.mlkit.vision.text.Text;
 import java.util.concurrent.ThreadLocalRandom;
 
 final class WildernessNavigator {
+    private static final int MAX_ZONE = 24;
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
     private static final int MAP_LOADING_RETRY_COUNT = 30;
     private static final int MONSTER_ROUTE_RETRY_COUNT = 90;
@@ -19,7 +20,8 @@ final class WildernessNavigator {
     private static final int NEXT_PAGE_Y = 635;
     private static final String[] CHINESE_ZONES = {
             "", "一", "二", "三", "四", "五", "六", "七", "八", "九",
-            "十", "十一", "十二", "十三", "十四", "十五"
+            "十", "十一", "十二", "十三", "十四", "十五", "十六", "十七",
+            "十八", "十九", "二十", "二十一", "二十二", "二十三", "二十四"
     };
 
     private final AutomationHost host;
@@ -156,8 +158,8 @@ final class WildernessNavigator {
     }
 
     static int page(int zone) {
-        if (zone < 1 || zone > 15) {
-            throw new IllegalArgumentException("zone must be between 1 and 15");
+        if (zone < 1 || zone > MAX_ZONE) {
+            throw new IllegalArgumentException("zone must be between 1 and " + MAX_ZONE);
         }
         return (zone - 1) / 3;
     }

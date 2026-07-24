@@ -2081,69 +2081,42 @@ public final class HelperAccessibilityService extends AccessibilityService
                 result.accept("");
                 return;
             }
-            int left = 1060 * bitmap.getWidth() / 1280;
-            int top = 55 * bitmap.getHeight() / 720;
-            int right = 1195 * bitmap.getWidth() / 1280;
-            int bottom = 110 * bitmap.getHeight() / 720;
+            int left = 1097 * bitmap.getWidth() / 1280;
+            int top = 76 * bitmap.getHeight() / 720;
+            int right = 1181 * bitmap.getWidth() / 1280;
+            int bottom = 97 * bitmap.getHeight() / 720;
             Bitmap cropped = Bitmap.createBitmap(
                     bitmap, left, top, right - left, bottom - top);
             bitmap.recycle();
-            Bitmap enlarged = Bitmap.createScaledBitmap(
-                    cropped, cropped.getWidth() * 6, cropped.getHeight() * 6, true);
-
-            if (textRecognizer == null) {
-                textRecognizer = TextRecognition.getClient(
-                        new ChineseTextRecognizerOptions.Builder().build());
-            }
-            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> {
-                        String value = text.getText();
-                        DiagnosticLog.info("AUTO_SELL",
-                                "Backpack original OCR='" + normalizeText(value) + "'");
-                        if (AutoSellAutomation.parseCapacity(value) != null) {
-                            cropped.recycle();
-                            result.accept(value);
-                        } else {
-                            recognizeBackpackCapacityBinary(cropped, result);
-                        }
-                    })
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.warn("AUTO_SELL",
-                                "Backpack original OCR failed: " + error.getMessage());
-                        recognizeBackpackCapacityBinary(cropped, result);
-                    })
-                    .addOnCompleteListener(task -> enlarged.recycle());
+            recognizeBackpackCapacityPaddle(cropped, result);
         });
     }
 
-    private void recognizeBackpackCapacityBinary(Bitmap cropped, Consumer<String> result) {
-        int width = cropped.getWidth();
-        int height = cropped.getHeight();
-        int[] pixels = new int[width * height];
-        cropped.getPixels(pixels, 0, width, 0, 0, width, height);
-        cropped.recycle();
-        for (int index = 0; index < pixels.length; index++) {
-            pixels[index] = isBackpackCapacityTextPixel(pixels[index])
-                    ? Color.BLACK : Color.WHITE;
+    private void recognizeBackpackCapacityPaddle(
+            Bitmap cropped, Consumer<String> result) {
+        Bitmap enlarged = Bitmap.createScaledBitmap(
+                cropped, cropped.getWidth() * 4, cropped.getHeight() * 4, true);
+        if (paddleDungeonTextRecognizer == null) {
+            paddleDungeonTextRecognizer = new PaddleDungeonTextRecognizer(this);
         }
-        Bitmap cleaned = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        cleaned.setPixels(pixels, 0, width, 0, 0, width, height);
-        Bitmap enlarged = Bitmap.createScaledBitmap(cleaned, width * 8, height * 8, false);
-        cleaned.recycle();
-
-        textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                .addOnSuccessListener(text -> {
-                    String value = text.getText();
-                    DiagnosticLog.info("AUTO_SELL",
-                            "Backpack binary OCR='" + normalizeText(value) + "'");
-                    result.accept(value);
-                })
-                .addOnFailureListener(error -> {
-                    DiagnosticLog.warn("AUTO_SELL",
-                            "Backpack binary OCR failed: " + error.getMessage());
-                    result.accept("");
-                })
-                .addOnCompleteListener(task -> enlarged.recycle());
+        paddleDungeonTextRecognizer.recognize(enlarged, lines -> handler.post(() -> {
+            enlarged.recycle();
+            StringBuilder raw = new StringBuilder();
+            for (OcrLine line : lines) {
+                raw.append(line.text);
+            }
+            String value = raw.toString().replaceAll("[^0-9/]", "");
+            DiagnosticLog.info("AUTO_SELL",
+                    "Backpack Paddle OCR='" + value + "'");
+            cropped.recycle();
+            result.accept(value);
+        }), error -> handler.post(() -> {
+            enlarged.recycle();
+            cropped.recycle();
+            DiagnosticLog.warn("AUTO_SELL",
+                    "Backpack Paddle OCR failed: " + error.getMessage());
+            result.accept("");
+        }));
     }
 
     @Override
@@ -2193,12 +2166,6 @@ public final class HelperAccessibilityService extends AccessibilityService
         String normalized = normalizeText(value);
         return normalized.contains("快速贩卖装备")
                 || normalized.contains("快速") && normalized.contains("贩卖");
-    }
-
-    static boolean isBackpackCapacityTextPixel(int color) {
-        return ((color >> 16) & 0xFF) >= 160
-                && ((color >> 8) & 0xFF) >= 160
-                && (color & 0xFF) >= 160;
     }
 
     @Override
@@ -2739,6 +2706,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             String taskLabel = primaryTaskLabel(primaryTask);
             currentAutomationAction = null;
             setTaskState(STATE_RUNNING);
+            startInventoryMonitoring();
             showProgress("错误：" + message
                     + " · 连续失败，60秒后最后恢复"
                     + taskLabel + "，不再自动重试");
@@ -2753,6 +2721,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         }
         currentAutomationAction = primaryTaskAction;
         setTaskState(STATE_RUNNING);
+        startInventoryMonitoring();
         showProgress("错误：" + message + " · 5秒后恢复主要任务："
                 + primaryTaskLabel(primaryTask));
         handler.postDelayed(() -> {

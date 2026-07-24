@@ -1,7 +1,7 @@
 package com.local.sgmhelper;
 
 final class ChannelSwitcher {
-    private static final int SCROLLS = 4;
+    private static final int SCROLLS = 2;
     private static final int FIRST_ROW_Y = 205;
     private static final int ROW_GAP_Y = 90;
     private static final int BOTTOM_FIRST_ROW_Y = 175;
@@ -26,7 +26,7 @@ final class ChannelSwitcher {
 
     private void scrollToTop(int channel, int remaining, Runnable next) {
         if (remaining > 0) {
-            host.swipe(640, 300, 640, 440,
+            host.swipe(640, 290, 640, 450,
                     () -> scrollToTop(channel, remaining - 1, next));
             return;
         }
@@ -35,7 +35,7 @@ final class ChannelSwitcher {
 
     private void scrollToBottom(int channel, int remaining, Runnable next) {
         if (remaining > 0) {
-            host.swipe(640, 440, 640, 300,
+            host.swipe(640, 450, 640, 290,
                     () -> scrollToBottom(channel, remaining - 1, next));
             return;
         }

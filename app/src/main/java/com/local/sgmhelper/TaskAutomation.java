@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -612,7 +613,47 @@ final class TaskAutomation {
     }
 
     private void openWildernessTraining() {
-        wildernessNavigator.navigateToZone(2, this::clickMilitaryQuest);
+        SharedPreferences preferences = host.context().getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, 0);
+        int preferredZone = preferences.getInt(
+                HelperAccessibilityService.PREF_TRAINING_WILDERNESS_ZONE, 1);
+        int targetZone = militaryWildernessZone(militaryZone, preferredZone);
+        if (targetZone == 0) {
+            host.failAutomation("无法识别巡狩军团荒野区号：" + militaryZone);
+            return;
+        }
+        host.showProgress("自动军务：巡狩荒野（" + militaryZone
+                + "）对应荒野修炼" + targetZone + "区");
+        wildernessNavigator.navigateToZone(targetZone, this::clickMilitaryQuest);
+    }
+
+    static int militaryWildernessZone(String taskLevel, int preferredZone) {
+        int[] range = militaryWildernessZoneRange(taskLevel);
+        if (range == null) {
+            return 0;
+        }
+        if (preferredZone >= range[0] && preferredZone <= range[1]) {
+            return preferredZone;
+        }
+        return ThreadLocalRandom.current().nextInt(range[0], range[1] + 1);
+    }
+
+    static int[] militaryWildernessZoneRange(String taskLevel) {
+        if (taskLevel == null) {
+            return null;
+        }
+        return switch (taskLevel) {
+            case "一", "二", "三", "四", "五", "六",
+                    "1", "2", "3", "4", "5", "6" -> new int[] {1, 3};
+            case "七", "八", "7", "8" -> new int[] {4, 6};
+            case "九", "十", "9", "10" -> new int[] {7, 9};
+            case "十一", "十二", "11", "12" -> new int[] {10, 12};
+            case "十三", "十四", "13", "14" -> new int[] {13, 15};
+            case "十五", "十六", "15", "16" -> new int[] {16, 18};
+            case "十七", "十八", "17", "18" -> new int[] {19, 21};
+            case "十九", "19" -> new int[] {22, 24};
+            default -> null;
+        };
     }
 
     private void clickMilitaryQuest() {

@@ -21,7 +21,7 @@
 | 名称 | BlueStacks 实例 | ADB 地址 |
 | --- | --- | --- |
 | 米饭 | `Tiramisu64_15` | `127.0.0.1:5705` |
-| 栗威 | `Tiramisu64_17` | `127.0.0.1:5725` |
+| 地球 | `Tiramisu64_17` | `127.0.0.1:5725` |
 | 地球瘦子 | `Tiramisu64_18` | `127.0.0.1:5735` |
 
 ## 构建与验证
@@ -120,7 +120,7 @@ APK="$PWD/app/build/outputs/apk/debug/app-debug.apk"
 
 ```text
 sgmhelper-米饭-81efa78434210a97.log
-sgmhelper-栗威-82b65b00b0a740bd.log
+sgmhelper-地球-82b65b00b0a740bd.log
 sgmhelper-地球瘦子-e8bc951d645bea2c.log
 ```
 

@@ -236,7 +236,7 @@ final class BossAutomation {
             if (map != null && map.name.equals(worldMap.name)) {
                 DiagnosticLog.info("BOSS", "world target map=" + worldMap.name
                         + " boss=" + worldBossTarget.displayName());
-                openWorldBossMap();
+                maybeFollowLeader(this::openWorldBossMap);
             } else if (map != null) {
                 fail("标记点地图是 " + map.name + "，目标世界王在 " + worldMap.name);
             } else if (remainingAttempts > 1) {
@@ -272,7 +272,9 @@ final class BossAutomation {
                                 () -> scanWorldBossMap(true), WORLD_MAP_OPEN_MS));
             } else {
                 progress("当前分流未发现 " + worldBossTarget.displayName());
-                closeWorldBossMap(this::switchChannel);
+                closeWorldBossMap(followLeader
+                        ? this::followLeaderAtRouteEnd
+                        : this::switchChannel);
             }
         });
     }
@@ -324,13 +326,32 @@ final class BossAutomation {
             return;
         }
         if (routeIndex >= route.size()) {
-            switchChannel();
+            if (usesLeaderChannelAtRouteEnd(followLeader)) {
+                followLeaderAtRouteEnd();
+            } else {
+                switchChannel();
+            }
             return;
         }
         int x = route.get(routeIndex);
         progress("搜索坐标 " + x + "," + searchY);
         long deadline = System.currentTimeMillis() + MOVE_DURATION_MS;
         host.tapMapCoordinateFast(x, searchY, () -> scanDuringMove(deadline));
+    }
+
+    static boolean usesLeaderChannelAtRouteEnd(boolean followLeader) {
+        return followLeader;
+    }
+
+    private void followLeaderAtRouteEnd() {
+        progress("跟随队长：当前分流搜索完成，读取队长分流");
+        host.captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                fail("跟随队长：无法截图读取当前分流");
+                return;
+            }
+            followLeaderChannel(bitmap, this::resumeAfterLeaderChannel);
+        });
     }
 
     private void scanDuringMove(long deadline) {

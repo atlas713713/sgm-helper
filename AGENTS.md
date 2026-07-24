@@ -17,5 +17,5 @@
 - Every project update must increment both `versionCode` and `versionName` in `app/build.gradle` before building the APK.
 - Install every APK update to all three simulator targets by default:
   - BlueStacks Air instance `米饭` (`Tiramisu64_15`, `127.0.0.1:5705`)
-  - BlueStacks Air instance `栗威` (`Tiramisu64_17`, `127.0.0.1:5725`)
+  - BlueStacks Air instance `地球` (`Tiramisu64_17`, `127.0.0.1:5725`)
   - BlueStacks Air instance `地球瘦子` (`Tiramisu64_18`, `127.0.0.1:5735`)

@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertArrayEquals;
 
 import java.util.ArrayDeque;
 import java.util.Arrays;
@@ -38,7 +39,7 @@ public final class HelperAccessibilityServiceTest {
     public void createsOneSafeLogFilePerSimulator() {
         assertEquals("sgmhelper-地球瘦子-e8bc951d645bea2c.log",
                 DiagnosticLog.logFileName("e8bc951d645bea2c"));
-        assertEquals("sgmhelper-栗威-82b65b00b0a740bd.log",
+        assertEquals("sgmhelper-地球-82b65b00b0a740bd.log",
                 DiagnosticLog.logFileName("82b65b00b0a740bd"));
         assertEquals("sgmhelper-米饭-81efa78434210a97.log",
                 DiagnosticLog.logFileName("81efa78434210a97"));
@@ -59,6 +60,39 @@ public final class HelperAccessibilityServiceTest {
         assertEquals("四", TaskAutomation.extractWildernessZone(
                 "巡狩军团荒野 ( 四 )"));
         assertNull(TaskAutomation.extractWildernessZone("补充军团物资（十二）"));
+    }
+
+    @Test
+    public void mapsEveryMilitaryWildernessTaskToWudangZoneRange() {
+        assertArrayEquals(new int[] {1, 3},
+                TaskAutomation.militaryWildernessZoneRange("一"));
+        assertArrayEquals(new int[] {1, 3},
+                TaskAutomation.militaryWildernessZoneRange("六"));
+        assertArrayEquals(new int[] {4, 6},
+                TaskAutomation.militaryWildernessZoneRange("七"));
+        assertArrayEquals(new int[] {7, 9},
+                TaskAutomation.militaryWildernessZoneRange("十"));
+        assertArrayEquals(new int[] {10, 12},
+                TaskAutomation.militaryWildernessZoneRange("十二"));
+        assertArrayEquals(new int[] {13, 15},
+                TaskAutomation.militaryWildernessZoneRange("十四"));
+        assertArrayEquals(new int[] {16, 18},
+                TaskAutomation.militaryWildernessZoneRange("十六"));
+        assertArrayEquals(new int[] {19, 21},
+                TaskAutomation.militaryWildernessZoneRange("十八"));
+        assertArrayEquals(new int[] {22, 24},
+                TaskAutomation.militaryWildernessZoneRange("十九"));
+        assertArrayEquals(new int[] {22, 24},
+                TaskAutomation.militaryWildernessZoneRange("19"));
+        assertNull(TaskAutomation.militaryWildernessZoneRange("二十"));
+    }
+
+    @Test
+    public void militaryWildernessKeepsPreferredZoneOnlyInsideTaskRange() {
+        assertEquals(11, TaskAutomation.militaryWildernessZone("十二", 11));
+        int fallback = TaskAutomation.militaryWildernessZone("十九", 11);
+        assertTrue(fallback >= 22 && fallback <= 24);
+        assertEquals(0, TaskAutomation.militaryWildernessZone("二十", 1));
     }
 
     @Test
@@ -202,20 +236,24 @@ public final class HelperAccessibilityServiceTest {
     @Test
     public void acceptsChangingBackpackCountsWithTheSameCapacityDecision() {
         assertEquals(50, AutoSellAutomation.parseCapacity("So/81")[0]);
+        assertArrayEquals(new int[] {77, 81},
+                AutoSellAutomation.parseCapacity("7Ty81"));
+        assertArrayEquals(new int[] {77, 81},
+                AutoSellAutomation.parseCapacity("7T81"));
+        assertArrayEquals(new int[] {129, 150},
+                AutoSellAutomation.parseCapacity("129y150"));
+        assertArrayEquals(new int[] {45, 81},
+                AutoSellAutomation.parseCapacity("4581"));
+        assertArrayEquals(new int[] {79, 81},
+                AutoSellAutomation.parseCapacity("7981"));
+        assertArrayEquals(new int[] {128, 150},
+                AutoSellAutomation.parseCapacity("128150"));
         assertEquals(Boolean.FALSE, AutoSellAutomation.consistentNearlyFull(
                 new int[] {48, 69}, new int[] {49, 69}, 5));
         assertEquals(Boolean.TRUE, AutoSellAutomation.consistentNearlyFull(
                 new int[] {65, 69}, new int[] {66, 69}, 5));
         assertNull(AutoSellAutomation.consistentNearlyFull(
                 new int[] {64, 69}, new int[] {65, 69}, 5));
-    }
-
-    @Test
-    public void isolatesWhiteCapacityTextFromColoredGameBackground() {
-        assertTrue(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFFF8F8F8));
-        assertTrue(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFFAAAAAA));
-        assertFalse(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFF91C2EF));
-        assertFalse(HelperAccessibilityService.isBackpackCapacityTextPixel(0xFFE1B743));
     }
 
     @Test
@@ -247,6 +285,19 @@ public final class HelperAccessibilityServiceTest {
     public void scalesCoordinatesForTheShortDungeonCampMap() {
         assertEquals(642, AutomationHost.mapScreenX(100, 199));
         assertEquals(842, AutomationHost.mapScreenX(199, 199));
+    }
+
+    @Test
+    public void dungeonEntranceRouteUsesWudangCoordinatesAndArrivalCheck() {
+        assertEquals(100, DungeonBattleAutomation.entryNpcX(10));
+        assertEquals(102, DungeonBattleAutomation.entryNpcX(60));
+        assertEquals(16, DungeonBattleAutomation.entryNpcY(65));
+        assertEquals(17, DungeonBattleAutomation.entryNpcY(70));
+        assertTrue(DungeonBattleAutomation.isAtEntryNpc(10, "100,16"));
+        assertTrue(DungeonBattleAutomation.isAtEntryNpc(60, "坐标 100，18"));
+        assertTrue(DungeonBattleAutomation.isAtEntryNpc(70, "103.17"));
+        assertFalse(DungeonBattleAutomation.isAtEntryNpc(75, "90,16"));
+        assertFalse(DungeonBattleAutomation.isAtEntryNpc(40, "识别失败"));
     }
 
     @Test
@@ -568,6 +619,7 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(0, WildernessNavigator.page(3));
         assertEquals(1, WildernessNavigator.page(4));
         assertEquals(4, WildernessNavigator.page(15));
+        assertEquals(7, WildernessNavigator.page(24));
         assertEquals(450, WildernessNavigator.zoneRowY(1));
         assertEquals(512, WildernessNavigator.zoneRowY(2));
         assertEquals(574, WildernessNavigator.zoneRowY(15));
@@ -577,6 +629,8 @@ public final class HelperAccessibilityServiceTest {
                 "荒野修练 十五 区", 15));
         assertFalse(WildernessNavigator.isSelectedMapName(
                 "荒野修炼14区", 15));
+        assertTrue(WildernessNavigator.isSelectedMapName(
+                "荒野修练 二十四 区", 24));
     }
 
     @Test
@@ -801,6 +855,8 @@ public final class HelperAccessibilityServiceTest {
         assertNull(HelperAccessibilityService.parseHudChannelContext("9"));
         assertEquals(4, ChannelSwitcher.nextChannel(3));
         assertEquals(1, ChannelSwitcher.nextChannel(8));
+        assertTrue(BossAutomation.usesLeaderChannelAtRouteEnd(true));
+        assertFalse(BossAutomation.usesLeaderChannelAtRouteEnd(false));
         assertTrue(BossAutomation.isChannelSelectionGold(180, 130, 45));
         assertTrue(BossAutomation.isChannelSelectionGold(150, 120, 80));
         assertFalse(BossAutomation.isChannelSelectionGold(160, 150, 140));

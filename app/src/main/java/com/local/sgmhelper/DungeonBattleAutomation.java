@@ -18,6 +18,9 @@ final class DungeonBattleAutomation {
     private static final int NPC_SHORTCUT_Y = 410;
     private static final int GUIDE_UP_X = 974;
     private static final int GUIDE_UP_Y = 31;
+    private static final int ENTRY_ROUTE_MAX_CHECKS = 30;
+    private static final int ENTRY_ROUTE_RETRY_INTERVAL = 5;
+    private static final int ENTRY_ROUTE_TOLERANCE = 3;
     private static final long MAP_WAIT_MS = 5_000;
     private static final long FIGHT_CHECK_MS = 4_000;
 
@@ -26,6 +29,7 @@ final class DungeonBattleAutomation {
     private int currentIndex;
     private int lastX = -1;
     private int samePositionCount;
+    private int entryRouteChecks;
 
     DungeonBattleAutomation(AutomationHost host) {
         this.host = host;
@@ -91,17 +95,54 @@ final class DungeonBattleAutomation {
 
     private void enterCamp() {
         host.showProgress(currentLevel() + "级副本：传送至" + campName());
-        // Wudang DungeonDialog.enterCampPoint at 1280x720.
-        host.tap(176, 618, () -> host.postDelayed(
-                () -> host.waitForMapReady(20, this::gotoEntryNpc), MAP_WAIT_MS));
+        tapEnterCamp(2);
+    }
+
+    private void tapEnterCamp(int remainingTaps) {
+        // Wudang taps DungeonDialog.enterCampPoint twice at 1280x720.
+        host.tap(176, 618, () -> {
+            if (remainingTaps > 1) {
+                host.postDelayed(() -> tapEnterCamp(remainingTaps - 1), 200);
+            } else {
+                host.postDelayed(
+                        () -> host.waitForMapReady(20, this::gotoEntryNpc), MAP_WAIT_MS);
+            }
+        });
     }
 
     private void gotoEntryNpc() {
         host.showProgress(currentLevel() + "级副本：前往入口 NPC");
-        int entryX = currentLevel() == 60 ? 102 : 100;
-        int entryY = currentLevel() == 70 ? 17 : 16;
-        host.tapMapCoordinate(entryX, entryY, CAMP_MAP_MAX_X,
-                () -> host.postDelayed(this::openEntryNpc, MAP_WAIT_MS));
+        entryRouteChecks = 0;
+        tapEntryNpcRoute(2);
+    }
+
+    private void tapEntryNpcRoute(int remainingTaps) {
+        host.tapMapCoordinate(entryNpcX(currentLevel()), entryNpcY(currentLevel()),
+                CAMP_MAP_MAX_X, () -> {
+                    if (remainingTaps > 1) {
+                        host.postDelayed(() -> tapEntryNpcRoute(remainingTaps - 1), 500);
+                    } else {
+                        host.postDelayed(this::waitForEntryNpc, 1_000);
+                    }
+                });
+    }
+
+    private void waitForEntryNpc() {
+        host.recognizeMapCoordinate(value -> {
+            if (isAtEntryNpc(currentLevel(), value)) {
+                openEntryNpc();
+                return;
+            }
+            entryRouteChecks++;
+            if (entryRouteChecks >= ENTRY_ROUTE_MAX_CHECKS) {
+                host.failAutomation(currentLevel() + "级副本：未能寻路到入口 NPC");
+            } else if (entryRouteChecks % ENTRY_ROUTE_RETRY_INTERVAL == 0) {
+                host.showProgress(currentLevel() + "级副本：重新前往入口 NPC");
+                tapEntryNpcRoute(2);
+            } else {
+                host.postDelayed(this::waitForEntryNpc, 1_000);
+            }
+        });
     }
 
     private void openEntryNpc() {
@@ -551,6 +592,28 @@ final class DungeonBattleAutomation {
             return "安邑郊外";
         }
         return currentLevel() == 75 ? "濮阳城外" : "幽州边境";
+    }
+
+    static int entryNpcX(int level) {
+        return level == 60 ? 102 : 100;
+    }
+
+    static int entryNpcY(int level) {
+        return level == 70 ? 17 : 16;
+    }
+
+    static boolean isAtEntryNpc(int level, String coordinateText) {
+        Matcher matcher = INTEGER.matcher(coordinateText == null ? "" : coordinateText);
+        if (!matcher.find()) {
+            return false;
+        }
+        int x = Integer.parseInt(matcher.group());
+        if (!matcher.find()) {
+            return false;
+        }
+        int y = Integer.parseInt(matcher.group());
+        return Math.abs(x - entryNpcX(level)) <= ENTRY_ROUTE_TOLERANCE
+                && Math.abs(y - entryNpcY(level)) <= ENTRY_ROUTE_TOLERANCE;
     }
 
     private int dungeonMapMaxX() {
