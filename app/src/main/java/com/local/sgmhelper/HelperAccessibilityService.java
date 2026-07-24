@@ -44,12 +44,6 @@ import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.Text;
-import com.google.mlkit.vision.text.TextRecognition;
-import com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions;
-
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -74,6 +68,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private static final int MAX_AUTOMATION_RECOVERY_ATTEMPTS = 3;
     private static final int RECOVERY_START_DELAY_MS = 5_000;
     private static final int RECOVERY_LONG_DELAY_MS = 60_000;
+    private static final int PRIORITY_TASK_QUIESCE_MS = 3_000;
     private static final long INVENTORY_CHECK_INTERVAL_MS = 60_000;
     private static final int COLOR_SETTINGS_BACKGROUND = 0xFF4A4A4A;
     private static final int COLOR_SETTINGS_TEXT = 0xFFFFC107;
@@ -160,7 +155,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private Runnable primaryTaskAction = trainingAutomation::start;
     private boolean inventoryCheckRunning;
     private boolean inventorySelling;
-    private TextRecognizer textRecognizer;
+    private boolean priorityTaskQuiescing;
     private PaddleDungeonTextRecognizer paddleDungeonTextRecognizer;
 
     static HelperAccessibilityService getInstance() {
@@ -175,7 +170,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         restorePrimaryTask();
         showOverlay();
         WorshipAlarmReceiver.scheduleAll(this);
-        if (primaryTask != PrimaryTask.TRAINING) {
+        boolean startedPending = WorshipAlarmReceiver.startPendingAutomation(this);
+        if (!startedPending && primaryTask != PrimaryTask.TRAINING) {
             handler.postDelayed(this::resumePersistedPrimaryTask, 1_000);
         }
     }
@@ -1196,12 +1192,22 @@ public final class HelperAccessibilityService extends AccessibilityService
     private void startPriorityScheduledTask(String name, Runnable start) {
         DiagnosticLog.info("SCHEDULE", name + " taking priority; primary task="
                 + primaryTaskLabel(primaryTask));
+        priorityTaskQuiescing = true;
         handler.removeCallbacksAndMessages(null);
         stopInventoryMonitoring();
         inventorySelling = false;
         automationRunning = false;
         clearAutomationRecovery();
-        start.run();
+        if (paddleDungeonTextRecognizer != null) {
+            paddleDungeonTextRecognizer.cancelPending();
+        }
+        showProgress(name + "：等待旧任务停止");
+        handler.postDelayed(() -> {
+            handler.removeCallbacksAndMessages(null);
+            priorityTaskQuiescing = false;
+            DiagnosticLog.info("SCHEDULE", name + " starting after old task stopped");
+            start.run();
+        }, PRIORITY_TASK_QUIESCE_MS);
     }
 
     void startScheduledDungeon() {
@@ -1299,6 +1305,9 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void postDelayed(Runnable action, long delayMillis) {
+        if (priorityTaskQuiescing) {
+            return;
+        }
         handler.postDelayed(action, delayMillis);
     }
 
@@ -1546,8 +1555,8 @@ public final class HelperAccessibilityService extends AccessibilityService
                 return;
             }
             List<String> values = new ArrayList<>();
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
                     values.add(line.getText());
                 }
             }
@@ -1764,10 +1773,10 @@ public final class HelperAccessibilityService extends AccessibilityService
         });
     }
 
-    private boolean hasAutoPathPanel(Text text) {
+    private boolean hasAutoPathPanel(OcrText text) {
         List<String> values = new ArrayList<>();
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 values.add(line.getText());
             }
         }
@@ -1803,71 +1812,65 @@ public final class HelperAccessibilityService extends AccessibilityService
         return red + blue < 10 ? null : red > blue;
     }
 
-    private void recognizeScreenText(Consumer<Text> result) {
+    private void recognizeScreenText(Consumer<OcrText> result) {
         captureScreenshot(bitmap -> {
             if (bitmap == null) {
                 failAutomation("Unable to capture screen for text recognition");
                 return;
             }
-            if (textRecognizer == null) {
-                textRecognizer = TextRecognition.getClient(
-                        new ChineseTextRecognizerOptions.Builder().build());
-            }
-            textRecognizer.process(InputImage.fromBitmap(bitmap, 0))
-                    .addOnSuccessListener(result::accept)
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.error("OCR", "Text recognition failed", error);
-                        failAutomation("Text recognition failed");
-                    })
-                    .addOnCompleteListener(task -> bitmap.recycle());
+            recognizeText(bitmap, text -> {
+                bitmap.recycle();
+                result.accept(text);
+            }, error -> {
+                bitmap.recycle();
+                DiagnosticLog.error("OCR", "Paddle text recognition failed", error);
+                failAutomation("Paddle text recognition failed");
+            });
         });
     }
 
     @Override
-    public void recognizeText(Consumer<Text> result) {
+    public void recognizeText(Consumer<OcrText> result) {
         recognizeScreenText(result);
+    }
+
+    @Override
+    public void recognizeText(Bitmap bitmap, Consumer<OcrText> result,
+            Consumer<Throwable> failure) {
+        if (priorityTaskQuiescing) {
+            failure.accept(new IllegalStateException("priority task is stopping old OCR"));
+            return;
+        }
+        if (paddleDungeonTextRecognizer == null) {
+            paddleDungeonTextRecognizer = new PaddleDungeonTextRecognizer(this);
+        }
+        paddleDungeonTextRecognizer.recognize(bitmap,
+                lines -> handler.post(() -> result.accept(new OcrText(lines))),
+                error -> handler.post(() -> failure.accept(error)));
     }
 
     @Override
     public void recognizeDungeonText(Consumer<List<OcrLine>> result) {
         captureScreenshot(bitmap -> {
             if (bitmap == null) {
-                recognizeDungeonTextWithMlKit(result);
+                failAutomation("Unable to capture screen for Paddle OCR");
                 return;
             }
-            if (paddleDungeonTextRecognizer == null) {
-                paddleDungeonTextRecognizer = new PaddleDungeonTextRecognizer(this);
-            }
-            paddleDungeonTextRecognizer.recognize(bitmap, lines -> handler.post(() -> {
+            recognizeText(bitmap, text -> {
                 bitmap.recycle();
-                if (lines.isEmpty()) {
-                    DiagnosticLog.warn("OCR",
-                            "Paddle dungeon OCR returned no text; using ML Kit fallback");
-                    recognizeDungeonTextWithMlKit(result);
-                } else {
-                    result.accept(lines);
-                }
-            }), error -> handler.post(() -> {
-                bitmap.recycle();
-                DiagnosticLog.error("OCR",
-                        "Paddle dungeon OCR failed; using ML Kit fallback", error);
-                recognizeDungeonTextWithMlKit(result);
-            }));
-        });
-    }
-
-    private void recognizeDungeonTextWithMlKit(Consumer<List<OcrLine>> result) {
-        recognizeScreenText(text -> {
-            List<OcrLine> lines = new ArrayList<>();
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
-                    Rect bounds = line.getBoundingBox();
-                    if (bounds != null) {
-                        lines.add(new OcrLine(line.getText(), bounds, 0f));
+                List<OcrLine> lines = new ArrayList<>();
+                for (OcrText.TextBlock block : text.getTextBlocks()) {
+                    for (OcrText.Line line : block.getLines()) {
+                        lines.add(new OcrLine(
+                                line.getText(), line.getBoundingBox(), 0f));
                     }
                 }
-            }
-            result.accept(lines);
+                result.accept(lines);
+            }, error -> {
+                bitmap.recycle();
+                DiagnosticLog.error("OCR", "Paddle OCR failed", error);
+                failAutomation("Paddle OCR failed");
+            });
         });
     }
 
@@ -1887,21 +1890,17 @@ public final class HelperAccessibilityService extends AccessibilityService
                     cropped, cropped.getWidth() * scale,
                     cropped.getHeight() * scale, true);
 
-            if (textRecognizer == null) {
-                textRecognizer = TextRecognition.getClient(
-                        new ChineseTextRecognizerOptions.Builder().build());
-            }
-            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> result.accept(
-                            BossAutomation.findRedBoss(text, cropped, left, scale)))
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.error("OCR", "Red boss recognition failed", error);
-                        failAutomation("红名 BOSS 识别失败");
-                    })
-                    .addOnCompleteListener(task -> {
-                        enlarged.recycle();
-                        cropped.recycle();
-                    });
+            recognizeText(enlarged, text -> {
+                result.accept(BossAutomation.findRedBoss(
+                        text, cropped, left, scale));
+                enlarged.recycle();
+                cropped.recycle();
+            }, error -> {
+                enlarged.recycle();
+                cropped.recycle();
+                DiagnosticLog.error("OCR", "Red boss recognition failed", error);
+                failAutomation("红名 BOSS 识别失败");
+            });
         });
     }
 
@@ -1921,23 +1920,18 @@ public final class HelperAccessibilityService extends AccessibilityService
         Bitmap enlarged = Bitmap.createScaledBitmap(
                 context, context.getWidth() * 5, context.getHeight() * 5, true);
         context.recycle();
-        if (textRecognizer == null) {
-            textRecognizer = TextRecognition.getClient(
-                    new ChineseTextRecognizerOptions.Builder().build());
-        }
-        textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                .addOnSuccessListener(text -> {
-                    Integer channel = parseHudChannelContext(text.getText());
-                    DiagnosticLog.info("BOSS", "HUD channel context OCR='"
-                            + text.getText().replace('\n', ' ') + "' parsed=" + channel);
-                    result.accept(channel);
-                })
-                .addOnFailureListener(error -> {
-                    DiagnosticLog.warn("BOSS", "HUD channel context OCR failed: "
-                            + error.getMessage());
-                    result.accept(null);
-                })
-                .addOnCompleteListener(task -> enlarged.recycle());
+        recognizeText(enlarged, text -> {
+            enlarged.recycle();
+            Integer channel = parseHudChannelContext(text.getText());
+            DiagnosticLog.info("BOSS", "HUD channel context Paddle OCR='"
+                    + text.getText().replace('\n', ' ') + "' parsed=" + channel);
+            result.accept(channel);
+        }, error -> {
+            enlarged.recycle();
+            DiagnosticLog.warn("BOSS", "HUD channel context Paddle OCR failed: "
+                    + error.getMessage());
+            result.accept(null);
+        });
     }
 
     @Override
@@ -1957,24 +1951,19 @@ public final class HelperAccessibilityService extends AccessibilityService
             Bitmap enlarged = Bitmap.createScaledBitmap(
                     context, context.getWidth() * 6, context.getHeight() * 6, true);
             context.recycle();
-            if (textRecognizer == null) {
-                textRecognizer = TextRecognition.getClient(
-                        new ChineseTextRecognizerOptions.Builder().build());
-            }
-            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> {
-                        Integer channel = BossAutomation.parseLeaderChannel(text.getText());
-                        DiagnosticLog.info("BOSS", "leader channel crop OCR='"
-                                + text.getText().replace('\n', ' ')
-                                + "' parsed=" + channel);
-                        result.accept(channel);
-                    })
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.warn("BOSS", "leader channel crop OCR failed: "
-                                + error.getMessage());
-                        result.accept(null);
-                    })
-                    .addOnCompleteListener(task -> enlarged.recycle());
+            recognizeText(enlarged, text -> {
+                enlarged.recycle();
+                Integer channel = BossAutomation.parseLeaderChannel(text.getText());
+                DiagnosticLog.info("BOSS", "leader channel crop Paddle OCR='"
+                        + text.getText().replace('\n', ' ')
+                        + "' parsed=" + channel);
+                result.accept(channel);
+            }, error -> {
+                enlarged.recycle();
+                DiagnosticLog.warn("BOSS", "leader channel crop Paddle OCR failed: "
+                        + error.getMessage());
+                result.accept(null);
+            });
         });
     }
 
@@ -2009,18 +1998,15 @@ public final class HelperAccessibilityService extends AccessibilityService
                     cropped, cropped.getWidth() * 3, cropped.getHeight() * 3, true);
             cropped.recycle();
 
-            if (textRecognizer == null) {
-                textRecognizer = TextRecognition.getClient(
-                        new ChineseTextRecognizerOptions.Builder().build());
-            }
-            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> result.accept(text.getText()))
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.warn("OCR",
-                                "Map coordinate recognition failed: " + error.getMessage());
-                        result.accept("");
-                    })
-                    .addOnCompleteListener(task -> enlarged.recycle());
+            recognizeText(enlarged, text -> {
+                enlarged.recycle();
+                result.accept(text.getText());
+            }, error -> {
+                enlarged.recycle();
+                DiagnosticLog.warn("OCR",
+                        "Map coordinate Paddle OCR failed: " + error.getMessage());
+                result.accept("");
+            });
         });
     }
 
@@ -2081,7 +2067,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 result.accept("");
                 return;
             }
-            int left = 1097 * bitmap.getWidth() / 1280;
+            int left = 1078 * bitmap.getWidth() / 1280;
             int top = 76 * bitmap.getHeight() / 720;
             int right = 1181 * bitmap.getWidth() / 1280;
             int bottom = 97 * bitmap.getHeight() / 720;
@@ -2137,25 +2123,20 @@ public final class HelperAccessibilityService extends AccessibilityService
                     cropped, cropped.getWidth() * 4, cropped.getHeight() * 4, true);
             cropped.recycle();
 
-            if (textRecognizer == null) {
-                textRecognizer = TextRecognition.getClient(
-                        new ChineseTextRecognizerOptions.Builder().build());
-            }
-            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> {
-                        String value = text.getText();
-                        boolean matched = matchesYuanbaoQuickSell(value);
-                        DiagnosticLog.info("AUTO_SELL",
-                                "quick sale ROI OCR='" + normalizeText(value)
-                                        + "' matched=" + matched);
-                        result.accept(matched);
-                    })
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.warn("AUTO_SELL",
-                                "Quick sale ROI OCR failed: " + error.getMessage());
-                        result.accept(false);
-                    })
-                    .addOnCompleteListener(task -> enlarged.recycle());
+            recognizeText(enlarged, text -> {
+                enlarged.recycle();
+                String value = text.getText();
+                boolean matched = matchesYuanbaoQuickSell(value);
+                DiagnosticLog.info("AUTO_SELL",
+                        "quick sale ROI Paddle OCR='" + normalizeText(value)
+                                + "' matched=" + matched);
+                result.accept(matched);
+            }, error -> {
+                enlarged.recycle();
+                DiagnosticLog.warn("AUTO_SELL",
+                        "Quick sale ROI Paddle OCR failed: " + error.getMessage());
+                result.accept(false);
+            });
         });
     }
 
@@ -2192,15 +2173,11 @@ public final class HelperAccessibilityService extends AccessibilityService
                     cropped, cropped.getWidth() * 2, cropped.getHeight() * 2, true);
             cropped.recycle();
 
-            if (textRecognizer == null) {
-                textRecognizer = TextRecognition.getClient(
-                        new ChineseTextRecognizerOptions.Builder().build());
-            }
-            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> {
-                        List<Text.Line> fragments = new ArrayList<>();
-                        for (Text.TextBlock block : text.getTextBlocks()) {
-                            for (Text.Line line : block.getLines()) {
+            recognizeText(enlarged, text -> {
+                        enlarged.recycle();
+                        List<OcrText.Line> fragments = new ArrayList<>();
+                        for (OcrText.TextBlock block : text.getTextBlocks()) {
+                            for (OcrText.Line line : block.getLines()) {
                                 String value = normalizeText(line.getText());
                                 if (line.getBoundingBox() != null
                                         && isQuickArrivalFragment(value)) {
@@ -2213,7 +2190,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                                 rightLine.getBoundingBox().centerX()));
                         List<String> values = new ArrayList<>();
                         Rect bounds = null;
-                        for (Text.Line fragment : fragments) {
+                        for (OcrText.Line fragment : fragments) {
                             values.add(fragment.getText());
                             if (bounds == null) {
                                 bounds = new Rect(fragment.getBoundingBox());
@@ -2231,12 +2208,12 @@ public final class HelperAccessibilityService extends AccessibilityService
                         } else {
                             failAutomation("Screen text was not found: 快速抵达");
                         }
-                    })
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.error("OCR", "Quick arrival text recognition failed", error);
-                        failAutomation("Text recognition failed: 快速抵达");
-                    })
-                    .addOnCompleteListener(task -> enlarged.recycle());
+                    }, error -> {
+                        enlarged.recycle();
+                        DiagnosticLog.error(
+                                "OCR", "Quick arrival Paddle OCR failed", error);
+                        failAutomation("Paddle OCR failed: 快速抵达");
+                    });
         });
     }
 
@@ -2365,9 +2342,9 @@ public final class HelperAccessibilityService extends AccessibilityService
                 return;
             }
             String target = normalizeText(expected);
-            List<Text.Line> lines = new ArrayList<>();
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
+            List<OcrText.Line> lines = new ArrayList<>();
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
                     Rect bounds = line.getBoundingBox();
                     if (bounds != null && isHorizontalMatch(
                             bounds.centerX(), minX, maxX)) {
@@ -2394,15 +2371,15 @@ public final class HelperAccessibilityService extends AccessibilityService
         });
     }
 
-    private static Rect findTextBounds(List<Text.Line> lines, String target, boolean exact) {
-        for (Text.Line line : lines) {
+    private static Rect findTextBounds(List<OcrText.Line> lines, String target, boolean exact) {
+        for (OcrText.Line line : lines) {
             if (matchesTextFragments(
                     Collections.singletonList(line.getText()), target, true)) {
                 return line.getBoundingBox();
             }
         }
         if (!exact) {
-            for (Text.Line line : lines) {
+            for (OcrText.Line line : lines) {
                 if (matchesTextFragments(
                         Collections.singletonList(line.getText()), target, false)) {
                     return line.getBoundingBox();
@@ -2417,7 +2394,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             List<String> fragments = new ArrayList<>();
             fragments.add(lines.get(start).getText());
             for (int index = start + 1; index < lines.size(); index++) {
-                Text.Line line = lines.get(index);
+                OcrText.Line line = lines.get(index);
                 Rect bounds = line.getBoundingBox();
                 if (Math.max(anchor.top, bounds.top) > Math.min(anchor.bottom, bounds.bottom)) {
                     continue;
@@ -2491,8 +2468,8 @@ public final class HelperAccessibilityService extends AccessibilityService
                 return;
             }
             String target = normalizeText(expected);
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
                     if (normalizeText(line.getText()).contains(target)) {
                         next.run();
                         return;
@@ -2533,28 +2510,23 @@ public final class HelperAccessibilityService extends AccessibilityService
             Bitmap enlarged = Bitmap.createScaledBitmap(
                     cropped, cropped.getWidth() * 6, cropped.getHeight() * 6, true);
             cropped.recycle();
-            if (textRecognizer == null) {
-                textRecognizer = TextRecognition.getClient(
-                        new ChineseTextRecognizerOptions.Builder().build());
-            }
-            textRecognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> {
+            recognizeText(enlarged, text -> {
+                        enlarged.recycle();
                         String value = text.getText();
                         boolean ready = isMapButtonText(value);
-                        DiagnosticLog.info("BOSS", "map button OCR='"
+                        DiagnosticLog.info("BOSS", "map button Paddle OCR='"
                                 + normalizeText(value) + "' ready=" + ready);
                         if (ready) {
                             next.run();
                         } else {
                             retryMapReady(attempts, next);
                         }
-                    })
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.warn("BOSS", "map button OCR failed: "
+                    }, error -> {
+                        enlarged.recycle();
+                        DiagnosticLog.warn("BOSS", "map button Paddle OCR failed: "
                                 + error.getMessage());
                         retryMapReady(attempts, next);
-                    })
-                    .addOnCompleteListener(task -> enlarged.recycle());
+                    });
         });
     }
 
@@ -2578,6 +2550,10 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void captureScreenshot(Consumer<Bitmap> result) {
+        if (priorityTaskQuiescing) {
+            result.accept(null);
+            return;
+        }
         captureScreenshot(result, TEXT_RETRY_COUNT);
     }
 
@@ -2669,6 +2645,11 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void failAutomation(String message) {
+        if (priorityTaskQuiescing) {
+            DiagnosticLog.info("SCHEDULE", "ignored old task failure while taking priority: "
+                    + message);
+            return;
+        }
         DiagnosticLog.error("AUTOMATION", message);
         handler.removeCallbacksAndMessages(null);
         captureScreenshot(bitmap -> {
@@ -2735,6 +2716,7 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void stopAutomation(int state) {
         DiagnosticLog.info("AUTOMATION", "stopped state=" + state);
+        priorityTaskQuiescing = false;
         if (state == STATE_STOPPED) {
             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                     .putBoolean(PREF_MANUALLY_STOPPED, true)
@@ -3068,10 +3050,6 @@ public final class HelperAccessibilityService extends AccessibilityService
         bubbleView = null;
         bubbleParams = null;
         windowManager = null;
-        if (textRecognizer != null) {
-            textRecognizer.close();
-            textRecognizer = null;
-        }
         if (paddleDungeonTextRecognizer != null) {
             paddleDungeonTextRecognizer.close();
             paddleDungeonTextRecognizer = null;

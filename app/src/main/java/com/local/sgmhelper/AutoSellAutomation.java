@@ -120,18 +120,26 @@ final class AutoSellAutomation {
     private void recycleYuanbao(Runnable next, boolean quickSellRetryAvailable) {
         host.showProgress("Auto sell: opening yuanbao recycle");
         host.ensureGameHudVisible(() -> host.tap(1215, 58,
-                () -> host.swipe(1120, 500, 1120, 250,
+                () -> host.swipe(1120, 530, 1120, 145, 600,
                         () -> host.clickText("元宝回收", true,
-                                () -> sellGoldYuanbao(next, quickSellRetryAvailable),
-                                3, () -> {
-                                    DiagnosticLog.warn("AUTO_SELL",
-                                            "Yuanbao recycle OCR missed; using menu position");
-                                    host.showProgress(
-                                            "Auto sell: opening yuanbao recycle by position");
-                                    host.tap(1190, 465,
-                                            () -> sellGoldYuanbao(
-                                                    next, quickSellRetryAvailable));
-                                }))));
+                                () -> waitForYuanbaoRecycle(
+                                        next, quickSellRetryAvailable, 5),
+                                5, () -> host.failAutomation(
+                                        "Screen text was not found: 元宝回收")))));
+    }
+
+    private void waitForYuanbaoRecycle(
+            Runnable next, boolean quickSellRetryAvailable, int attempts) {
+        host.recognizeYuanbaoQuickSell(found -> {
+            if (found) {
+                sellGoldYuanbao(next, quickSellRetryAvailable);
+            } else if (attempts > 1) {
+                host.postDelayed(() -> waitForYuanbaoRecycle(
+                        next, quickSellRetryAvailable, attempts - 1), 500);
+            } else {
+                host.failAutomation("元宝回收页面未打开");
+            }
+        });
     }
 
     private void sellGoldYuanbao(Runnable next, boolean quickSellRetryAvailable) {

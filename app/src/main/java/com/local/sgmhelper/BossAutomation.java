@@ -5,7 +5,6 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
 
-import com.google.mlkit.vision.text.Text;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -192,9 +191,9 @@ final class BossAutomation {
         host.tap(1025, 75, () -> host.tap(1240, 45, this::useMarker));
     }
 
-    private static Rect findMenuAutoBounds(Text text) {
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+    private static Rect findMenuAutoBounds(OcrText text) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();
                 if (isMenuAutoCandidate(line.getText(), bounds)) {
                     return bounds;
@@ -610,7 +609,7 @@ final class BossAutomation {
     }
 
     private void retryLeaderChannelAfterMiss(int remainingAttempts, int current,
-            Runnable next, boolean blockerChecked, Text text) {
+            Runnable next, boolean blockerChecked, OcrText text) {
         boolean dialogOpen = hasPartyManageDialog(text);
         Integer fullScreenLeader = dialogOpen ? findLeaderChannel(text) : null;
         if (fullScreenLeader != null) {
@@ -652,7 +651,7 @@ final class BossAutomation {
         }
     }
 
-    private static boolean hasPartyManageDialog(Text text) {
+    private static boolean hasPartyManageDialog(OcrText text) {
         return isPartyManageDialogText(text.getText());
     }
 
@@ -696,15 +695,15 @@ final class BossAutomation {
                 CHANNEL_DIALOG_MS));
     }
 
-    private void failPartyOcr(String target, Text text) {
+    private void failPartyOcr(String target, OcrText text) {
         DiagnosticLog.warn("BOSS", "OCR miss: " + target + "; lines=" + ocrLines(text));
         fail("跟随队长：未识别到" + target);
     }
 
-    private static String ocrLines(Text text) {
+    private static String ocrLines(OcrText text) {
         List<String> values = new ArrayList<>();
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();
                 values.add(line.getText() + "@" + bounds);
             }
@@ -712,12 +711,12 @@ final class BossAutomation {
         return values.toString();
     }
 
-    private static Integer findLeaderChannel(Text text) {
+    private static Integer findLeaderChannel(OcrText text) {
         Integer leader = null;
         int firstRow = Integer.MAX_VALUE;
         List<String> candidates = new ArrayList<>();
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();
                 if (bounds == null
                         || bounds.centerX() < 850 || bounds.centerX() > 950
@@ -767,11 +766,11 @@ final class BossAutomation {
         return null;
     }
 
-    private static Integer findCurrentChannel(Text text, Bitmap bitmap) {
+    private static Integer findCurrentChannel(OcrText text, Bitmap bitmap) {
         Integer current = null;
         int bestScore = 19;
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();
                 if (bounds != null
                         && bounds.centerX() >= 400 && bounds.centerX() <= 850
@@ -860,10 +859,10 @@ final class BossAutomation {
     }
 
     static BossTarget findRedBoss(
-            Text text, Bitmap bitmap, int screenLeft, int ocrScale) {
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
-                for (Text.Element element : line.getElements()) {
+            OcrText text, Bitmap bitmap, int screenLeft, int ocrScale) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
+                for (OcrText.Element element : line.getElements()) {
                     Rect ocrBounds = element.getBoundingBox();
                     String name = element.getText().replaceAll("\\s+", "");
                     if (ocrBounds != null && containsChinese(name)) {

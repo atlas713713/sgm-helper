@@ -11,16 +11,16 @@ import java.util.regex.Pattern;
 /** Runs the dungeon itself. This is separate from {@link DungeonSweepAutomation}. */
 final class DungeonBattleAutomation {
     private static final Pattern INTEGER = Pattern.compile("\\d+");
-    private static final int MAX_LEVEL_SCROLLS = 12;
     private static final int CAMP_MAP_MAX_X = 199;
+    private static final int PALACE_MAP_MAX_X = 399;
     private static final int DUNGEON_MAP_MAX_X = 599;
     private static final int NPC_SHORTCUT_X = 1208;
     private static final int NPC_SHORTCUT_Y = 410;
     private static final int GUIDE_UP_X = 974;
     private static final int GUIDE_UP_Y = 31;
-    private static final int ENTRY_ROUTE_MAX_CHECKS = 30;
-    private static final int ENTRY_ROUTE_RETRY_INTERVAL = 5;
-    private static final int ENTRY_ROUTE_TOLERANCE = 3;
+    private static final int ROUTE_MAX_CHECKS = 30;
+    private static final int ROUTE_RETRY_INTERVAL = 5;
+    private static final int ROUTE_TOLERANCE = 3;
     private static final long MAP_WAIT_MS = 5_000;
     private static final long FIGHT_CHECK_MS = 4_000;
 
@@ -29,7 +29,7 @@ final class DungeonBattleAutomation {
     private int currentIndex;
     private int lastX = -1;
     private int samePositionCount;
-    private int entryRouteChecks;
+    private int routeChecks;
 
     DungeonBattleAutomation(AutomationHost host) {
         this.host = host;
@@ -59,60 +59,144 @@ final class DungeonBattleAutomation {
 
     private void begin() {
         currentIndex = 0;
-        openDungeonMenu();
+        returnHomeForDungeon();
     }
 
-    private void openDungeonMenu() {
-        host.showProgress("实战副本：打开副本列表");
-        host.tap(1215, 58, () -> swipeGameMenuToTop(3));
+    private void returnHomeForDungeon() {
+        host.showProgress(currentLevel() + "级副本：先回城");
+        host.closeAutoPathPanel(() -> host.returnHome(() -> host.postDelayed(
+                () -> host.waitForMapReady(20, () -> readHomeCity(10)), MAP_WAIT_MS)));
     }
 
-    private void swipeGameMenuToTop(int remaining) {
-        if (remaining == 0) {
-            host.tap(900, 362,
-                    () -> host.tap(1105, 96, () -> findCurrentLevel(MAX_LEVEL_SCROLLS)));
-            return;
-        }
-        host.swipe(1120, 250, 1120, 350,
-                () -> swipeGameMenuToTop(remaining - 1));
-    }
-
-    private void findCurrentLevel(int remainingScrolls) {
-        int level = selectedLevels.get(currentIndex);
-        host.showProgress("实战副本：查找 " + level + " 级");
-        host.recognizeDungeonText(lines -> {
-            Rect bounds = DungeonSweepAutomation.findLevelBounds(lines, level);
-            if (bounds != null) {
-                host.tap(bounds.centerX(), bounds.centerY(), this::enterCamp);
-            } else if (remainingScrolls > 0) {
-                host.swipe(200, 500, 200, 250, 800,
-                        () -> findCurrentLevel(remainingScrolls - 1));
+    private void readHomeCity(int remainingAttempts) {
+        host.showProgress(currentLevel() + "级副本：识别回城地点");
+        host.recognizeMapName(mapName -> {
+            String normalized = mapName == null ? "" : mapName.replaceAll("\\s", "");
+            if (!normalized.isEmpty()) {
+                gotoPalaceGuide(normalized);
+            } else if (remainingAttempts > 1) {
+                host.postDelayed(() -> readHomeCity(remainingAttempts - 1), 1_000);
             } else {
-                host.failAutomation("实战副本：未找到 " + level + " 级副本");
+                host.failAutomation(currentLevel() + "级副本：回城后未识别到城市");
             }
         });
     }
 
-    private void enterCamp() {
-        host.showProgress(currentLevel() + "级副本：传送至" + campName());
-        tapEnterCamp(2);
+    private void gotoPalaceGuide(String cityName) {
+        host.showProgress(currentLevel() + "级副本：前往驻地引路员");
+        routeChecks = 0;
+        tapPalaceGuideRoute(cityName, 2);
     }
 
-    private void tapEnterCamp(int remainingTaps) {
-        // Wudang taps DungeonDialog.enterCampPoint twice at 1280x720.
-        host.tap(176, 618, () -> {
+    private void tapPalaceGuideRoute(String cityName, int remainingTaps) {
+        int x = palaceGuideX(cityName);
+        int y = palaceGuideY(cityName);
+        host.tapMapCoordinate(x, y, PALACE_MAP_MAX_X, () -> {
             if (remainingTaps > 1) {
-                host.postDelayed(() -> tapEnterCamp(remainingTaps - 1), 200);
+                host.postDelayed(() -> tapPalaceGuideRoute(cityName, remainingTaps - 1), 500);
             } else {
-                host.postDelayed(
-                        () -> host.waitForMapReady(20, this::gotoEntryNpc), MAP_WAIT_MS);
+                host.postDelayed(() -> waitForPalaceGuide(cityName), 1_000);
+            }
+        });
+    }
+
+    private void waitForPalaceGuide(String cityName) {
+        int x = palaceGuideX(cityName);
+        int y = palaceGuideY(cityName);
+        host.recognizeMapCoordinate(value -> {
+            if (isAtCoordinate(value, x, y)) {
+                openPalaceGuide();
+                return;
+            }
+            routeChecks++;
+            if (routeChecks >= ROUTE_MAX_CHECKS) {
+                host.failAutomation(currentLevel() + "级副本：未能到达驻地引路员");
+            } else if (routeChecks % ROUTE_RETRY_INTERVAL == 0) {
+                tapPalaceGuideRoute(cityName, 2);
+            } else {
+                host.postDelayed(() -> waitForPalaceGuide(cityName), 1_000);
+            }
+        });
+    }
+
+    private void openPalaceGuide() {
+        host.showProgress(currentLevel() + "级副本：进入副本宫殿（一般）");
+        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
+                () -> host.clickDungeonText("一般", false,
+                        () -> host.postDelayed(() -> waitForPalace(20), 3_000),
+                        10, () -> failMissing("副本宫殿（一般）")));
+    }
+
+    private void waitForPalace(int remainingAttempts) {
+        host.recognizeMapName(mapName -> {
+            String normalized = mapName == null ? "" : mapName.replaceAll("\\s", "");
+            if (normalized.contains("副本宫殿") && normalized.contains("一般")) {
+                gotoCampNpc();
+            } else if (remainingAttempts > 1) {
+                host.postDelayed(() -> waitForPalace(remainingAttempts - 1), 1_000);
+            } else {
+                host.failAutomation(currentLevel() + "级副本：未进入副本宫殿（一般）");
+            }
+        });
+    }
+
+    private void gotoCampNpc() {
+        host.showProgress(currentLevel() + "级副本：前往" + campName() + "入口");
+        routeChecks = 0;
+        tapCampNpcRoute(2);
+    }
+
+    private void tapCampNpcRoute(int remainingTaps) {
+        host.tapMapCoordinate(campNpcX(currentLevel()), 16, PALACE_MAP_MAX_X, () -> {
+            if (remainingTaps > 1) {
+                host.postDelayed(() -> tapCampNpcRoute(remainingTaps - 1), 500);
+            } else {
+                host.postDelayed(this::waitForCampNpc, 1_000);
+            }
+        });
+    }
+
+    private void waitForCampNpc() {
+        int targetX = campNpcX(currentLevel());
+        host.recognizeMapCoordinate(value -> {
+            if (isAtCoordinate(value, targetX, 16)) {
+                openCampNpc();
+                return;
+            }
+            routeChecks++;
+            if (routeChecks >= ROUTE_MAX_CHECKS) {
+                host.failAutomation(currentLevel() + "级副本：未能到达" + campName() + "入口");
+            } else if (routeChecks % ROUTE_RETRY_INTERVAL == 0) {
+                tapCampNpcRoute(2);
+            } else {
+                host.postDelayed(this::waitForCampNpc, 1_000);
+            }
+        });
+    }
+
+    private void openCampNpc() {
+        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
+                () -> host.clickDungeonText("下一步", true,
+                        () -> host.postDelayed(() -> waitForCamp(20), 3_000),
+                        10, () -> failMissing("下一步")));
+    }
+
+    private void waitForCamp(int remainingAttempts) {
+        host.recognizeMapName(mapName -> {
+            String normalized = mapName == null ? "" : mapName.replaceAll("\\s", "");
+            if (normalized.contains(campName())) {
+                gotoEntryNpc();
+            } else if (remainingAttempts > 1) {
+                host.postDelayed(() -> waitForCamp(remainingAttempts - 1), 1_000);
+            } else {
+                host.failAutomation(currentLevel() + "级副本：未进入" + campName());
             }
         });
     }
 
     private void gotoEntryNpc() {
         host.showProgress(currentLevel() + "级副本：前往入口 NPC");
-        entryRouteChecks = 0;
+        routeChecks = 0;
         tapEntryNpcRoute(2);
     }
 
@@ -133,10 +217,10 @@ final class DungeonBattleAutomation {
                 openEntryNpc();
                 return;
             }
-            entryRouteChecks++;
-            if (entryRouteChecks >= ENTRY_ROUTE_MAX_CHECKS) {
+            routeChecks++;
+            if (routeChecks >= ROUTE_MAX_CHECKS) {
                 host.failAutomation(currentLevel() + "级副本：未能寻路到入口 NPC");
-            } else if (entryRouteChecks % ENTRY_ROUTE_RETRY_INTERVAL == 0) {
+            } else if (routeChecks % ROUTE_RETRY_INTERVAL == 0) {
                 host.showProgress(currentLevel() + "级副本：重新前往入口 NPC");
                 tapEntryNpcRoute(2);
             } else {
@@ -339,7 +423,7 @@ final class DungeonBattleAutomation {
     private void finishCurrent() {
         currentIndex++;
         if (currentIndex < selectedLevels.size()) {
-            host.postDelayed(this::openDungeonMenu, MAP_WAIT_MS);
+            host.postDelayed(this::returnHomeForDungeon, MAP_WAIT_MS);
         } else {
             host.completeAutomation();
         }
@@ -574,7 +658,7 @@ final class DungeonBattleAutomation {
             return "曹公府";
         }
         if (currentLevel() == 30) {
-            return "黄巾营寨";
+            return "乱军营寨";
         }
         if (currentLevel() == 40) {
             return "长乐宫";
@@ -602,18 +686,53 @@ final class DungeonBattleAutomation {
         return level == 70 ? 17 : 16;
     }
 
+    static int palaceGuideX(String cityName) {
+        return isCapitalCity(cityName) ? 200 : 210;
+    }
+
+    static int palaceGuideY(String cityName) {
+        return isCapitalCity(cityName) ? 31 : 33;
+    }
+
+    private static boolean isCapitalCity(String cityName) {
+        String value = cityName == null ? "" : cityName;
+        return value.contains("洛阳") || value.contains("成都") || value.contains("建业");
+    }
+
+    static int campNpcX(int level) {
+        switch (level) {
+            case 10:
+                return 26;
+            case 20:
+                return 42;
+            case 30:
+                return 58;
+            case 40:
+                return 73;
+            case 50:
+                return 89;
+            case 60:
+                return 105;
+            case 65:
+                return 121;
+            case 70:
+                return 136;
+            case 75:
+                return 152;
+            default:
+                throw new IllegalArgumentException("Unsupported dungeon level " + level);
+        }
+    }
+
     static boolean isAtEntryNpc(int level, String coordinateText) {
-        Matcher matcher = INTEGER.matcher(coordinateText == null ? "" : coordinateText);
-        if (!matcher.find()) {
-            return false;
-        }
-        int x = Integer.parseInt(matcher.group());
-        if (!matcher.find()) {
-            return false;
-        }
-        int y = Integer.parseInt(matcher.group());
-        return Math.abs(x - entryNpcX(level)) <= ENTRY_ROUTE_TOLERANCE
-                && Math.abs(y - entryNpcY(level)) <= ENTRY_ROUTE_TOLERANCE;
+        return isAtCoordinate(coordinateText, entryNpcX(level), entryNpcY(level));
+    }
+
+    static boolean isAtCoordinate(String coordinateText, int targetX, int targetY) {
+        int[] coordinate = BossAutomation.parseMapCoordinate(coordinateText);
+        return coordinate != null
+                && Math.abs(coordinate[0] - targetX) <= ROUTE_TOLERANCE
+                && Math.abs(coordinate[1] - targetY) <= ROUTE_TOLERANCE;
     }
 
     private int dungeonMapMaxX() {

@@ -1,6 +1,5 @@
 package com.local.sgmhelper;
 
-import com.google.mlkit.vision.text.Text;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -92,10 +91,10 @@ final class SoldierRevivalAutomation {
         host.tap(1235, 54, next);
     }
 
-    private static List<String> screenLines(Text text) {
+    private static List<String> screenLines(OcrText text) {
         List<String> values = new ArrayList<>();
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 values.add(line.getText());
             }
         }

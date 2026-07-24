@@ -12,6 +12,9 @@ import java.util.Calendar;
 public final class WorshipAlarmReceiver extends BroadcastReceiver {
     private static final long MILITARY_INTERVAL_MS = 3 * 60 * 60 * 1_000L;
     private static final long MILITARY_OVERDUE_RETRY_MS = 60_000L;
+    private static final long PENDING_AUTOMATION_MAX_AGE_MS = 15 * 60 * 1_000L;
+    private static final String PREF_PENDING_ACTION = "pending_scheduled_action";
+    private static final String PREF_PENDING_AT = "pending_scheduled_at";
     private static final String ACTION_WORSHIP = "com.local.sgmhelper.WORSHIP";
     private static final String ACTION_LEGION_REWARD = "com.local.sgmhelper.LEGION_REWARD";
     private static final String ACTION_MILITARY = "com.local.sgmhelper.MILITARY";
@@ -48,22 +51,63 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
         }
         HelperAccessibilityService service = HelperAccessibilityService.getInstance();
         if (service != null) {
-            if (ACTION_LEGION_REWARD.equals(action)) {
-                service.startScheduledLegionReward();
-            } else if (ACTION_WELFARE.equals(action)) {
-                service.startScheduledWelfare();
-            } else if (ACTION_MILITARY.equals(action)) {
-                service.startScheduledMilitary();
-            } else if (ACTION_HEAVENFALL.equals(action)) {
-                service.startScheduledHeavenfall();
-            } else if (ACTION_DUNGEON.equals(action)) {
-                service.startScheduledDungeon();
-            } else {
-                service.startScheduledWorship();
-            }
+            startScheduledAutomation(service, action);
         } else {
-            DiagnosticLog.error("SCHEDULE",
-                    "task skipped because the accessibility service is unavailable: " + action);
+            context.getSharedPreferences(
+                    HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(PREF_PENDING_ACTION, action)
+                    .putLong(PREF_PENDING_AT, System.currentTimeMillis())
+                    .commit();
+            DiagnosticLog.warn("SCHEDULE",
+                    "task deferred until the accessibility service reconnects: " + action);
+        }
+    }
+
+    static boolean startPendingAutomation(HelperAccessibilityService service) {
+        SharedPreferences preferences = service.getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE);
+        String action = preferences.getString(PREF_PENDING_ACTION, null);
+        long pendingAt = preferences.getLong(PREF_PENDING_AT, 0);
+        preferences.edit()
+                .remove(PREF_PENDING_ACTION)
+                .remove(PREF_PENDING_AT)
+                .commit();
+        if (!isPendingFresh(System.currentTimeMillis(), pendingAt)
+                || !isActionEnabled(service, action)
+                || !shouldStartScheduledAutomation(preferences.getBoolean(
+                        HelperAccessibilityService.PREF_MANUALLY_STOPPED, false))) {
+            if (action != null) {
+                DiagnosticLog.info("SCHEDULE", "discarded stale or disabled pending task: "
+                        + action);
+            }
+            return false;
+        }
+        DiagnosticLog.info("SCHEDULE", "starting deferred task: " + action);
+        startScheduledAutomation(service, action);
+        return true;
+    }
+
+    static boolean isPendingFresh(long now, long pendingAt) {
+        return pendingAt > 0
+                && now >= pendingAt
+                && now - pendingAt <= PENDING_AUTOMATION_MAX_AGE_MS;
+    }
+
+    private static void startScheduledAutomation(
+            HelperAccessibilityService service, String action) {
+        if (ACTION_LEGION_REWARD.equals(action)) {
+            service.startScheduledLegionReward();
+        } else if (ACTION_WELFARE.equals(action)) {
+            service.startScheduledWelfare();
+        } else if (ACTION_MILITARY.equals(action)) {
+            service.startScheduledMilitary();
+        } else if (ACTION_HEAVENFALL.equals(action)) {
+            service.startScheduledHeavenfall();
+        } else if (ACTION_DUNGEON.equals(action)) {
+            service.startScheduledDungeon();
+        } else {
+            service.startScheduledWorship();
         }
     }
 

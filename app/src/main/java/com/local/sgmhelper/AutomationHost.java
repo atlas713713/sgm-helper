@@ -3,8 +3,6 @@ package com.local.sgmhelper;
 import android.content.Context;
 import android.graphics.Bitmap;
 
-import com.google.mlkit.vision.text.Text;
-
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -95,7 +93,10 @@ interface AutomationHost {
     void swipe(int startX, int startY, int endX, int endY,
             long durationMillis, Runnable next);
 
-    void recognizeText(Consumer<Text> result);
+    void recognizeText(Consumer<OcrText> result);
+
+    void recognizeText(Bitmap bitmap, Consumer<OcrText> result,
+            Consumer<Throwable> failure);
 
     void recognizeDungeonText(Consumer<List<OcrLine>> result);
 

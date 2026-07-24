@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 final class PaddleDungeonTextRecognizer {
@@ -24,6 +25,7 @@ final class PaddleDungeonTextRecognizer {
 
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final AtomicInteger generation = new AtomicInteger();
     private OCREngine engine;
 
     PaddleDungeonTextRecognizer(Context context) {
@@ -32,7 +34,12 @@ final class PaddleDungeonTextRecognizer {
 
     void recognize(Bitmap bitmap, Consumer<List<OcrLine>> success,
             Consumer<Throwable> failure) {
+        int requestGeneration = generation.get();
         executor.execute(() -> {
+            if (requestGeneration != generation.get()) {
+                recycleCancelled(bitmap);
+                return;
+            }
             try {
                 List<OcrLine> lines = new ArrayList<>();
                 for (OCRResult result : engine().run(bitmap).getResults()) {
@@ -41,14 +48,27 @@ final class PaddleDungeonTextRecognizer {
                             bounds(result),
                             result.getConfidence()));
                 }
+                if (requestGeneration != generation.get()) {
+                    recycleCancelled(bitmap);
+                    return;
+                }
                 success.accept(lines);
             } catch (Throwable error) {
-                failure.accept(error);
+                if (requestGeneration == generation.get()) {
+                    failure.accept(error);
+                } else {
+                    recycleCancelled(bitmap);
+                }
             }
         });
     }
 
+    void cancelPending() {
+        generation.incrementAndGet();
+    }
+
     void close() {
+        cancelPending();
         executor.execute(() -> {
             if (engine != null) {
                 engine.release();
@@ -56,6 +76,12 @@ final class PaddleDungeonTextRecognizer {
             }
         });
         executor.shutdown();
+    }
+
+    private static void recycleCancelled(Bitmap bitmap) {
+        if (bitmap != null && !bitmap.isRecycled()) {
+            bitmap.recycle();
+        }
     }
 
     private OCREngine engine() {

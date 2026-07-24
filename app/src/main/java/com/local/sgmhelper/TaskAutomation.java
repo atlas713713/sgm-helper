@@ -5,7 +5,6 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
 
-import com.google.mlkit.vision.text.Text;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -83,10 +82,10 @@ final class TaskAutomation {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            List<Text.Line> leftLines = new ArrayList<>();
+            List<OcrText.Line> leftLines = new ArrayList<>();
             List<String> leftValues = new ArrayList<>();
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
                     Rect bounds = line.getBoundingBox();
                     if (bounds != null && bounds.centerX() < 640) {
                         leftLines.add(line);
@@ -97,7 +96,7 @@ final class TaskAutomation {
             String questName = firstOngoingCollectionQuest(
                     leftValues, supplyQuestEnabled, wildernessQuestEnabled);
             if (questName != null) {
-                for (Text.Line line : leftLines) {
+                for (OcrText.Line line : leftLines) {
                     if (questName.equals(extractMilitaryQuestName(line.getText()))) {
                         String zone = extractWildernessZone(line.getText());
                         if (zone != null) {
@@ -169,8 +168,8 @@ final class TaskAutomation {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
                     Rect bounds = line.getBoundingBox();
                     String questName = extractMilitaryQuestName(line.getText());
                     if (questName != null && bounds != null && bounds.centerX() < 640
@@ -298,8 +297,8 @@ final class TaskAutomation {
     private void logSupplyTaskOcrMiss(Runnable next) {
         host.recognizeText(text -> {
             List<String> rightLines = new ArrayList<>();
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
                     Rect bounds = line.getBoundingBox();
                     if (bounds != null && bounds.centerX() >= 850) {
                         rightLines.add(line.getText() + "@" + bounds.flattenToString());
@@ -426,10 +425,10 @@ final class TaskAutomation {
         });
     }
 
-    private List<String> screenLines(Text text) {
+    private List<String> screenLines(OcrText text) {
         List<String> values = new ArrayList<>();
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 values.add(line.getText());
             }
         }
@@ -493,8 +492,8 @@ final class TaskAutomation {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
                     Rect bounds = line.getBoundingBox();
                     String zone = extractWildernessZone(line.getText());
                     if ("巡狩军团荒野".equals(extractMilitaryQuestName(line.getText()))
@@ -547,10 +546,10 @@ final class TaskAutomation {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    private String rightMilitaryDetails(Text text) {
+    private String rightMilitaryDetails(OcrText text) {
         StringBuilder rightDetails = new StringBuilder();
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();
                 if (bounds != null && bounds.centerX() > 640) {
                     rightDetails.append(line.getText()).append(' ');
@@ -902,8 +901,8 @@ final class TaskAutomation {
     private void useSelectedCompletedQuest(String questName, Runnable next) {
         host.recognizeText(text -> {
             List<String> rightValues = new ArrayList<>();
-            for (Text.TextBlock block : text.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
                     Rect bounds = line.getBoundingBox();
                     if (bounds != null && bounds.centerX() > 640) {
                         rightValues.add(line.getText());
@@ -992,10 +991,10 @@ final class TaskAutomation {
         completed.run();
     }
 
-    private Boolean requiredItemsComplete(Text text) {
+    private Boolean requiredItemsComplete(OcrText text) {
         StringBuilder value = new StringBuilder();
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();
                 if (bounds != null && bounds.centerX() > 640
                         && bounds.centerY() > 150 && bounds.centerY() < 400) {

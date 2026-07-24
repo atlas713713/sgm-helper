@@ -289,6 +289,13 @@ public final class HelperAccessibilityServiceTest {
 
     @Test
     public void dungeonEntranceRouteUsesWudangCoordinatesAndArrivalCheck() {
+        assertEquals(200, DungeonBattleAutomation.palaceGuideX("洛阳"));
+        assertEquals(31, DungeonBattleAutomation.palaceGuideY("建业"));
+        assertEquals(210, DungeonBattleAutomation.palaceGuideX("北平"));
+        assertEquals(33, DungeonBattleAutomation.palaceGuideY("襄阳"));
+        assertEquals(26, DungeonBattleAutomation.campNpcX(10));
+        assertEquals(105, DungeonBattleAutomation.campNpcX(60));
+        assertEquals(152, DungeonBattleAutomation.campNpcX(75));
         assertEquals(100, DungeonBattleAutomation.entryNpcX(10));
         assertEquals(102, DungeonBattleAutomation.entryNpcX(60));
         assertEquals(16, DungeonBattleAutomation.entryNpcY(65));
@@ -298,6 +305,7 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(DungeonBattleAutomation.isAtEntryNpc(70, "103.17"));
         assertFalse(DungeonBattleAutomation.isAtEntryNpc(75, "90,16"));
         assertFalse(DungeonBattleAutomation.isAtEntryNpc(40, "识别失败"));
+        assertTrue(DungeonBattleAutomation.isAtCoordinate("208,34", 210, 33));
     }
 
     @Test
@@ -553,6 +561,18 @@ public final class HelperAccessibilityServiceTest {
     public void manualStopBlocksScheduledAutomationUntilTheUserStartsAgain() {
         assertFalse(WorshipAlarmReceiver.shouldStartScheduledAutomation(true));
         assertTrue(WorshipAlarmReceiver.shouldStartScheduledAutomation(false));
+    }
+
+    @Test
+    public void deferredScheduledAutomationExpiresAfterFifteenMinutes() {
+        long pendingAt = 1_000;
+        assertTrue(WorshipAlarmReceiver.isPendingFresh(pendingAt, pendingAt));
+        assertTrue(WorshipAlarmReceiver.isPendingFresh(
+                pendingAt + 15 * 60 * 1_000L, pendingAt));
+        assertFalse(WorshipAlarmReceiver.isPendingFresh(
+                pendingAt + 15 * 60 * 1_000L + 1, pendingAt));
+        assertFalse(WorshipAlarmReceiver.isPendingFresh(pendingAt - 1, pendingAt));
+        assertFalse(WorshipAlarmReceiver.isPendingFresh(pendingAt, 0));
     }
 
     @Test

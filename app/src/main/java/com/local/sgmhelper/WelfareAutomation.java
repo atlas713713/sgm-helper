@@ -4,7 +4,6 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
 
-import com.google.mlkit.vision.text.Text;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -109,10 +108,10 @@ final class WelfareAutomation {
                         () -> processCategories(pending, index + 1, next)));
     }
 
-    private List<VisibleCategory> visibleCategories(Text text) {
+    private List<VisibleCategory> visibleCategories(OcrText text) {
         List<VisibleCategory> result = new ArrayList<>();
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();
                 WelfareCategory category = categoryForText(line.getText());
                 if (bounds != null && bounds.centerX() < 280 && category != null) {
@@ -256,7 +255,7 @@ final class DailyChallengeCategory extends WelfareCategory {
         host.showProgress("领取福利：读取每日完成奖励次数");
         host.recognizeText(text -> {
             StringBuilder value = new StringBuilder();
-            for (Text.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
                 value.append(block.getText()).append(' ');
             }
             Integer count = completionCount(value.toString());

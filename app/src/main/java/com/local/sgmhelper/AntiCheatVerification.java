@@ -2,12 +2,6 @@ package com.local.sgmhelper;
 
 import android.graphics.Bitmap;
 
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.Text;
-import com.google.mlkit.vision.text.TextRecognition;
-import com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions;
-
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -179,26 +173,21 @@ final class AntiCheatVerification {
             Bitmap enlarged = Bitmap.createScaledBitmap(region,
                     region.getWidth() * 2, region.getHeight() * 2, true);
             region.recycle();
-            TextRecognizer recognizer = TextRecognition.getClient(
-                    new ChineseTextRecognizerOptions.Builder().build());
-            recognizer.process(InputImage.fromBitmap(enlarged, 0))
-                    .addOnSuccessListener(text -> {
+            host.recognizeText(enlarged, text -> {
                         boolean visible = containsChallengeText(text);
                         if (visible && saveRawScreenshot) {
                             DiagnosticLog.saveScreenshot(
                                     screenshot, "channel-test-anticheat-raw");
                         }
-                        result.accept(visible);
-                    })
-                    .addOnFailureListener(error -> {
-                        DiagnosticLog.warn("ANTI_CHEAT",
-                                "Challenge ROI OCR failed: " + error.getMessage());
-                        result.accept(false);
-                    })
-                    .addOnCompleteListener(done -> {
                         screenshot.recycle();
                         enlarged.recycle();
-                        recognizer.close();
+                        result.accept(visible);
+                    }, error -> {
+                        screenshot.recycle();
+                        enlarged.recycle();
+                        DiagnosticLog.warn("ANTI_CHEAT",
+                                "Challenge ROI Paddle OCR failed: " + error.getMessage());
+                        result.accept(false);
                     });
         });
     }
@@ -211,9 +200,9 @@ final class AntiCheatVerification {
         return Bitmap.createBitmap(screenshot, left, top, right - left, bottom - top);
     }
 
-    static boolean hasChallenge(Text text) {
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+    static boolean hasChallenge(OcrText text) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 android.graphics.Rect bounds = line.getBoundingBox();
                 if (bounds != null && isChallengeLabel(
                         line.getText(), bounds.centerX(), bounds.centerY())) {
@@ -224,7 +213,7 @@ final class AntiCheatVerification {
         return false;
     }
 
-    static boolean containsChallengeText(Text text) {
+    static boolean containsChallengeText(OcrText text) {
         return isChallengeText(text.getText());
     }
 

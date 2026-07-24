@@ -3,7 +3,6 @@ package com.local.sgmhelper;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import com.google.mlkit.vision.text.Text;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -158,10 +157,10 @@ final class LoginAutomation {
         return hudLabels >= 2 ? Screen.LOGGED_IN : Screen.UNKNOWN;
     }
 
-    private static List<String> lines(Text text) {
+    private static List<String> lines(OcrText text) {
         List<String> result = new ArrayList<>();
-        for (Text.TextBlock block : text.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
                 result.add(line.getText());
             }
         }
