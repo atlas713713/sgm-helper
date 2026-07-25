@@ -46,6 +46,10 @@
     <string name="training_location">练级地点：</string>
     <string name="training_wilderness_zone">荒野几区：</string>
     <string name="training_monster">目标怪物：</string>
+    <string name="training_pull_for_others">为别人拉怪</string>
+    <string name="training_pull_route">设置拉怪路线</string>
+    <string name="training_pull_route_hint">每行：X,Y,停留毫秒,是否攻击(1/0)。到点攻击并停留，然后循环下一点。</string>
+    <string name="training_pull_route_example">例如：\n100,20,1000,1\n300,25,500,0</string>
     <string name="settings_timer">定时</string>
     <string name="settings_timed_tasks">定时任务</string>
     <string name="settings_auxiliary">辅助</string>

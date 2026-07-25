@@ -112,6 +112,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_TRAINING_LOCATION = "training_location";
     static final String PREF_TRAINING_WILDERNESS_ZONE = "training_wilderness_zone";
     static final String PREF_TRAINING_MONSTER = "training_monster";
+    static final String PREF_TRAINING_PULL_FOR_OTHERS = "training_pull_for_others";
+    static final String PREF_TRAINING_PULL_ROUTE = "training_pull_route";
     static final String TRAINING_LOCATION_WILDERNESS = "荒野";
     static final String TRAINING_LOCATION_WILD = "野境";
     static final String TRAINING_LOCATION_MARKER = "标记点";
@@ -699,9 +701,57 @@ public final class HelperAccessibilityService extends AccessibilityService
                     ? View.VISIBLE : View.GONE);
         });
 
+        CheckBox pullForOthers = addSettingsCheckBox(
+                menu, R.string.training_pull_for_others,
+                preferences.getBoolean(PREF_TRAINING_PULL_FOR_OTHERS, false));
+        pullForOthers.setOnCheckedChangeListener((button, checked) -> {
+            preferences.edit().putBoolean(PREF_TRAINING_PULL_FOR_OTHERS, checked).apply();
+            if (checked && preferences.getString(
+                    PREF_TRAINING_PULL_ROUTE, "").trim().isEmpty()) {
+                showTrainingPullRouteDialog();
+            }
+        });
+        addSettingsText(menu, R.string.training_pull_route_hint);
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.training_pull_route, false,
+                        view -> showTrainingPullRouteDialog()));
         addSettingsButtonRow(menu,
                 createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
         updateMenuPosition();
+    }
+
+    private void showTrainingPullRouteDialog() {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        EditText route = new EditText(this);
+        route.setMinLines(5);
+        route.setGravity(Gravity.TOP);
+        route.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        route.setHint(R.string.training_pull_route_example);
+        route.setText(preferences.getString(PREF_TRAINING_PULL_ROUTE, ""));
+        int padding = dp(20);
+        route.setPadding(padding, padding, padding, padding);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.training_pull_route)
+                .setView(route)
+                .setNegativeButton(R.string.login_cancel, null)
+                .setPositiveButton(R.string.login_save, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(view -> {
+                    String value = route.getText().toString().trim();
+                    try {
+                        TrainingAutomation.parsePullRoute(value);
+                        preferences.edit().putString(PREF_TRAINING_PULL_ROUTE, value).apply();
+                        dialog.dismiss();
+                    } catch (IllegalArgumentException error) {
+                        route.setError(error.getMessage());
+                    }
+                }));
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY);
+        }
+        dialog.show();
     }
 
     private void addLocationOption(RadioGroup group, String value) {
@@ -1211,6 +1261,10 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     void startScheduledDungeon() {
+        if (isTrainingPullActive()) {
+            startPriorityScheduledTask("自动副本", () -> startDungeonSweep(true));
+            return;
+        }
         if (automationRunning) {
             DiagnosticLog.info("DUNGEON", "busy; retrying in 60 seconds");
             handler.postDelayed(this::startScheduledDungeon, 60_000);
@@ -1231,6 +1285,10 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (!shouldRunMilitary(primaryTask)) {
             DiagnosticLog.info("MILITARY",
                     "skipped; primary task=" + primaryTaskLabel(primaryTask));
+            return;
+        }
+        if (isTrainingPullActive()) {
+            startPriorityScheduledTask("自动军务", taskAutomation::start);
             return;
         }
         taskAutomation.start();
@@ -1333,6 +1391,17 @@ public final class HelperAccessibilityService extends AccessibilityService
         showProgress(nextMilitaryAt > 0
                 ? "自动练级中 · 下次军务 " + formatTime(nextMilitaryAt)
                 : "自动练级中");
+        startInventoryMonitoring();
+    }
+
+    @Override
+    public void enterActiveTraining(long nextMilitaryAt) {
+        automationRunning = true;
+        automationRecoveryAttempts = 0;
+        setTaskState(STATE_RUNNING);
+        showProgress(nextMilitaryAt > 0
+                ? "为他人拉怪中 · 下次军务 " + formatTime(nextMilitaryAt)
+                : "为他人拉怪中");
         startInventoryMonitoring();
     }
 
@@ -2813,10 +2882,17 @@ public final class HelperAccessibilityService extends AccessibilityService
             return false;
         }
         if (primaryTask == PrimaryTask.TRAINING) {
-            return !automationRunning;
+            return !automationRunning || isTrainingPullActive();
         }
         return primaryTask == PrimaryTask.BOSS
                 && automationRunning && currentAutomationAction == primaryTaskAction;
+    }
+
+    private boolean isTrainingPullActive() {
+        return primaryTask == PrimaryTask.TRAINING
+                && automationRunning
+                && getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .getBoolean(PREF_TRAINING_PULL_FOR_OTHERS, false);
     }
 
     private void interruptForAutoSell() {

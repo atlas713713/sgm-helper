@@ -126,6 +126,8 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(Boolean.TRUE, TaskAutomation.requiredItemComplete(
                 "取得铜铸茶壶 250 ／ 250 个 [56尺]"));
         assertNull(TaskAutomation.requiredItemComplete("军团财富：50"));
+        assertTrue(TaskAutomation.isRequiredItemDetailPosition(750, 300));
+        assertFalse(TaskAutomation.isRequiredItemDetailPosition(1100, 220));
     }
 
     @Test
@@ -541,6 +543,31 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void parsesAndLoopsThroughPullForOthersRoutePoints() {
+        List<TrainingAutomation.PullPoint> route =
+                TrainingAutomation.parsePullRoute(
+                        "100,20,1000,1\n300，25，500，0");
+        assertEquals(2, route.size());
+        assertEquals(100, route.get(0).x);
+        assertEquals(20, route.get(0).y);
+        assertEquals(1_000, route.get(0).durationMillis);
+        assertTrue(route.get(0).attack);
+        assertFalse(route.get(1).attack);
+        assertTrue(TrainingAutomation.pullPointReached("坐标 102,18", route.get(0)));
+        assertFalse(TrainingAutomation.pullPointReached("坐标 103,20", route.get(0)));
+    }
+
+    @Test
+    public void rejectsInvalidPullForOthersRoutePoints() {
+        try {
+            TrainingAutomation.parsePullRoute("601,20,1000,1");
+        } catch (IllegalArgumentException expected) {
+            return;
+        }
+        throw new AssertionError("out-of-range pull route must be rejected");
+    }
+
+    @Test
     public void schedulesTheEarliestIndependentMilitaryTask() {
         assertTrue(WorshipAlarmReceiver.hasConfiguredMilitaryTime(true, true));
         assertFalse(WorshipAlarmReceiver.hasConfiguredMilitaryTime(true, false));
@@ -786,6 +813,10 @@ public final class HelperAccessibilityServiceTest {
                 LoginAutomation.screenFor(Arrays.asList("尚未领取的奖励", "关闭界面", "前往领取")));
         assertEquals(LoginAutomation.Screen.REWARD_RECOVERY,
                 LoginAutomation.screenFor(Arrays.asList("奖励找回", "商城", "福利", "竞技场", "菜单")));
+        assertEquals(LoginAutomation.Screen.LOGGED_IN,
+                LoginAutomation.screenFor(Arrays.asList(
+                        "【BOSS】准备游戏画面：关闭奖励找回",
+                        "商城", "福利", "竞技场", "菜单")));
         assertEquals(LoginAutomation.Screen.REWARD_RECOVERY,
                 LoginAutomation.screenFor(Arrays.asList("重复任务", "副本奖励", "领取80%", "铜钱找回")));
         assertEquals(LoginAutomation.Screen.LOGGED_IN,

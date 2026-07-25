@@ -996,13 +996,17 @@ final class TaskAutomation {
         for (OcrText.TextBlock block : text.getTextBlocks()) {
             for (OcrText.Line line : block.getLines()) {
                 Rect bounds = line.getBoundingBox();
-                if (bounds != null && bounds.centerX() > 640
-                        && bounds.centerY() > 150 && bounds.centerY() < 400) {
+                if (bounds != null && isRequiredItemDetailPosition(
+                        bounds.centerX(), bounds.centerY())) {
                     value.append(line.getText()).append(' ');
                 }
             }
         }
         return requiredItemComplete(value.toString());
+    }
+
+    static boolean isRequiredItemDetailPosition(int x, int y) {
+        return x > 640 && x < 960 && y > 150 && y < 400;
     }
 
     static Boolean requiredItemComplete(String value) {

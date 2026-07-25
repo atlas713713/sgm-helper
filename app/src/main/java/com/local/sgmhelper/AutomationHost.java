@@ -40,6 +40,8 @@ interface AutomationHost {
 
     void enterTraining(long nextMilitaryAt);
 
+    void enterActiveTraining(long nextMilitaryAt);
+
     void checkInventoryBeforePrimary(Runnable next);
 
     void postDelayed(Runnable action, long delayMillis);

@@ -118,6 +118,9 @@ final class LoginAutomation {
     static Screen screenFor(List<String> rawLines) {
         List<String> lines = new ArrayList<>();
         for (String raw : rawLines) {
+            if (raw.contains("准备游戏画面")) {
+                continue;
+            }
             lines.add(raw.replaceAll("\\s+", ""));
         }
         String all = String.join("", lines);
