@@ -5,6 +5,7 @@ import android.graphics.Rect;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,6 +28,12 @@ final class DungeonBattleAutomation {
     private static final int[] NPC_OPTION_Y = {0, 450, 512, 574, 636};
     private static final int GUIDE_UP_X = 974;
     private static final int GUIDE_UP_Y = 31;
+    private static final int[] GUIDE_UP_ENEMY_CENTERS = {151, 206, 261, 316, 371};
+    private static final int[] GUIDE_DOWN_ENEMY_CENTERS = {294, 349, 404};
+    private static final int GUIDE_ROW_LEFT = 950;
+    private static final int GUIDE_ROW_RIGHT = 1235;
+    private static final int GUIDE_STEP_MIN = 40;
+    private static final int GUIDE_STEP_MAX_EXCLUSIVE = 50;
     private static final int ROUTE_MAX_CHECKS = 30;
     private static final int ROUTE_RETRY_INTERVAL = 5;
     private static final int ROUTE_TOLERANCE = 3;
@@ -293,7 +300,7 @@ final class DungeonBattleAutomation {
     }
 
     private void selectGuideSide(Runnable next) {
-        if (currentLevel() <= 30 || currentLevel() == 65 || currentLevel() >= 70) {
+        if (usesGuideUp(currentLevel())) {
             host.tap(GUIDE_UP_X, GUIDE_UP_Y, next);
         } else {
             next.run();
@@ -303,20 +310,25 @@ final class DungeonBattleAutomation {
     private void inspectPosition() {
         host.showProgress(currentLevel() + "级副本：读取当前位置");
         host.recognizeMapCoordinate(value -> {
-            Integer x = BossAutomation.parseMapX(value);
-            if (x == null || x > dungeonMapMaxX()) {
+            int[] coordinate = BossAutomation.parseMapCoordinate(value);
+            if (coordinate == null || coordinate[0] > dungeonMapMaxX()) {
                 host.postDelayed(this::inspectPosition, 1_000);
                 return;
             }
+            int x = coordinate[0];
+            int y = coordinate[1];
             samePositionCount = x == lastX ? samePositionCount + 1 : 0;
             lastX = x;
-            execute(decide(currentLevel(), x));
+            execute(decide(currentLevel(), x, y));
         });
     }
 
     private void execute(RouteDecision decision) {
         if (decision.exit) {
             gotoExit();
+        } else if (decision.shortcutClicks > 0) {
+            host.showProgress(currentLevel() + "级副本：" + decision.interactionText);
+            tapNpcShortcut(decision.shortcutClicks);
         } else if (decision.interactionText != null) {
             host.showProgress(currentLevel() + "级副本：" + decision.interactionText);
             Runnable click = () -> clickNpcOption(
@@ -334,10 +346,21 @@ final class DungeonBattleAutomation {
         }
     }
 
+    private void tapNpcShortcut(int remainingClicks) {
+        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, () -> {
+            if (remainingClicks > 1) {
+                host.postDelayed(() -> tapNpcShortcut(remainingClicks - 1), 1_000);
+            } else {
+                host.postDelayed(this::inspectPosition, 2_000);
+            }
+        });
+    }
+
     private void findEnemy(RouteDecision decision) {
         host.showProgress(currentLevel() + "级副本：搜索 " + decision.enemyDescription());
         host.recognizeDungeonText(lines -> {
-            EnemyRow enemy = selectEnemyRow(readEnemyRows(lines), decision.enemyLevels,
+            EnemyRow enemy = selectEnemyRow(
+                    readEnemyRows(lines, usesGuideUp(currentLevel())), decision.enemyLevels,
                     decision.priorityEnemyNames, decision.protectName,
                     decision.acceptAnyEnemy);
             if (enemy == null) {
@@ -356,6 +379,10 @@ final class DungeonBattleAutomation {
     }
 
     private void move(RouteDecision decision) {
+        if (decision.waypoints.length > 0) {
+            moveWaypoints(decision.waypoints, 0);
+            return;
+        }
         if (samePositionCount >= 3 && decision.unstuckX > 0) {
             samePositionCount = 0;
             host.showProgress(currentLevel() + "级副本：脱离门点 " + lastX);
@@ -367,6 +394,19 @@ final class DungeonBattleAutomation {
                 + decision.targetX + "," + decision.targetY);
         host.tapMapCoordinate(decision.targetX, decision.targetY, dungeonMapMaxX(),
                 () -> host.postDelayed(this::inspectPosition, 4_000));
+    }
+
+    private void moveWaypoints(int[][] points, int index) {
+        int[] point = points[index];
+        host.showProgress(currentLevel() + "级副本：前往 "
+                + point[0] + "," + point[1]);
+        host.tapMapCoordinate(point[0], point[1], dungeonMapMaxX(), () -> {
+            if (index + 1 < points.length) {
+                host.postDelayed(() -> moveWaypoints(points, index + 1), 2_000);
+            } else {
+                host.postDelayed(this::inspectPosition, 4_000);
+            }
+        });
     }
 
     private void gotoExit() {
@@ -395,43 +435,44 @@ final class DungeonBattleAutomation {
 
     static RouteDecision decide10(int x) {
         if (x >= 504) {
-            return RouteDecision.search(500, 27, 550, false, 7, 10);
+            return RouteDecision.search(scanLeft(x, 505), 27, 550, false, 7, 10);
         }
         if (x >= 386) {
-            return RouteDecision.search(382, 27, 450, false, 7, 10);
+            return RouteDecision.search(scanLeft(x, 387), 27, 450, false, 7, 10);
         }
         if (x >= 168) {
-            return RouteDecision.move(159, 27, 0);
+            return RouteDecision.search(scanLeft(x, 170), 27, 0, false, 10);
         }
         if (x >= 39) {
-            return RouteDecision.search(38, 27, 110, true, 10);
+            return RouteDecision.search(scanLeft(x, 38), 27, 110, false, 10);
         }
         return RouteDecision.exit(25, 27);
     }
 
     static RouteDecision decide20(int x) {
         if (x >= 478) {
-            return RouteDecision.search(474, 27, 550, false, 18, 20);
+            return RouteDecision.search(scanLeft(x, 480), 27, 550, false, 18, 20);
         }
         if (x >= 348) {
-            return RouteDecision.move(338, 27, 0);
+            return RouteDecision.move(350, 27, 0);
         }
         if (x >= 206) {
-            return RouteDecision.search(199, 27, 280, true, 20);
+            return RouteDecision.search(scanLeft(x, 211), 27, 280, true, 20);
         }
         if (x >= 91) {
-            return RouteDecision.search(86, 27, 150, false, 20);
+            return RouteDecision.search(scanLeft(x, 91), 27, 150, false, 20);
         }
-        if (x >= 31) {
-            return RouteDecision.search(26, 27, 80, true, 20);
-        }
-        if (x >= 18) {
-            return RouteDecision.exit(22, 27);
+        if (x > 31) {
+            return RouteDecision.search(scanLeft(x, 31), 27, 80, true, 20);
         }
         return RouteDecision.exit(22, 27);
     }
 
     static RouteDecision decide(int level, int x) {
+        return decide(level, x, 25);
+    }
+
+    static RouteDecision decide(int level, int x, int y) {
         if (level == 10) {
             return decide10(x);
         }
@@ -445,13 +486,13 @@ final class DungeonBattleAutomation {
             return decide40(x);
         }
         if (level == 50) {
-            return decide50(x);
+            return decide50(x, y);
         }
         if (level == 60) {
-            return decide60(x);
+            return decide60(x, y);
         }
         if (level == 65) {
-            return decide65(x);
+            return decide65(x, y);
         }
         if (level == 70) {
             return decide70(x);
@@ -464,97 +505,98 @@ final class DungeonBattleAutomation {
 
     static RouteDecision decide30(int x) {
         if (x >= 451) {
-            return RouteDecision.search(448, 4, 570, true, 30);
+            return RouteDecision.search(scanLeft(x, 458), 4, 570, false, 30);
         }
         if (x >= 301) {
-            return RouteDecision.search(297, 27, 420, true, 30);
+            return RouteDecision.search(scanLeft(x, 304), 27, 420, false, 30);
         }
         if (x >= 151) {
-            return RouteDecision.search(148, 4, 0, true);
+            return RouteDecision.searchNamed(scanLeft(x, 174), 4, 0,
+                    List.of("董军阵旗"), null);
         }
         if (x >= 33) {
-            return RouteDecision.search(32, 27, 100, true, 30);
+            return RouteDecision.searchNamed(scanLeft(x, 32), 27, 100,
+                    List.of("董军阵旗"), null);
         }
         return RouteDecision.exit(24, 27);
     }
 
     static RouteDecision decide40(int x) {
-        if (x >= 530) {
-            return RouteDecision.search(520, 25, 0, true);
-        }
-        if (x >= 430) {
-            return RouteDecision.search(420, 25, 0, true);
-        }
-        if (x >= 360) {
-            return RouteDecision.search(350, 25, 0, true);
-        }
-        if (x >= 285) {
-            return RouteDecision.search(275, 25, 0, true);
-        }
-        if (x >= 190) {
-            return RouteDecision.search(180, 25, 0, true);
-        }
-        if (x >= 120) {
-            return RouteDecision.search(110, 25, 0, true);
-        }
-        if (x >= 60) {
-            return RouteDecision.search(50, 25, 0, true);
-        }
         if (x >= 32) {
-            return RouteDecision.search(25, 25, 0, true);
+            return RouteDecision.search(scanLeft(x, 32), 25, 0, true);
         }
         return RouteDecision.exit(25, 25);
     }
 
     static RouteDecision decide50(int x) {
+        return decide50(x, 25);
+    }
+
+    static RouteDecision decide50(int x, int y) {
         if (x <= 49) {
-            return RouteDecision.move(60, 45, 0);
+            return RouteDecision.moveRoute(
+                    new int[][] {{46, 6}, {46, 45}, {60, 45}});
         }
         if (x <= 110) {
-            return RouteDecision.search(112, 25, 0, true);
+            return RouteDecision.search(scanRight(x, 112), 25, 0, true);
         }
         if (x <= 194) {
-            return RouteDecision.search(205, 25, 0, true);
+            return RouteDecision.search(scanRight(x, 205), 25, 0, true);
         }
         if (x <= 287) {
-            return RouteDecision.search(291, 25, 0, true);
+            return RouteDecision.search(scanRight(x, 291), 25, 0, true);
         }
         if (x <= 308) {
             return RouteDecision.interact("交给我吧");
         }
         if (x <= 388) {
-            return RouteDecision.search(399, 25, 0, true);
+            return RouteDecision.search(scanRight(x, 399), 25, 0, true);
         }
         if (x <= 484) {
-            return RouteDecision.search(495, 25, 0, true);
+            return RouteDecision.search(scanRight(x, 495), 25, 0, true);
         }
         if (x <= 581) {
-            return RouteDecision.search(583, 25, 0, true);
+            return RouteDecision.search(scanRight(x, 583), 25, 0, true);
         }
         return RouteDecision.exit(570, 25);
     }
 
+    private static int scanLeft(int currentX, int gateX) {
+        return Math.max(gateX, currentX - randomGuideStep());
+    }
+
+    private static int scanRight(int currentX, int gateX) {
+        return Math.min(gateX, currentX + randomGuideStep());
+    }
+
     static RouteDecision decide60(int x) {
+        return decide60(x, 25);
+    }
+
+    static RouteDecision decide60(int x, int y) {
         if (x <= 98) {
-            return RouteDecision.search(71, 4, 0, true);
+            return RouteDecision.searchRoute(new int[][] {{71, 10}, {71, 4}});
         }
         if (x >= 505 && x <= 528) {
-            return RouteDecision.search(114, 46, 0, true);
+            return RouteDecision.shortcut(1, "离开第一战斗房");
         }
         if (x >= 105 && x <= 198) {
-            return RouteDecision.search(70, 46, 0, true);
+            return RouteDecision.searchRoute(new int[][] {{70, 40}, {70, 46}});
         }
         if (x >= 531 && x <= 553) {
-            return RouteDecision.search(214, 4, 0, true);
+            return RouteDecision.shortcut(1, "离开第二战斗房");
         }
         if (x >= 205 && x <= 298) {
-            return RouteDecision.search(94, 27, 0, true);
+            return RouteDecision.searchRoute(new int[][] {{90, 27}, {94, 27}});
         }
         if (x >= 305 && x <= 398) {
-            return RouteDecision.search(394, 27, 0, true);
+            return RouteDecision.searchRoute(new int[][] {{380, 27}, {394, 27}});
         }
         if (x >= 556 && x <= 581) {
-            return RouteDecision.search(405, 27, 0, true);
+            if (isNear(x, y, 570, 27)) {
+                return RouteDecision.shortcut(2, "通过中央传送点");
+            }
+            return RouteDecision.move(570, 27, 0);
         }
         if (x >= 405 && x <= 479) {
             return RouteDecision.search(486, 25, 0, true);
@@ -563,6 +605,10 @@ final class DungeonBattleAutomation {
     }
 
     static RouteDecision decide65(int x) {
+        return decide65(x, 25);
+    }
+
+    static RouteDecision decide65(int x, int y) {
         if (x <= 58) {
             if (x >= 30 && x <= 40) {
                 return RouteDecision.interactNpc("出击");
@@ -576,12 +622,23 @@ final class DungeonBattleAutomation {
             return RouteDecision.move(252, 27, 0);
         }
         if (x <= 437) {
-            return RouteDecision.search(410, 4, 0, true, 64);
+            return RouteDecision.searchRoute(
+                    new int[][] {{409, 30}, {410, 10}, {410, 4}}, 64);
         }
         if (x <= 537) {
             return RouteDecision.search(538, 27, 0, true, 64);
         }
         return RouteDecision.exit(560, 27);
+    }
+
+    private static int randomGuideStep() {
+        return ThreadLocalRandom.current().nextInt(
+                GUIDE_STEP_MIN, GUIDE_STEP_MAX_EXCLUSIVE);
+    }
+
+    private static boolean isNear(int x, int y, int targetX, int targetY) {
+        return Math.abs(x - targetX) <= ROUTE_TOLERANCE
+                && Math.abs(y - targetY) <= ROUTE_TOLERANCE;
     }
 
     static RouteDecision decide70(int x) {
@@ -798,7 +855,7 @@ final class DungeonBattleAutomation {
             case 10:
                 return new int[] {3, 3};
             case 20:
-                return new int[] {4, 4, 3, 3};
+                return new int[] {4, 4, 3};
             case 30:
                 return new int[] {2, 3, 3};
             case 40:
@@ -866,10 +923,6 @@ final class DungeonBattleAutomation {
                 }
             }
         }
-        if (acceptAnyEnemy && protectName == null && priorityNames.isEmpty()
-                && !rows.isEmpty()) {
-            return rows.get(0);
-        }
         for (EnemyRow row : rows) {
             if (protectName != null && row.label.contains(protectName)) {
                 continue;
@@ -888,23 +941,29 @@ final class DungeonBattleAutomation {
         return null;
     }
 
-    static List<EnemyRow> readEnemyRows(List<OcrLine> lines) {
+    static boolean usesGuideUp(int level) {
+        return level <= 30 || level == 65 || level >= 70;
+    }
+
+    static List<EnemyRow> readEnemyRows(List<OcrLine> lines, boolean guideUp) {
         List<EnemyRow> rows = new ArrayList<>();
-        int[] centers = {151, 206, 261, 316, 371};
+        int[] centers = guideUp ? GUIDE_UP_ENEMY_CENTERS : GUIDE_DOWN_ENEMY_CENTERS;
         for (int centerY : centers) {
             StringBuilder label = new StringBuilder();
             Integer level = null;
             for (OcrLine line : lines) {
                 Rect bounds = line.bounds;
-                if (bounds == null || bounds.right < 950 || bounds.centerY() < centerY - 22
-                        || bounds.centerY() > centerY + 22) {
+                if (bounds == null || bounds.left < GUIDE_ROW_LEFT
+                        || bounds.right > GUIDE_ROW_RIGHT
+                        || rectCenterY(bounds) < centerY - 20
+                        || rectCenterY(bounds) > centerY + 22) {
                     continue;
                 }
                 if (label.length() > 0) {
                     label.append(' ');
                 }
                 label.append(line.text);
-                if (bounds.left < 1030) {
+                if (bounds.left < 1015) {
                     Integer parsed = firstInteger(line.text);
                     if (parsed != null) {
                         level = parsed;
@@ -917,6 +976,10 @@ final class DungeonBattleAutomation {
             }
         }
         return rows;
+    }
+
+    private static int rectCenterY(Rect bounds) {
+        return bounds.top + (bounds.bottom - bounds.top) / 2;
     }
 
     private static Integer firstInteger(String value) {
@@ -949,11 +1012,14 @@ final class DungeonBattleAutomation {
         final List<String> priorityEnemyNames;
         final String protectName;
         final boolean exitWhenNoEnemy;
+        final int shortcutClicks;
+        final int[][] waypoints;
 
         private RouteDecision(int targetX, int targetY, int unstuckX,
                 boolean searchEnemies, boolean acceptAnyEnemy, boolean exit,
                 String interactionText, boolean openNpc, List<Integer> enemyLevels,
-                List<String> priorityEnemyNames, String protectName, boolean exitWhenNoEnemy) {
+                List<String> priorityEnemyNames, String protectName, boolean exitWhenNoEnemy,
+                int shortcutClicks, int[][] waypoints) {
             this.targetX = targetX;
             this.targetY = targetY;
             this.unstuckX = unstuckX;
@@ -966,44 +1032,70 @@ final class DungeonBattleAutomation {
             this.priorityEnemyNames = priorityEnemyNames;
             this.protectName = protectName;
             this.exitWhenNoEnemy = exitWhenNoEnemy;
+            this.shortcutClicks = shortcutClicks;
+            this.waypoints = waypoints;
         }
 
         static RouteDecision search(
                 int x, int y, int unstuckX, boolean acceptAnyEnemy, Integer... levels) {
             return new RouteDecision(x, y, unstuckX, true, acceptAnyEnemy, false, null, false,
-                    List.of(levels), Collections.emptyList(), null, false);
+                    List.of(levels), Collections.emptyList(), null, false, 0, new int[0][]);
+        }
+
+        static RouteDecision searchRoute(int[][] points, Integer... levels) {
+            int[] first = points[0];
+            return new RouteDecision(first[0], first[1], 0, true, true, false, null, false,
+                    List.of(levels), Collections.emptyList(), null, false, 0, points);
         }
 
         static RouteDecision searchNamed(int x, int y, int unstuckX,
                 List<String> priorityNames, String protectName) {
             return new RouteDecision(x, y, unstuckX, true, false, false, null, false,
-                    Collections.emptyList(), priorityNames, protectName, false);
+                    Collections.emptyList(), priorityNames, protectName, false, 0,
+                    new int[0][]);
         }
 
         static RouteDecision searchThenExit(int x, int y,
                 List<String> priorityNames, String protectName) {
             return new RouteDecision(x, y, 0, true, false, false, null, false,
-                    Collections.emptyList(), priorityNames, protectName, true);
+                    Collections.emptyList(), priorityNames, protectName, true, 0,
+                    new int[0][]);
         }
 
         static RouteDecision move(int x, int y, int unstuckX) {
             return new RouteDecision(x, y, unstuckX, false, false, false, null, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false);
+                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
+                    new int[0][]);
+        }
+
+        static RouteDecision moveRoute(int[][] points) {
+            int[] first = points[0];
+            return new RouteDecision(first[0], first[1], 0, false, false, false, null, false,
+                    Collections.emptyList(), Collections.emptyList(), null, false, 0, points);
         }
 
         static RouteDecision interact(String text) {
             return new RouteDecision(0, 0, 0, false, false, false, text, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false);
+                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
+                    new int[0][]);
         }
 
         static RouteDecision interactNpc(String text) {
             return new RouteDecision(0, 0, 0, false, false, false, text, true,
-                    Collections.emptyList(), Collections.emptyList(), null, false);
+                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
+                    new int[0][]);
+        }
+
+        static RouteDecision shortcut(int clicks, String text) {
+            return new RouteDecision(0, 0, 0, false, false, false, text, false,
+                    Collections.emptyList(), Collections.emptyList(), null, false, clicks,
+                    new int[0][]);
         }
 
         static RouteDecision exit(int x, int y) {
             return new RouteDecision(x, y, 0, false, false, true, null, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false);
+                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
+                    new int[0][]);
         }
 
         String enemyDescription() {
