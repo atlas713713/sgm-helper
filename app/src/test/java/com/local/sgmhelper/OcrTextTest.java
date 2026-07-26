@@ -22,4 +22,23 @@ public final class OcrTextTest {
         assertEquals("元宝回收", line.getElements().get(0).getText());
         assertSame(bounds, line.getElements().get(0).getBoundingBox());
     }
+
+    @Test
+    public void offsetsCroppedPaddleBoundsToScreenCoordinates() {
+        Rect croppedBounds = new Rect();
+        croppedBounds.left = 10;
+        croppedBounds.top = 20;
+        croppedBounds.right = 110;
+        croppedBounds.bottom = 50;
+        OcrText cropped = new OcrText(Collections.singletonList(
+                new OcrLine("巡狩军团荒野", croppedBounds, 0.9f)));
+
+        Rect bounds = OcrText.offset(cropped, 80, 70)
+                .getTextBlocks().get(0).getLines().get(0).getBoundingBox();
+
+        assertEquals(90, bounds.left);
+        assertEquals(90, bounds.top);
+        assertEquals(190, bounds.right);
+        assertEquals(120, bounds.bottom);
+    }
 }

@@ -52,6 +52,7 @@ final class AntiCheatVerification {
             bitmap.recycle();
             host.showProgress("反外挂：模板匹配中");
             AntiCheatTemplateMatcher matcher = templateMatcher();
+            long runId = host.currentRunId();
             CompletableFuture.supplyAsync(() -> {
                 try {
                     return matcher.match(tiles);
@@ -59,11 +60,18 @@ final class AntiCheatVerification {
                     throw new CompletionException(error);
                 }
             }).whenComplete((result, error) -> {
+                if (!host.isRunCurrent(runId)) {
+                    recycle(tiles);
+                    return;
+                }
                 if (error != null) {
                     saveUnrecognizedSamples(tiles);
                 }
                 recycle(tiles);
                 host.postDelayed(() -> {
+                    if (!host.isRunCurrent(runId)) {
+                        return;
+                    }
                     if (error != null) {
                         Throwable cause = error.getCause() == null ? error : error.getCause();
                         DiagnosticLog.warn("ANTI_CHEAT",

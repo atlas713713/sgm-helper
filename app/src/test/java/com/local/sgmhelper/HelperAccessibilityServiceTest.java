@@ -311,6 +311,63 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void dungeonNpcDialogUsesFixedWudangTitleAndOptionRows() {
+        assertTrue(DungeonBattleAutomation.matchesNpcDialogTitle(
+                "驻地 引路员", "驻地引路员"));
+        assertTrue(DungeonBattleAutomation.matchesNpcDialogTitle(
+                "乱军太平道长", "黄巾太平道长|乱军太平道长"));
+        assertFalse(DungeonBattleAutomation.matchesNpcDialogTitle(
+                "副本进度 3/10", "驻地引路员"));
+        assertEquals(450, DungeonBattleAutomation.npcOptionY(1));
+        assertEquals(512, DungeonBattleAutomation.npcOptionY(2));
+        assertEquals(574, DungeonBattleAutomation.npcOptionY(3));
+        assertEquals(636, DungeonBattleAutomation.npcOptionY(4));
+        assertEquals(251, DungeonBattleAutomation.npcOptionX(3));
+        assertEquals(176, DungeonBattleAutomation.npcOptionX(4));
+    }
+
+    @Test
+    public void dungeonNpcDialogsFollowEveryWudangClickSequence() {
+        assertArrayEquals(new int[] {3, 3},
+                DungeonBattleAutomation.entryNpcRows(10));
+        assertArrayEquals(new int[] {4, 4, 3, 3},
+                DungeonBattleAutomation.entryNpcRows(20));
+        assertArrayEquals(new int[] {2, 3, 3},
+                DungeonBattleAutomation.entryNpcRows(30));
+        assertArrayEquals(new int[] {3, 3},
+                DungeonBattleAutomation.entryNpcRows(40));
+        assertArrayEquals(new int[] {4, 3, 3},
+                DungeonBattleAutomation.entryNpcRows(50));
+        assertArrayEquals(new int[] {4, 3, 3},
+                DungeonBattleAutomation.entryNpcRows(60));
+        assertArrayEquals(new int[] {3, 3, 3},
+                DungeonBattleAutomation.entryNpcRows(65));
+        assertArrayEquals(new int[] {4, 3, 3},
+                DungeonBattleAutomation.entryNpcRows(70));
+        assertArrayEquals(new int[] {4, 3, 3},
+                DungeonBattleAutomation.entryNpcRows(75));
+
+        assertArrayEquals(new int[] {4, 4},
+                DungeonBattleAutomation.exitNpcRows(10));
+        assertArrayEquals(new int[] {4, 4},
+                DungeonBattleAutomation.exitNpcRows(20));
+        assertArrayEquals(new int[] {4, 4},
+                DungeonBattleAutomation.exitNpcRows(30));
+        assertArrayEquals(new int[] {4, 4},
+                DungeonBattleAutomation.exitNpcRows(40));
+        assertArrayEquals(new int[] {4, 4},
+                DungeonBattleAutomation.exitNpcRows(50));
+        assertArrayEquals(new int[] {4, 4},
+                DungeonBattleAutomation.exitNpcRows(60));
+        assertArrayEquals(new int[] {4, 4},
+                DungeonBattleAutomation.exitNpcRows(65));
+        assertArrayEquals(new int[] {4, 4, 4},
+                DungeonBattleAutomation.exitNpcRows(70));
+        assertArrayEquals(new int[] {4, 4, 4},
+                DungeonBattleAutomation.exitNpcRows(75));
+    }
+
+    @Test
     public void reproducesTheFiveLevel10DungeonSections() {
         DungeonBattleAutomation.RouteDecision part0 = DungeonBattleAutomation.decide10(599);
         assertTrue(part0.searchEnemies);

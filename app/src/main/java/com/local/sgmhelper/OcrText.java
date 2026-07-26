@@ -33,6 +33,25 @@ final class OcrText {
         return text;
     }
 
+    static OcrText offset(OcrText text, int dx, int dy) {
+        List<OcrLine> lines = new ArrayList<>();
+        for (TextBlock block : text.getTextBlocks()) {
+            for (Line line : block.getLines()) {
+                Rect bounds = line.getBoundingBox();
+                Rect shifted = null;
+                if (bounds != null) {
+                    shifted = new Rect();
+                    shifted.left = bounds.left + dx;
+                    shifted.top = bounds.top + dy;
+                    shifted.right = bounds.right + dx;
+                    shifted.bottom = bounds.bottom + dy;
+                }
+                lines.add(new OcrLine(line.getText(), shifted, 0f));
+            }
+        }
+        return new OcrText(lines);
+    }
+
     static final class TextBlock {
         private final List<Line> lines;
 

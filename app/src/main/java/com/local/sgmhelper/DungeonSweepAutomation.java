@@ -34,7 +34,7 @@ final class DungeonSweepAutomation {
     }
 
     private void start(List<Integer> levels, boolean scheduled) {
-        if (host.isAutomationRunning()) {
+        if (!scheduled && host.isAutomationRunning()) {
             host.showProgress("已有任务正在运行");
             return;
         }

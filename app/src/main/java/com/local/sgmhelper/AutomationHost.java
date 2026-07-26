@@ -24,9 +24,15 @@ interface AutomationHost {
 
     boolean isAutomationRunning();
 
+    long currentRunId();
+
+    boolean isRunCurrent(long runId);
+
     void startAutomation(String progress, Runnable firstAction);
 
     void startInGameAutomation(String progress, Runnable firstAction);
+
+    void startIdleAutomation(String progress, Runnable firstAction);
 
     void startPrimaryAutomation(PrimaryTask task, String progress, Runnable firstAction);
 
@@ -100,6 +106,30 @@ interface AutomationHost {
     void recognizeText(Bitmap bitmap, Consumer<OcrText> result,
             Consumer<Throwable> failure);
 
+    default void recognizeTextRegion(
+            int left, int top, int right, int bottom, Consumer<OcrText> result) {
+        captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                failAutomation("Unable to capture screen for Paddle OCR");
+                return;
+            }
+            int x = left * bitmap.getWidth() / 1280;
+            int y = top * bitmap.getHeight() / 720;
+            int width = (right - left) * bitmap.getWidth() / 1280;
+            int height = (bottom - top) * bitmap.getHeight() / 720;
+            Bitmap region = Bitmap.createBitmap(bitmap, x, y, width, height);
+            bitmap.recycle();
+            recognizeText(region, text -> {
+                region.recycle();
+                result.accept(OcrText.offset(text, x, y));
+            }, error -> {
+                region.recycle();
+                DiagnosticLog.error("OCR", "Region Paddle OCR failed", error);
+                failAutomation("Paddle OCR failed");
+            });
+        });
+    }
+
     void recognizeDungeonText(Consumer<List<OcrLine>> result);
 
     void recognizeRedBoss(Consumer<BossAutomation.BossTarget> result);
@@ -146,7 +176,7 @@ interface AutomationHost {
         showProgress("关闭福利：关闭福利界面");
         tap(1225, 38, () -> {
             showProgress("关闭福利：检查尚未领取的奖励");
-            clickText("关闭界面", true, next, 5, next);
+            clickText("关闭界面", true, () -> claimWelfare(next), 1, next);
         });
     }
 

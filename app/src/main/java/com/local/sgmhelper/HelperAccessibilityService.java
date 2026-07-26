@@ -21,6 +21,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.view.Display;
 import android.view.Gravity;
@@ -68,7 +69,6 @@ public final class HelperAccessibilityService extends AccessibilityService
     private static final int MAX_AUTOMATION_RECOVERY_ATTEMPTS = 3;
     private static final int RECOVERY_START_DELAY_MS = 5_000;
     private static final int RECOVERY_LONG_DELAY_MS = 60_000;
-    private static final int PRIORITY_TASK_QUIESCE_MS = 3_000;
     private static final long INVENTORY_CHECK_INTERVAL_MS = 60_000;
     private static final int COLOR_SETTINGS_BACKGROUND = 0xFF4A4A4A;
     private static final int COLOR_SETTINGS_TEXT = 0xFFFFC107;
@@ -119,10 +119,28 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String TRAINING_LOCATION_MARKER = "标记点";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Handler inventoryHandler = new Handler(Looper.getMainLooper());
+    private final AutomationTaskManager taskManager = new AutomationTaskManager(
+            new AutomationTaskManager.Listener() {
+                @Override
+                public void onStart(AutomationTaskManager.Run run) {
+                    beginManagedRun(run);
+                }
+
+                @Override
+                public void onCancel(AutomationTaskManager.Run run) {
+                    cancelManagedRun(run);
+                }
+
+                @Override
+                public void onResumePrimary() {
+                    automationRunning = false;
+                    clearAutomationRecovery();
+                    restartPrimaryTask(primaryTask);
+                }
+            });
     private final TrainingAutomation trainingAutomation = new TrainingAutomation(this);
     private final AutoSellAutomation autoSellAutomation = new AutoSellAutomation(this);
-    private final TaskAutomation taskAutomation =
-            new TaskAutomation(this, this::startTrainingWithOptionalRevival);
+    private final TaskAutomation taskAutomation = new TaskAutomation(this);
     private final RewardAutomation rewardAutomation = new RewardAutomation(this);
     private final WelfareAutomation welfareAutomation = new WelfareAutomation(this);
     private final LoginAutomation loginAutomation = new LoginAutomation(this);
@@ -152,12 +170,12 @@ public final class HelperAccessibilityService extends AccessibilityService
     private int taskState = STATE_IDLE;
     private boolean automationRunning;
     private int automationRecoveryAttempts;
+    private long failingRunId;
     private Runnable currentAutomationAction;
     private PrimaryTask primaryTask = PrimaryTask.TRAINING;
     private Runnable primaryTaskAction = trainingAutomation::start;
     private boolean inventoryCheckRunning;
     private boolean inventorySelling;
-    private boolean priorityTaskQuiescing;
     private PaddleDungeonTextRecognizer paddleDungeonTextRecognizer;
 
     static HelperAccessibilityService getInstance() {
@@ -427,7 +445,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     void startTrainingMain() {
-        if (automationRunning) {
+        if (isAutomationRunning()) {
             showProgress("已有任务正在运行，请先终止");
             closeMenu();
             return;
@@ -450,7 +468,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void startBossFromMenu(View button, Runnable start) {
-        if (automationRunning) {
+        if (isAutomationRunning()) {
             start.run();
             return;
         }
@@ -467,7 +485,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             showProgress("初始化：重新检测军务任务");
             startScheduledMilitary();
         } else {
-            startScheduledAutomation("自动练级：打开游戏", this::startTrainingWithOptionalRevival);
+            startTrainingPrimaryTask(this::startTrainingWithOptionalRevival);
         }
     }
 
@@ -1228,48 +1246,18 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     void startScheduledLegionReward() {
-        startPriorityScheduledTask("军团福利", rewardAutomation::startLegionReward);
+        rewardAutomation.startLegionReward();
     }
 
     void startScheduledWelfare() {
-        startPriorityScheduledTask("自动领福利", welfareAutomation::start);
+        welfareAutomation.start();
     }
 
     void startScheduledHeavenfall() {
-        startPriorityScheduledTask("天降", heavenfallAutomation::start);
-    }
-
-    private void startPriorityScheduledTask(String name, Runnable start) {
-        DiagnosticLog.info("SCHEDULE", name + " taking priority; primary task="
-                + primaryTaskLabel(primaryTask));
-        priorityTaskQuiescing = true;
-        handler.removeCallbacksAndMessages(null);
-        stopInventoryMonitoring();
-        inventorySelling = false;
-        automationRunning = false;
-        clearAutomationRecovery();
-        if (paddleDungeonTextRecognizer != null) {
-            paddleDungeonTextRecognizer.cancelPending();
-        }
-        showProgress(name + "：等待旧任务停止");
-        handler.postDelayed(() -> {
-            handler.removeCallbacksAndMessages(null);
-            priorityTaskQuiescing = false;
-            DiagnosticLog.info("SCHEDULE", name + " starting after old task stopped");
-            start.run();
-        }, PRIORITY_TASK_QUIESCE_MS);
+        heavenfallAutomation.start();
     }
 
     void startScheduledDungeon() {
-        if (isTrainingPullActive()) {
-            startPriorityScheduledTask("自动副本", () -> startDungeonSweep(true));
-            return;
-        }
-        if (automationRunning) {
-            DiagnosticLog.info("DUNGEON", "busy; retrying in 60 seconds");
-            handler.postDelayed(this::startScheduledDungeon, 60_000);
-            return;
-        }
         startDungeonSweep(true);
     }
 
@@ -1287,26 +1275,30 @@ public final class HelperAccessibilityService extends AccessibilityService
                     "skipped; primary task=" + primaryTaskLabel(primaryTask));
             return;
         }
-        if (isTrainingPullActive()) {
-            startPriorityScheduledTask("自动军务", taskAutomation::start);
-            return;
-        }
         taskAutomation.start();
     }
 
     private void startScheduledAutomation(String progress, Runnable firstAction) {
-        startGameAutomation(progress, firstAction, firstAction);
+        submitGameTask(AutomationTaskManager.Kind.INTERRUPT,
+                taskKey(progress), progress, firstAction, firstAction);
+    }
+
+    private void startTrainingPrimaryTask(Runnable firstAction) {
+        submitManagedTask(AutomationTaskManager.Kind.PRIMARY,
+                "primary:" + PrimaryTask.TRAINING.name(), "自动练级：打开游戏", () -> {
+                    setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
+                    beginGameAutomation(
+                            "自动练级：打开游戏", firstAction, firstAction);
+                });
     }
 
     void startLoginOnly() {
-        startGameAutomation("登录：打开游戏", this::completeAutomation, null);
+        submitGameTask(AutomationTaskManager.Kind.IDLE_ONLY,
+                "login", "登录：打开游戏", this::completeAutomation, null);
     }
 
-    private void startGameAutomation(
+    private void beginGameAutomation(
             String progress, Runnable afterLogin, Runnable recoveryAction) {
-        if (!prepareWorshipAutomation()) {
-            return;
-        }
         showProgress(progress);
 
         Intent intent = getPackageManager().getLaunchIntentForPackage("hk.phx.khm.cs");
@@ -1317,8 +1309,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         try {
             startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             currentAutomationAction = recoveryAction;
-            automationRecoveryAttempts = 0;
-            handler.postDelayed(() -> loginAutomation.start(afterLogin), 10_000);
+            postDelayed(() -> loginAutomation.start(afterLogin), 10_000);
         } catch (RuntimeException error) {
             DiagnosticLog.error("AUTOMATION", "Unable to open game for scheduled task", error);
             failAutomation("Unable to open game");
@@ -1332,7 +1323,18 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public boolean isAutomationRunning() {
-        return automationRunning;
+        return taskManager.hasCurrent();
+    }
+
+    @Override
+    public long currentRunId() {
+        AutomationTaskManager.Run run = taskManager.current();
+        return run == null ? 0 : run.id;
+    }
+
+    @Override
+    public boolean isRunCurrent(long runId) {
+        return taskManager.isCurrent(runId);
     }
 
     @Override
@@ -1342,51 +1344,112 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void startInGameAutomation(String progress, Runnable firstAction) {
-        if (!prepareWorshipAutomation()) {
-            return;
-        }
-        showProgress(progress);
-        currentAutomationAction = firstAction;
-        automationRecoveryAttempts = 0;
-        firstAction.run();
+        submitManagedTask(AutomationTaskManager.Kind.INTERRUPT,
+                taskKey(progress), progress, () -> {
+                    showProgress(progress);
+                    currentAutomationAction = firstAction;
+                    firstAction.run();
+                });
+    }
+
+    @Override
+    public void startIdleAutomation(String progress, Runnable firstAction) {
+        submitGameTask(AutomationTaskManager.Kind.IDLE_ONLY,
+                taskKey(progress), progress, firstAction, firstAction);
     }
 
     @Override
     public void startPrimaryAutomation(
             PrimaryTask task, String progress, Runnable firstAction) {
-        setPrimaryTask(task, firstAction);
-        startScheduledAutomation(progress, firstAction);
-        if (task == PrimaryTask.BOSS) {
-            startInventoryMonitoring();
-        }
+        submitManagedTask(AutomationTaskManager.Kind.PRIMARY,
+                "primary:" + task.name(), progress, () -> {
+                    setPrimaryTask(task, firstAction);
+                    beginGameAutomation(progress, firstAction, firstAction);
+                    if (task == PrimaryTask.BOSS) {
+                        startInventoryMonitoring();
+                    }
+                });
     }
 
     @Override
     public void postDelayed(Runnable action, long delayMillis) {
-        if (priorityTaskQuiescing) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null) {
             return;
         }
-        handler.postDelayed(action, delayMillis);
+        handler.postAtTime(() -> {
+            if (taskManager.isCurrent(run.id)) {
+                action.run();
+            }
+        }, run, SystemClock.uptimeMillis() + delayMillis);
     }
 
-    private boolean prepareWorshipAutomation() {
-        if (automationRunning) {
-            return false;
-        }
+    private void submitGameTask(AutomationTaskManager.Kind kind,
+            String key, String progress, Runnable afterLogin, Runnable recoveryAction) {
+        submitManagedTask(kind, key, progress,
+                () -> beginGameAutomation(progress, afterLogin, recoveryAction));
+    }
 
+    private void submitManagedTask(AutomationTaskManager.Kind kind,
+            String key, String progress, Runnable start) {
+        boolean accepted = taskManager.submit(
+                new AutomationTaskManager.Request(key, progress, kind, start));
+        if (accepted) {
+            return;
+        }
+        if (kind == AutomationTaskManager.Kind.INTERRUPT) {
+            DiagnosticLog.info("TASK", "coalesced duplicate task=" + key);
+        } else {
+            showProgress("已有任务正在运行，请先终止");
+        }
+    }
+
+    private void beginManagedRun(AutomationTaskManager.Run run) {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                 .putBoolean(PREF_MANUALLY_STOPPED, false)
                 .apply();
         automationRunning = true;
+        failingRunId = 0;
+        if (!run.request.preserveRecovery) {
+            automationRecoveryAttempts = 0;
+        }
         setTaskState(STATE_RUNNING);
         closeMenu();
-        return true;
+        DiagnosticLog.info("TASK", "start run=" + run.id + " key=" + run.request.key
+                + " kind=" + run.request.kind);
+        try {
+            run.request.start.run();
+        } catch (RuntimeException error) {
+            DiagnosticLog.error("TASK", "Unable to start " + run.request.key, error);
+            failAutomation("Unable to start " + run.request.key);
+        }
+    }
+
+    private void cancelManagedRun(AutomationTaskManager.Run run) {
+        DiagnosticLog.info("TASK", "cancel run=" + run.id + " key=" + run.request.key);
+        retireManagedRun(run);
+        automationRunning = false;
+        stopInventoryMonitoring();
+        currentAutomationAction = null;
+        failingRunId = 0;
+    }
+
+    private void retireManagedRun(AutomationTaskManager.Run run) {
+        handler.removeCallbacksAndMessages(run);
+        if (paddleDungeonTextRecognizer != null) {
+            paddleDungeonTextRecognizer.cancelPending();
+        }
+    }
+
+    private static String taskKey(String progress) {
+        int separator = progress.indexOf('：');
+        return separator < 0 ? progress : progress.substring(0, separator);
     }
 
     @Override
     public void enterTraining(long nextMilitaryAt) {
-        automationRunning = false;
         clearAutomationRecovery();
+        automationRunning = taskManager.hasCurrent();
         setTaskState(STATE_RUNNING);
         showProgress(nextMilitaryAt > 0
                 ? "自动练级中 · 下次军务 " + formatTime(nextMilitaryAt)
@@ -1421,7 +1484,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                         return;
                     }
                     if (Boolean.TRUE.equals(nearlyFull)) {
-                        interruptForAutoSell(next);
+                        interruptForAutoSell();
                     } else {
                         if (nearlyFull == null) {
                             showProgress("启动前未识别到背包容量，跳过本次检查");
@@ -1460,21 +1523,26 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void performTap(int x, int y, Runnable next, int nextDelayMillis) {
-        if (!automationRunning) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null) {
             return;
         }
         boolean accepted = tap(x, y, new GestureResultCallback() {
             @Override
             public void onCompleted(GestureDescription gestureDescription) {
-                scheduleNext(next, nextDelayMillis);
+                if (taskManager.isCurrent(run.id)) {
+                    scheduleNext(next, nextDelayMillis);
+                }
             }
 
             @Override
             public void onCancelled(GestureDescription gestureDescription) {
-                failAutomation("Tap was cancelled");
+                if (taskManager.isCurrent(run.id)) {
+                    failAutomation("Tap was cancelled");
+                }
             }
         });
-        if (!accepted) {
+        if (!accepted && taskManager.isCurrent(run.id)) {
             failAutomation("Tap was rejected");
         }
     }
@@ -1485,7 +1553,8 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void performSwipe(int startX, int startY, int endX, int endY,
             long durationMillis, Runnable next) {
-        if (!automationRunning) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null) {
             return;
         }
         Path path = new Path();
@@ -1497,15 +1566,19 @@ public final class HelperAccessibilityService extends AccessibilityService
         boolean accepted = dispatchGesture(gesture, new GestureResultCallback() {
             @Override
             public void onCompleted(GestureDescription gestureDescription) {
-                scheduleNext(next);
+                if (taskManager.isCurrent(run.id)) {
+                    scheduleNext(next);
+                }
             }
 
             @Override
             public void onCancelled(GestureDescription gestureDescription) {
-                failAutomation("Swipe was cancelled");
+                if (taskManager.isCurrent(run.id)) {
+                    failAutomation("Swipe was cancelled");
+                }
             }
         }, handler);
-        if (!accepted) {
+        if (!accepted && taskManager.isCurrent(run.id)) {
             failAutomation("Swipe was rejected");
         }
     }
@@ -1515,9 +1588,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void scheduleNext(Runnable next, int delayMillis) {
-        if (automationRunning) {
-            handler.postDelayed(next, delayMillis);
-        }
+        postDelayed(next, delayMillis);
     }
 
     @Override
@@ -1650,7 +1721,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 DiagnosticLog.info("SCREEN_GUARD", "state=DISCONNECTED action=reconnect");
                 showProgress("准备游戏画面：重连地图服务器");
                 clickScreenText("确定", true,
-                        () -> handler.postDelayed(
+                        () -> postDelayed(
                                 () -> ensureGameHudVisible(
                                         next, remainingAttempts - 1),
                                 8_000),
@@ -1681,7 +1752,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                             "state=REWARD_RECOVERY action=back");
                     showProgress("准备游戏画面：关闭奖励找回");
                     performGlobalAction(GLOBAL_ACTION_BACK);
-                    handler.postDelayed(() -> ensureGameHudVisible(
+                    postDelayed(() -> ensureGameHudVisible(
                             next, remainingAttempts - 1), ACTION_DELAY_MS);
                 } else {
                     failGameHudGuard("奖励找回窗口未关闭");
@@ -1699,8 +1770,8 @@ public final class HelperAccessibilityService extends AccessibilityService
                 if (remainingAttempts > 1) {
                     DiagnosticLog.info("SCREEN_GUARD",
                             "state=UNCLAIMED_REWARDS action=close_then_claim");
-                    closeWelfareWindow(() -> claimWelfare(
-                            () -> ensureGameHudVisible(next, remainingAttempts - 1)));
+                    closeWelfareWindow(
+                            () -> ensureGameHudVisible(next, remainingAttempts - 1));
                 } else {
                     failGameHudGuard("未领取奖励窗口未关闭");
                 }
@@ -1731,7 +1802,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         boolean sent = performGlobalAction(GLOBAL_ACTION_BACK);
         DiagnosticLog.info("SCREEN_GUARD", "state=BACK action="
                 + (sent ? "sent" : "failed") + " remaining=" + (remaining - 1));
-        handler.postDelayed(
+        postDelayed(
                 () -> pressBackThreeTimesThen(next, remaining - 1),
                 ACTION_DELAY_MS);
     }
@@ -1739,7 +1810,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private void retryGameHudGuard(
             Runnable next, int remainingAttempts, String failureMessage) {
         if (remainingAttempts > 1) {
-            handler.postDelayed(
+            postDelayed(
                     () -> ensureGameHudVisible(next, remainingAttempts - 1),
                     ACTION_DELAY_MS);
         } else {
@@ -1762,7 +1833,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 Boolean enabled = bitmap == null ? null : isAutoAttackEnabled(bitmap);
                 if (enabled == null) {
                     if (remainingAttempts > 1) {
-                        handler.postDelayed(
+                        postDelayed(
                                 () -> ensureAutoAttackState(
                                         targetEnabled, next, remainingAttempts - 1),
                                 ACTION_DELAY_MS);
@@ -1833,7 +1904,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             if (hasAutoPathPanel(text)) {
                 next.run();
             } else if (remainingAttempts > 1) {
-                handler.postDelayed(
+                postDelayed(
                         () -> waitForAutoPathPanel(next, remainingAttempts - 1),
                         ACTION_DELAY_MS);
             } else {
@@ -1906,16 +1977,35 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public void recognizeText(Bitmap bitmap, Consumer<OcrText> result,
             Consumer<Throwable> failure) {
-        if (priorityTaskQuiescing) {
-            failure.accept(new IllegalStateException("priority task is stopping old OCR"));
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null) {
+            recycleIfNeeded(bitmap);
             return;
         }
         if (paddleDungeonTextRecognizer == null) {
             paddleDungeonTextRecognizer = new PaddleDungeonTextRecognizer(this);
         }
         paddleDungeonTextRecognizer.recognize(bitmap,
-                lines -> handler.post(() -> result.accept(new OcrText(lines))),
-                error -> handler.post(() -> failure.accept(error)));
+                lines -> handler.post(() -> {
+                    if (taskManager.isCurrent(run.id)) {
+                        result.accept(new OcrText(lines));
+                    } else {
+                        recycleIfNeeded(bitmap);
+                    }
+                }),
+                error -> handler.post(() -> {
+                    if (taskManager.isCurrent(run.id)) {
+                        failure.accept(error);
+                    } else {
+                        recycleIfNeeded(bitmap);
+                    }
+                }));
+    }
+
+    private static void recycleIfNeeded(Bitmap bitmap) {
+        if (bitmap != null && !bitmap.isRecycled()) {
+            bitmap.recycle();
+        }
     }
 
     @Override
@@ -2107,25 +2197,24 @@ public final class HelperAccessibilityService extends AccessibilityService
                     cropped, cropped.getWidth() * scale,
                     cropped.getHeight() * scale, true);
             cropped.recycle();
-            if (paddleDungeonTextRecognizer == null) {
-                paddleDungeonTextRecognizer = new PaddleDungeonTextRecognizer(this);
-            }
-            paddleDungeonTextRecognizer.recognize(enlarged, lines -> handler.post(() -> {
+            recognizeText(enlarged, text -> {
                 enlarged.recycle();
                 StringBuilder value = new StringBuilder();
-                for (OcrLine line : lines) {
-                    if (value.length() > 0) {
-                        value.append(' ');
+                for (OcrText.TextBlock block : text.getTextBlocks()) {
+                    for (OcrText.Line line : block.getLines()) {
+                        if (value.length() > 0) {
+                            value.append(' ');
+                        }
+                        value.append(line.getText());
                     }
-                    value.append(line.text);
                 }
                 DiagnosticLog.info("BOSS", label + " Paddle OCR='" + value + "'");
                 result.accept(value.toString());
-            }), error -> handler.post(() -> {
+            }, error -> {
                 enlarged.recycle();
                 DiagnosticLog.error("OCR", label + " Paddle OCR failed", error);
                 result.accept("");
-            }));
+            });
         });
     }
 
@@ -2151,27 +2240,25 @@ public final class HelperAccessibilityService extends AccessibilityService
             Bitmap cropped, Consumer<String> result) {
         Bitmap enlarged = Bitmap.createScaledBitmap(
                 cropped, cropped.getWidth() * 4, cropped.getHeight() * 4, true);
-        if (paddleDungeonTextRecognizer == null) {
-            paddleDungeonTextRecognizer = new PaddleDungeonTextRecognizer(this);
-        }
-        paddleDungeonTextRecognizer.recognize(enlarged, lines -> handler.post(() -> {
+        cropped.recycle();
+        recognizeText(enlarged, text -> {
             enlarged.recycle();
             StringBuilder raw = new StringBuilder();
-            for (OcrLine line : lines) {
-                raw.append(line.text);
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
+                    raw.append(line.getText());
+                }
             }
             String value = raw.toString().replaceAll("[^0-9/]", "");
             DiagnosticLog.info("AUTO_SELL",
                     "Backpack Paddle OCR='" + value + "'");
-            cropped.recycle();
             result.accept(value);
-        }), error -> handler.post(() -> {
+        }, error -> {
             enlarged.recycle();
-            cropped.recycle();
             DiagnosticLog.warn("AUTO_SELL",
                     "Backpack Paddle OCR failed: " + error.getMessage());
             result.accept("");
-        }));
+        });
     }
 
     @Override
@@ -2271,7 +2358,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                             performTap(left + bounds.centerX() / 2,
                                     top + bounds.centerY() / 2, next);
                         } else if (remainingAttempts > 1) {
-                            handler.postDelayed(
+                            postDelayed(
                                     () -> clickQuickArrival(next, remainingAttempts - 1),
                                     ACTION_DELAY_MS);
                         } else {
@@ -2357,7 +2444,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             if (match != null) {
                 performTap(match.centerX(), match.centerY(), next, CLICK_DELAY_MS);
             } else if (remainingAttempts > 1) {
-                handler.postDelayed(
+                postDelayed(
                         () -> clickDungeonScreenText(expected, exact, next,
                                 remainingAttempts - 1, ifMissing),
                         ACTION_DELAY_MS);
@@ -2427,7 +2514,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 return;
             }
             if (remainingAttempts > 1) {
-                handler.postDelayed(
+                postDelayed(
                         () -> clickScreenText(expected, exact, next,
                                 remainingAttempts - 1, ifMissing, minX, maxX,
                                 nextDelayMillis),
@@ -2546,7 +2633,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 }
             }
             if (remainingAttempts > 1) {
-                handler.postDelayed(
+                postDelayed(
                         () -> waitForScreenText(expected, remainingAttempts - 1, next),
                         ACTION_DELAY_MS);
             } else {
@@ -2601,7 +2688,7 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void retryMapReady(int attempts, Runnable next) {
         if (attempts > 1) {
-            handler.postDelayed(() -> waitForMapReady(attempts - 1, next), ACTION_DELAY_MS);
+            postDelayed(() -> waitForMapReady(attempts - 1, next), ACTION_DELAY_MS);
         } else {
             failAutomation("传送后未检测到地图加载完成");
         }
@@ -2619,16 +2706,20 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void captureScreenshot(Consumer<Bitmap> result) {
-        if (priorityTaskQuiescing) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null) {
             result.accept(null);
             return;
         }
-        captureScreenshot(result, TEXT_RETRY_COUNT);
+        captureScreenshot(run, result, TEXT_RETRY_COUNT);
     }
 
-    private void captureScreenshot(Consumer<Bitmap> result, int remainingAttempts) {
+    private void captureScreenshot(AutomationTaskManager.Run run,
+            Consumer<Bitmap> result, int remainingAttempts) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            result.accept(null);
+            if (taskManager.isCurrent(run.id)) {
+                result.accept(null);
+            }
             return;
         }
 
@@ -2644,11 +2735,15 @@ public final class HelperAccessibilityService extends AccessibilityService
                     if (hardwareBitmap != null) {
                         bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false);
                     }
-                    result.accept(bitmap);
-                    bitmap = null;
+                    if (taskManager.isCurrent(run.id)) {
+                        result.accept(bitmap);
+                        bitmap = null;
+                    }
                 } catch (RuntimeException error) {
                     DiagnosticLog.error("SCREENSHOT", "Unable to inspect screenshot", error);
-                    result.accept(null);
+                    if (taskManager.isCurrent(run.id)) {
+                        result.accept(null);
+                    }
                 } finally {
                     if (bitmap != null) {
                         bitmap.recycle();
@@ -2662,13 +2757,15 @@ public final class HelperAccessibilityService extends AccessibilityService
 
             @Override
             public void onFailure(int errorCode) {
+                if (!taskManager.isCurrent(run.id)) {
+                    return;
+                }
                 if (shouldRetryScreenshot(errorCode, remainingAttempts)
                         && automationRunning) {
                     DiagnosticLog.warn("SCREENSHOT", "busy; retrying, code=" + errorCode
                             + " remainingAttempts=" + (remainingAttempts - 1));
-                    handler.postDelayed(
-                            () -> captureScreenshot(result, remainingAttempts - 1),
-                            ACTION_DELAY_MS);
+                    postDelayed(() -> captureScreenshot(
+                            run, result, remainingAttempts - 1), ACTION_DELAY_MS);
                 } else {
                     DiagnosticLog.error("SCREENSHOT", "failed, code=" + errorCode);
                     result.accept(null);
@@ -2692,35 +2789,52 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void completeAutomation() {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null) {
+            return;
+        }
         DiagnosticLog.info("AUTOMATION", "completed");
-        boolean completedPrimaryDungeon = currentAutomationAction == primaryTaskAction
+        boolean completedPrimaryDungeon = run.request.kind == AutomationTaskManager.Kind.PRIMARY
                 && primaryTask == PrimaryTask.DUNGEON;
-        automationRunning = false;
         stopInventoryMonitoring();
         clearAutomationRecovery();
         if (completedPrimaryDungeon) {
             resetPrimaryTaskToTraining();
         }
-        hideProgress();
-        setTaskState(STATE_COMPLETED);
+        retireManagedRun(run);
+        taskManager.finish(run.id);
+        automationRunning = taskManager.hasCurrent();
+        if (!automationRunning) {
+            hideProgress();
+            setTaskState(STATE_COMPLETED);
+        }
     }
 
     @Override
     public void resumePrimaryTask() {
-        automationRunning = false;
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null) {
+            return;
+        }
+        inventorySelling = false;
         clearAutomationRecovery();
-        restartPrimaryTask(primaryTask);
+        retireManagedRun(run);
+        taskManager.finish(run.id);
+        automationRunning = taskManager.hasCurrent();
     }
 
     @Override
     public void failAutomation(String message) {
-        if (priorityTaskQuiescing) {
-            DiagnosticLog.info("SCHEDULE", "ignored old task failure while taking priority: "
-                    + message);
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null || failingRunId == run.id) {
             return;
         }
+        failingRunId = run.id;
         DiagnosticLog.error("AUTOMATION", message);
-        handler.removeCallbacksAndMessages(null);
+        handler.removeCallbacksAndMessages(run);
+        if (paddleDungeonTextRecognizer != null) {
+            paddleDungeonTextRecognizer.cancelPending();
+        }
         captureScreenshot(bitmap -> {
             try {
                 DiagnosticLog.saveScreenshot(bitmap, "automation-error");
@@ -2728,64 +2842,69 @@ public final class HelperAccessibilityService extends AccessibilityService
                 if (bitmap != null) {
                     bitmap.recycle();
                 }
-                finishAutomationFailure(message);
+                finishAutomationFailure(run.id, message);
             }
         });
     }
 
-    private void finishAutomationFailure(String message) {
-        if (currentAutomationAction == null) {
+    private void finishAutomationFailure(long runId, String message) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null || run.id != runId) {
+            return;
+        }
+        if (run.request.kind != AutomationTaskManager.Kind.PRIMARY
+                || currentAutomationAction == null) {
+            inventorySelling = false;
+            taskManager.abort(runId);
+            automationRunning = taskManager.hasCurrent();
+            if (automationRunning) {
+                return;
+            }
             automationRunning = false;
             setTaskState(STATE_STOPPED);
             showProgress("错误：" + message);
             return;
         }
 
-        recoverPrimaryTask(message);
+        recoverPrimaryTask(run, message);
     }
 
-    private void recoverPrimaryTask(String message) {
+    private void recoverPrimaryTask(AutomationTaskManager.Run failedRun, String message) {
         if (inventorySelling) {
             inventorySelling = false;
-            startInventoryMonitoring();
         }
         automationRecoveryAttempts++;
-        automationRunning = true;
-        if (!shouldRetryAutomation(automationRecoveryAttempts)) {
-            Runnable finalRecovery = primaryTaskAction;
-            String taskLabel = primaryTaskLabel(primaryTask);
-            currentAutomationAction = null;
-            setTaskState(STATE_RUNNING);
-            startInventoryMonitoring();
-            showProgress("错误：" + message
-                    + " · 连续失败，60秒后最后恢复"
-                    + taskLabel + "，不再自动重试");
-            handler.postDelayed(() -> {
-                if (!automationRunning || finalRecovery == null) {
-                    return;
-                }
-                showProgress("错误恢复：最后恢复" + taskLabel);
-                finalRecovery.run();
-            }, RECOVERY_LONG_DELAY_MS);
-            return;
-        }
-        currentAutomationAction = primaryTaskAction;
-        setTaskState(STATE_RUNNING);
-        startInventoryMonitoring();
-        showProgress("错误：" + message + " · 5秒后恢复主要任务："
-                + primaryTaskLabel(primaryTask));
-        handler.postDelayed(() -> {
-            if (!automationRunning || primaryTaskAction == null) {
-                return;
-            }
-            showProgress("错误恢复：恢复主要任务 · " + primaryTaskLabel(primaryTask));
-            primaryTaskAction.run();
-        }, RECOVERY_START_DELAY_MS);
+        boolean finalAttempt = !shouldRetryAutomation(automationRecoveryAttempts);
+        Runnable recovery = primaryTaskAction;
+        long delay = finalAttempt ? RECOVERY_LONG_DELAY_MS : RECOVERY_START_DELAY_MS;
+        String taskLabel = primaryTaskLabel(primaryTask);
+        AutomationTaskManager.Request retry = new AutomationTaskManager.Request(
+                failedRun.request.key,
+                failedRun.request.progress,
+                AutomationTaskManager.Kind.PRIMARY,
+                () -> {
+                    currentAutomationAction = finalAttempt ? null : recovery;
+                    setTaskState(STATE_RUNNING);
+                    startInventoryMonitoring();
+                    showProgress(finalAttempt
+                            ? "错误：" + message + " · 连续失败，60秒后最后恢复"
+                                    + taskLabel + "，不再自动重试"
+                            : "错误：" + message + " · 5秒后恢复主要任务：" + taskLabel);
+                    postDelayed(() -> {
+                        if (recovery == null) {
+                            failAutomation("没有可恢复的主要任务");
+                            return;
+                        }
+                        showProgress("错误恢复：恢复主要任务 · " + taskLabel);
+                        recovery.run();
+                    }, delay);
+                },
+                true);
+        taskManager.restart(failedRun.id, retry);
     }
 
     private void stopAutomation(int state) {
         DiagnosticLog.info("AUTOMATION", "stopped state=" + state);
-        priorityTaskQuiescing = false;
         if (state == STATE_STOPPED) {
             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                     .putBoolean(PREF_MANUALLY_STOPPED, true)
@@ -2796,6 +2915,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         stopInventoryMonitoring();
         clearAutomationRecovery();
         resetPrimaryTaskToTraining();
+        taskManager.stopAll();
         handler.removeCallbacksAndMessages(null);
         hideProgress();
         setTaskState(state);
@@ -2803,6 +2923,7 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void clearAutomationRecovery() {
         automationRecoveryAttempts = 0;
+        failingRunId = 0;
         currentAutomationAction = null;
     }
 
@@ -2882,7 +3003,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             return false;
         }
         if (primaryTask == PrimaryTask.TRAINING) {
-            return !automationRunning || isTrainingPullActive();
+            return taskManager.hasCurrent();
         }
         return primaryTask == PrimaryTask.BOSS
                 && automationRunning && currentAutomationAction == primaryTaskAction;
@@ -2896,32 +3017,14 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void interruptForAutoSell() {
-        interruptForAutoSell(null);
-    }
-
-    private void interruptForAutoSell(Runnable continuation) {
-        PrimaryTask interruptedTask = primaryTask;
-        Runnable recoveryAction = currentAutomationAction;
         inventorySelling = true;
         stopInventoryMonitoring();
-        handler.removeCallbacksAndMessages(null);
-        automationRunning = false;
-        clearAutomationRecovery();
         showProgress("Auto sell: backpack is nearly full");
-        autoSellAutomation.start(
-                () -> resumeAfterAutoSell(interruptedTask, continuation, recoveryAction));
-    }
-
-    private void resumeAfterAutoSell(
-            PrimaryTask interruptedTask, Runnable continuation, Runnable recoveryAction) {
-        inventorySelling = false;
-        clearAutomationRecovery();
-        if (continuation != null) {
-            currentAutomationAction = recoveryAction;
-            continuation.run();
-            return;
-        }
-        restartPrimaryTask(interruptedTask);
+        // ponytail: restart the primary task after selling instead of resuming a stale callback.
+        autoSellAutomation.start(() -> {
+            inventorySelling = false;
+            resumePrimaryTask();
+        });
     }
 
     private void restartPrimaryTask(PrimaryTask task) {
@@ -2933,7 +3036,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             restartDungeonTask();
         } else {
             setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
-            startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
+            startTrainingPrimaryTask(trainingAutomation::start);
         }
     }
 
@@ -2959,7 +3062,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         List<Integer> levels = selectedDungeonLevels(preferences);
         if (levels.isEmpty()) {
             resetPrimaryTaskToTraining();
-            startScheduledAutomation("自动练级：打开游戏", trainingAutomation::start);
+            startTrainingPrimaryTask(trainingAutomation::start);
         } else if (preferences.getBoolean(PREF_DUNGEON_BATTLE_MODE, false)) {
             dungeonBattleAutomation.start(levels);
         } else {
@@ -3112,6 +3215,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         automationRunning = false;
         inventorySelling = false;
         clearAutomationRecovery();
+        taskManager.stopAll();
         handler.removeCallbacksAndMessages(null);
         stopInventoryMonitoring();
         hideProgress();

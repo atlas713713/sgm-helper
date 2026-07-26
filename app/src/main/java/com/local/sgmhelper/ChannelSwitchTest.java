@@ -25,7 +25,7 @@ final class ChannelSwitchTest {
             return;
         }
         targetChannel = 1;
-        host.startAutomation("换线测试：打开游戏", this::switchChannel);
+        host.startIdleAutomation("换线测试：打开游戏", this::switchChannel);
     }
 
     private void switchChannel() {

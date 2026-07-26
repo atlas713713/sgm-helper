@@ -99,7 +99,7 @@ final class LoginAutomation {
     }
 
     private void closeUnclaimedRewards(Runnable next) {
-        host.closeWelfareWindow(() -> host.claimWelfare(next));
+        host.closeWelfareWindow(next);
     }
 
     private void closeRewardRecovery(Runnable next) {

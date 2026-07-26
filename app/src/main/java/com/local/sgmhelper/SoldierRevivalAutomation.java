@@ -19,29 +19,30 @@ final class SoldierRevivalAutomation {
             host.showProgress("已有任务正在运行");
             return;
         }
-        host.startAutomation("复活士兵：打开游戏", () -> run(host::completeAutomation));
+        host.startIdleAutomation(
+                "复活士兵：打开游戏", () -> run(host::completeAutomation));
     }
 
     void run(Runnable next) {
-        host.ensureGameHudVisible(() -> openCampSearch(true, next));
+        host.ensureGameHudVisible(() -> {
+            host.showProgress("复活士兵：停止自动攻击后先回城");
+            host.closeAutoPathPanel(() -> host.returnHome(
+                    () -> host.postDelayed(() -> openCampSearch(next), 5_000)));
+        });
     }
 
-    private void openCampSearch(boolean mayReturnHome, Runnable next) {
+    private void openCampSearch(Runnable next) {
         host.showProgress("复活士兵：打开右侧自动寻路");
         host.closeAutoPathPanel(() -> host.openAutoPathPanel(
-                () -> findCamp(CAMP_SCROLL_ATTEMPTS, mayReturnHome, next)));
+                () -> findCamp(CAMP_SCROLL_ATTEMPTS, next)));
     }
 
-    private void findCamp(int remainingScrolls, boolean mayReturnHome, Runnable next) {
+    private void findCamp(int remainingScrolls, Runnable next) {
         host.showProgress("复活士兵：查找军营");
         host.clickRightText("军营", () -> waitForCamp(ARRIVAL_ATTEMPTS, next), 2, () -> {
             if (remainingScrolls > 0) {
                 host.swipe(1120, 450, 1120, 230,
-                        () -> findCamp(remainingScrolls - 1, mayReturnHome, next));
-            } else if (mayReturnHome) {
-                host.showProgress("复活士兵：未找到军营，先回城");
-                host.closeAutoPathPanel(() -> host.returnHome(
-                        () -> host.postDelayed(() -> openCampSearch(false, next), 5_000)));
+                        () -> findCamp(remainingScrolls - 1, next));
             } else {
                 skip("回城后仍未找到军营", next);
             }

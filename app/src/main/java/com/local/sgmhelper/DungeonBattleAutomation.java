@@ -16,6 +16,15 @@ final class DungeonBattleAutomation {
     private static final int DUNGEON_MAP_MAX_X = 599;
     private static final int NPC_SHORTCUT_X = 1208;
     private static final int NPC_SHORTCUT_Y = 410;
+    // Wudang's NPCDialog bounds at 1280x720. Only OCR the title so the progress bar
+    // and option text can never be mistaken for an open NPC dialog.
+    private static final int NPC_TITLE_LEFT = 120;
+    private static final int NPC_TITLE_TOP = 195;
+    private static final int NPC_TITLE_RIGHT = 390;
+    private static final int NPC_TITLE_BOTTOM = 245;
+    private static final int NPC_OPTION_X = 251;
+    private static final int NPC_OPTION_4_X = 176;
+    private static final int[] NPC_OPTION_Y = {0, 450, 512, 574, 636};
     private static final int GUIDE_UP_X = 974;
     private static final int GUIDE_UP_Y = 31;
     private static final int ROUTE_MAX_CHECKS = 30;
@@ -122,9 +131,8 @@ final class DungeonBattleAutomation {
     private void openPalaceGuide() {
         host.showProgress(currentLevel() + "级副本：进入副本宫殿（一般）");
         host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
-                () -> host.clickDungeonText("一般", false,
-                        () -> host.postDelayed(() -> waitForPalace(20), 3_000),
-                        10, () -> failMissing("副本宫殿（一般）")));
+                () -> clickNpcOption("驻地引路员", 1,
+                        () -> host.postDelayed(() -> waitForPalace(20), 3_000), 10));
     }
 
     private void waitForPalace(int remainingAttempts) {
@@ -176,9 +184,8 @@ final class DungeonBattleAutomation {
 
     private void openCampNpc() {
         host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
-                () -> host.clickDungeonText("下一步", true,
-                        () -> host.postDelayed(() -> waitForCamp(20), 3_000),
-                        10, () -> failMissing("下一步")));
+                () -> clickNpcSequence(dungeonName(), new int[] {4, 3},
+                        () -> host.postDelayed(() -> waitForCamp(20), 3_000)));
     }
 
     private void waitForCamp(int remainingAttempts) {
@@ -230,46 +237,46 @@ final class DungeonBattleAutomation {
     }
 
     private void openEntryNpc() {
-        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, () -> {
-            if (currentLevel() == 20) {
-                host.clickDungeonText("详情告知", true,
-                        () -> host.clickDungeonText("下一步", true, this::waitForDungeon, 8,
-                                () -> failMissing("下一步")),
-                        8, () -> failMissing("详情告知"));
-            } else if (currentLevel() == 30) {
-                host.clickDungeonText("黄天", true,
-                        () -> host.clickDungeonText("进入", true, this::waitForDungeon, 8,
-                                () -> failMissing("进入")),
-                        8, () -> failMissing("黄天"));
-            } else if (currentLevel() == 40) {
-                host.clickDungeonText("闯入", false, this::waitForDungeon, 8,
-                        () -> failMissing("闯入"));
-            } else if (currentLevel() == 50) {
-                host.clickDungeonText("下一步", true,
-                        () -> host.clickDungeonText("入场", true, this::waitForDungeon, 5,
-                                () -> host.clickDungeonText("进入", true, this::waitForDungeon, 5,
-                                        () -> failMissing("入场/进入"))),
-                        8, () -> failMissing("下一步"));
-            } else if (currentLevel() == 60 || currentLevel() == 65) {
-                host.clickDungeonText("开始神游", true,
-                        () -> host.clickDungeonText("进入", true, this::waitForDungeon, 8,
-                                () -> failMissing("进入")),
-                        8, () -> failMissing("开始神游"));
-            } else if (currentLevel() >= 70) {
-                host.clickDungeonText("下一步", true,
-                        () -> host.clickDungeonText("出发", true, this::waitForDungeon, 5,
-                                () -> host.clickDungeonText("进入", true, this::waitForDungeon, 5,
-                                        () -> failMissing("出发/进入"))),
-                        8, () -> failMissing("下一步"));
-            } else {
-                host.clickDungeonText("进入", true, this::waitForDungeon, 8,
-                        () -> failMissing("进入"));
-            }
-        });
+        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
+                () -> clickNpcSequence(
+                        entryNpcName(), entryNpcRows(currentLevel()), this::waitForDungeon));
     }
 
-    private void failMissing(String text) {
-        host.failAutomation(currentLevel() + "级副本：未找到“" + text + "”选项");
+    private void clickNpcSequence(
+            String expectedTitle, int[] rows, Runnable next) {
+        clickNpcSequence(expectedTitle, rows, 0, next);
+    }
+
+    private void clickNpcSequence(
+            String expectedTitle, int[] rows, int index, Runnable next) {
+        clickNpcOption(expectedTitle, rows[index], () -> {
+            if (index + 1 == rows.length) {
+                next.run();
+            } else {
+                host.postDelayed(
+                        () -> clickNpcSequence(expectedTitle, rows, index + 1, next),
+                        1_000);
+            }
+        }, 8);
+    }
+
+    private void clickNpcOption(
+            String expectedTitle, int row, Runnable next, int remainingAttempts) {
+        host.recognizeTextRegion(
+                NPC_TITLE_LEFT, NPC_TITLE_TOP, NPC_TITLE_RIGHT, NPC_TITLE_BOTTOM,
+                text -> {
+                    String recognized = text == null ? "" : text.getText();
+                    DiagnosticLog.info("Dungeon", "NPC title OCR: " + recognized);
+                    if (matchesNpcDialogTitle(recognized, expectedTitle)) {
+                        host.tap(npcOptionX(row), npcOptionY(row), next);
+                    } else if (remainingAttempts > 1) {
+                        host.postDelayed(() -> clickNpcOption(
+                                expectedTitle, row, next, remainingAttempts - 1), 500);
+                    } else {
+                        host.failAutomation(currentLevel() + "级副本：未识别到“"
+                                + expectedTitle + "”对话框");
+                    }
+                });
     }
 
     private void waitForDungeon() {
@@ -312,9 +319,9 @@ final class DungeonBattleAutomation {
             gotoExit();
         } else if (decision.interactionText != null) {
             host.showProgress(currentLevel() + "级副本：" + decision.interactionText);
-            Runnable click = () -> host.clickDungeonText(decision.interactionText, true,
-                    () -> host.postDelayed(this::inspectPosition, 2_000), 8,
-                    () -> failMissing(decision.interactionText));
+            Runnable click = () -> clickNpcOption(
+                    interactionNpcName(), interactionNpcRow(),
+                    () -> host.postDelayed(this::inspectPosition, 2_000), 8);
             if (decision.openNpc) {
                 host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, click);
             } else {
@@ -372,52 +379,9 @@ final class DungeonBattleAutomation {
     }
 
     private void claimReward() {
-        if (currentLevel() == 30) {
-            host.showProgress("30级副本：与黄巾太平道长对话离开");
-            host.clickDungeonText("黄天", true,
-                    () -> host.clickDungeonText("进入", true, this::finishCurrent, 8,
-                            () -> failMissing("进入")),
-                    8, () -> failMissing("黄天"));
-            return;
-        }
-        if (currentLevel() == 50) {
-            host.showProgress("50级副本：与孙坚对话离开");
-            host.clickDungeonText("离开", true, this::finishCurrent, 10,
-                    () -> failMissing("离开"));
-            return;
-        }
-        if (currentLevel() == 60) {
-            host.showProgress("60级副本：答谢公孙瓒");
-            host.clickDungeonText("答谢公孙瓒", true, this::finishCurrent, 10,
-                    () -> failMissing("答谢公孙瓒"));
-            return;
-        }
-        if (currentLevel() == 65) {
-            host.showProgress("65级副本：收下战利品");
-            host.clickDungeonText("收下战利品", true, this::finishCurrent, 10,
-                    () -> failMissing("收下战利品"));
-            return;
-        }
-        if (currentLevel() >= 70) {
-            host.showProgress(currentLevel() + "级副本：收下战利品");
-            host.clickDungeonText("下一步", true,
-                    () -> host.clickDungeonText("收下战利品", true, this::finishCurrent, 10,
-                            () -> failMissing("收下战利品")),
-                    8, () -> host.clickDungeonText("收下战利品", true,
-                            this::finishCurrent, 10, () -> failMissing("下一步/收下战利品")));
-            return;
-        }
-        String reward;
-        if (currentLevel() == 20) {
-            reward = "领取奖赏";
-        } else if (currentLevel() == 40) {
-            reward = "领取奖励";
-        } else {
-            reward = "收下奖赏";
-        }
-        host.showProgress(currentLevel() + "级副本：" + reward);
-        host.clickDungeonText(reward, true, this::finishCurrent, 10,
-                () -> failMissing(reward));
+        host.showProgress(currentLevel() + "级副本：离开并领取奖励");
+        clickNpcSequence(
+                exitNpcName(), exitNpcRows(currentLevel()), this::finishCurrent);
     }
 
     private void finishCurrent() {
@@ -653,6 +617,88 @@ final class DungeonBattleAutomation {
         return selectedLevels.get(currentIndex);
     }
 
+    private String dungeonName() {
+        switch (currentLevel()) {
+            case 10:
+                return "桃园结义";
+            case 20:
+                return "枭雄崛起";
+            case 30:
+                return "三公战华雄";
+            case 40:
+                return "十常侍之乱";
+            case 50:
+                return "孙坚与玉玺";
+            case 60:
+                return "界桥之战";
+            case 65:
+                return "三英战吕布";
+            case 70:
+                return "二狼劫献帝";
+            case 75:
+                return "濮阳之战";
+            default:
+                throw new IllegalArgumentException("Unsupported dungeon level " + currentLevel());
+        }
+    }
+
+    private String entryNpcName() {
+        switch (currentLevel()) {
+            case 10:
+                return "邹靖";
+            case 20:
+                return "曹嵩";
+            case 30:
+                return "黄巾太平道长|乱军太平道长";
+            case 40:
+                return "长乐宫官吏";
+            case 50:
+                return "历战老兵";
+            case 60:
+            case 65:
+                return "说书人";
+            case 70:
+                return "毛玠";
+            case 75:
+                return "吕布";
+            default:
+                throw new IllegalArgumentException("Unsupported dungeon level " + currentLevel());
+        }
+    }
+
+    private String exitNpcName() {
+        switch (currentLevel()) {
+            case 10:
+                return "义勇军刘玄德";
+            case 20:
+                return "骑都尉曹操";
+            case 30:
+                return "黄巾太平道长|乱军太平道长";
+            case 40:
+                return "袁绍";
+            case 50:
+                return "孙坚";
+            case 60:
+                return "公孙瓒";
+            case 65:
+                return "刘备";
+            case 70:
+                return "曹操";
+            case 75:
+                return "陈宫";
+            default:
+                throw new IllegalArgumentException("Unsupported dungeon level " + currentLevel());
+        }
+    }
+
+    private String interactionNpcName() {
+        return currentLevel() == 65 ? "刘备" : "孙坚";
+    }
+
+    private int interactionNpcRow() {
+        return currentLevel() == 65 ? 3 : 4;
+    }
+
     private String campName() {
         if (currentLevel() == 20) {
             return "曹公府";
@@ -733,6 +779,73 @@ final class DungeonBattleAutomation {
         return coordinate != null
                 && Math.abs(coordinate[0] - targetX) <= ROUTE_TOLERANCE
                 && Math.abs(coordinate[1] - targetY) <= ROUTE_TOLERANCE;
+    }
+
+    static int npcOptionY(int row) {
+        if (row < 1 || row >= NPC_OPTION_Y.length) {
+            throw new IllegalArgumentException("Unsupported NPC option row " + row);
+        }
+        return NPC_OPTION_Y[row];
+    }
+
+    static int npcOptionX(int row) {
+        npcOptionY(row);
+        return row == 4 ? NPC_OPTION_4_X : NPC_OPTION_X;
+    }
+
+    static int[] entryNpcRows(int level) {
+        switch (level) {
+            case 10:
+                return new int[] {3, 3};
+            case 20:
+                return new int[] {4, 4, 3, 3};
+            case 30:
+                return new int[] {2, 3, 3};
+            case 40:
+                return new int[] {3, 3};
+            case 50:
+            case 60:
+            case 70:
+            case 75:
+                return new int[] {4, 3, 3};
+            case 65:
+                return new int[] {3, 3, 3};
+            default:
+                throw new IllegalArgumentException("Unsupported dungeon level " + level);
+        }
+    }
+
+    static int[] exitNpcRows(int level) {
+        switch (level) {
+            case 10:
+            case 20:
+            case 30:
+            case 40:
+            case 50:
+            case 60:
+            case 65:
+                return new int[] {4, 4};
+            case 70:
+            case 75:
+                return new int[] {4, 4, 4};
+            default:
+                throw new IllegalArgumentException("Unsupported dungeon level " + level);
+        }
+    }
+
+    static boolean matchesNpcDialogTitle(String recognized, String expectedTitles) {
+        String actual = normalizeDialogText(recognized);
+        for (String expected : expectedTitles.split("\\|")) {
+            String target = normalizeDialogText(expected);
+            if (!target.isEmpty() && actual.contains(target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normalizeDialogText(String value) {
+        return value == null ? "" : value.replaceAll("[\\s·:：()（）]", "");
     }
 
     private int dungeonMapMaxX() {

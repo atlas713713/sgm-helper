@@ -23,6 +23,10 @@ final class TaskAutomation {
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
     private static final int TASK_START_CONFIRM_RETRY_COUNT = 4;
     private static final int SUPPLY_CLICK_RETRY_COUNT = 3;
+    private static final int MILITARY_TEXT_LEFT = 80;
+    private static final int MILITARY_TEXT_TOP = 70;
+    private static final int MILITARY_TEXT_RIGHT = 970;
+    private static final int MILITARY_TEXT_BOTTOM = 580;
     private static final Pattern WILDERNESS_ZONE = Pattern.compile(
             "巡狩军团荒野[（(]([一二三四五六七八九十百0-9]+)[）)]");
     private static final Pattern MILITARY_COOLDOWN = Pattern.compile(
@@ -34,7 +38,6 @@ final class TaskAutomation {
     };
 
     private final AutomationHost host;
-    private final Runnable trainingStarter;
     private final WildernessNavigator wildernessNavigator;
     private String militaryZone;
     private boolean supplyQuestCooling;
@@ -45,9 +48,8 @@ final class TaskAutomation {
     private final Set<String> checkedMilitaryQuests = new HashSet<>();
     private final Set<String> retriedUnacceptedQuests = new HashSet<>();
 
-    TaskAutomation(AutomationHost host, Runnable trainingStarter) {
+    TaskAutomation(AutomationHost host) {
         this.host = host;
-        this.trainingStarter = trainingStarter;
         wildernessNavigator = new WildernessNavigator(host, "自动军务");
     }
 
@@ -73,12 +75,12 @@ final class TaskAutomation {
         host.showProgress("自动军务：检查进行中的收集任务");
         detectWildernessLocation(() ->
                 host.closeAutoPathPanel(() -> withTaskWindowOpen(
-                        () -> host.tap(180, 101,
+                        () -> host.tapFast(180, 101,
                                 () -> findOngoingCollectionTask(TEXT_RETRY_COUNT)))));
     }
 
     private void findOngoingCollectionTask(int remainingAttempts) {
-        host.recognizeText(text -> {
+        recognizeMilitaryText(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -164,7 +166,7 @@ final class TaskAutomation {
     }
 
     private void findAvailableMilitaryQuest(int remainingAttempts) {
-        host.recognizeText(text -> {
+        recognizeMilitaryText(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -201,7 +203,7 @@ final class TaskAutomation {
     }
 
     private void inspectAvailableMilitaryQuest(String questName) {
-        host.recognizeText(text -> {
+        recognizeMilitaryText(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -387,7 +389,7 @@ final class TaskAutomation {
     }
 
     private void withTaskWindowOpen(Runnable next, int remainingOpenAttempts) {
-        host.recognizeText(text -> {
+        recognizeMilitaryText(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -395,7 +397,7 @@ final class TaskAutomation {
                 next.run();
             } else {
                 host.showProgress("自动军务：打开任务窗口");
-                host.tap(1255, 285,
+                host.tapFast(1255, 285,
                         () -> waitForTaskWindow(
                                 next, TEXT_RETRY_COUNT, remainingOpenAttempts - 1));
             }
@@ -404,7 +406,7 @@ final class TaskAutomation {
 
     private void waitForTaskWindow(
             Runnable next, int remainingTextAttempts, int remainingOpenAttempts) {
-        host.recognizeText(text -> {
+        recognizeMilitaryText(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -433,6 +435,12 @@ final class TaskAutomation {
             }
         }
         return values;
+    }
+
+    private void recognizeMilitaryText(Consumer<OcrText> result) {
+        host.recognizeTextRegion(
+                MILITARY_TEXT_LEFT, MILITARY_TEXT_TOP,
+                MILITARY_TEXT_RIGHT, MILITARY_TEXT_BOTTOM, result);
     }
 
     static boolean isTaskWindowVisible(List<String> values) {
@@ -488,7 +496,7 @@ final class TaskAutomation {
 
     private void findOngoingWildernessQuest(
             int remainingTextAttempts, int remainingRecoveryAttempts) {
-        host.recognizeText(text -> {
+        recognizeMilitaryText(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -712,7 +720,7 @@ final class TaskAutomation {
     private void finishMilitaryAndStartTraining() {
         host.returnHome(() -> {
             host.showProgress("自动军务已完成，10秒后自动练级");
-            host.postDelayed(trainingStarter, 10_000);
+            host.postDelayed(host::resumePrimaryTask, 10_000);
         });
     }
 
@@ -814,7 +822,7 @@ final class TaskAutomation {
     private void inspectOngoingMilitaryQuest(
             String questName, Runnable completed, Runnable incomplete,
             int remainingAttempts) {
-        host.recognizeText(text -> {
+        recognizeMilitaryText(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -899,7 +907,7 @@ final class TaskAutomation {
     }
 
     private void useSelectedCompletedQuest(String questName, Runnable next) {
-        host.recognizeText(text -> {
+        recognizeMilitaryText(text -> {
             List<String> rightValues = new ArrayList<>();
             for (OcrText.TextBlock block : text.getTextBlocks()) {
                 for (OcrText.Line line : block.getLines()) {
@@ -962,7 +970,7 @@ final class TaskAutomation {
     }
 
     private void inspectCompletedQuestCooldown(String questName, Runnable completed) {
-        host.recognizeText(text -> {
+        recognizeMilitaryText(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
