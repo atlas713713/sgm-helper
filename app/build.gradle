@@ -14,8 +14,8 @@ android {
         applicationId = "com.local.sgmhelper"
         minSdk = 24
         targetSdk = 36
-        versionCode = 235
-        versionName = "0.1.234"
+        versionCode = 236
+        versionName = "0.1.235"
 
         ndk {
             abiFilters "arm64-v8a"
@@ -25,6 +25,13 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.debug
+            minifyEnabled = false
+        }
     }
 }
 

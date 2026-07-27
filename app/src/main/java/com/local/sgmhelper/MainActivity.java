@@ -48,6 +48,7 @@ public final class MainActivity extends Activity {
     private TextView statusView;
     private Button runTestButton;
     private Button testTargetButton;
+    private AppUpdater appUpdater;
     private boolean showControls;
     private boolean startTraining;
     private boolean launchAttempted;
@@ -61,6 +62,7 @@ public final class MainActivity extends Activity {
         getWindow().setAttributes(windowParams);
         showControls = getIntent().getBooleanExtra(EXTRA_SHOW_CONTROLS, false);
         startTraining = getIntent().getBooleanExtra(EXTRA_START_TRAINING, false);
+        appUpdater = new AppUpdater(this);
         setContentView(createContentView());
     }
 
@@ -88,6 +90,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        appUpdater.close();
         super.onDestroy();
     }
 
@@ -128,6 +131,7 @@ public final class MainActivity extends Activity {
         addButton(content, R.string.open_app_details, view -> openAppDetails());
         addButton(content, R.string.open_accessibility_settings, view -> openAccessibilitySettings());
         addButton(content, R.string.open_game, view -> openGame(true));
+        addButton(content, R.string.check_for_updates, view -> appUpdater.check());
 
         statusView = new TextView(this);
         statusView.setTextSize(16);

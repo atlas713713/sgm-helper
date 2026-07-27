@@ -376,10 +376,19 @@ public final class HelperAccessibilityService extends AccessibilityService
         addMenuButton(menu, R.string.menu_channel_test, view -> channelSwitchTest.start());
         addMenuButton(menu, R.string.menu_stop, view -> stopAutomation(STATE_STOPPED));
         addMenuButton(menu, R.string.menu_settings, view -> showTrainingSettings());
+        addMenuButton(menu, R.string.menu_update, view -> openUpdater());
         addMenuButton(menu, R.string.menu_exit, view -> exitService());
         addMenuText(menu, "版本 " + BuildConfig.VERSION_NAME);
         updateStateView();
         updateMenuPosition();
+    }
+
+    private void openUpdater() {
+        closeMenu();
+        Intent intent = new Intent(this, MainActivity.class)
+                .putExtra(MainActivity.EXTRA_SHOW_CONTROLS, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        startActivity(intent);
     }
 
     private void styleMainMenu(LinearLayout menu) {

@@ -31,13 +31,13 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
 export ANDROID_SDK_ROOT=/opt/homebrew/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 
-./gradlew testDebugUnitTest lintDebug assembleDebug
+./gradlew testDebugUnitTest lintRelease assembleRelease
 ```
 
 生成的 APK：
 
 ```text
-app/build/outputs/apk/debug/app-debug.apk
+app/build/outputs/apk/release/app-release.apk
 ```
 
 只修改文档时不需要重新构建 APK。发布应用更新时，先在 `app/build.gradle` 同时递增 `versionCode` 和 `versionName`，再构建并安装到三台模拟器。
@@ -48,12 +48,12 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ```sh
 ADB="/Applications/BlueStacks.app/Contents/MacOS/hd-adb"
-APK="$PWD/app/build/outputs/apk/debug/app-debug.apk"
+APK="$PWD/app/build/outputs/apk/release/app-release.apk"
 
 "$ADB" devices
-"$ADB" -s 127.0.0.1:5705 install -r -t "$APK"
-"$ADB" -s 127.0.0.1:5725 install -r -t "$APK"
-"$ADB" -s 127.0.0.1:5735 install -r -t "$APK"
+"$ADB" -s 127.0.0.1:5705 install -r "$APK"
+"$ADB" -s 127.0.0.1:5725 install -r "$APK"
+"$ADB" -s 127.0.0.1:5735 install -r "$APK"
 ```
 
 安装后可核对版本：
@@ -71,6 +71,12 @@ APK="$PWD/app/build/outputs/apk/debug/app-debug.apk"
 4. 返回助手；游戏打开后，左下角会出现可拖动的“辅”悬浮按钮。
 5. 在“辅 → 设置 → 辅助 → 登录账号”中保存游戏账号和密码。凭据只保存在当前模拟器的应用私有目录。
 6. 在“练级 / BOSS / 副本 / 定时任务”中完成需要的选项和时间设置。
+
+## 应用内更新
+
+点击悬浮菜单的 **更新助手**，再点击 **检查并安装更新**。应用会从 GitHub
+Release 下载最新版 APK 并打开系统安装界面。首次使用时需允许“三国M助手”
+安装未知应用；之后同一签名的新版 APK 可以直接覆盖安装，不需要先卸载。
 
 ## 日常使用
 
