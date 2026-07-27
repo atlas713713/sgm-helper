@@ -1657,8 +1657,7 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void ensureAutoAttackEnabled(Runnable next) {
-        ensureGameHudVisible(
-                () -> ensureAutoAttackState(true, next, SCREEN_WAIT_RETRY_COUNT));
+        ensureAutoAttackState(true, next, SCREEN_WAIT_RETRY_COUNT);
     }
 
     @Override
@@ -1865,7 +1864,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void closeAutoPathPanelIfNeeded(Runnable next, int remainingAttempts) {
-        recognizeScreenText(text -> {
+        recognizeTextRegion(930, 0, 1280, 600, text -> {
             if (!automationRunning) {
                 return;
             }
@@ -1897,7 +1896,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void waitForAutoPathPanel(Runnable next, int remainingAttempts) {
-        recognizeScreenText(text -> {
+        recognizeTextRegion(930, 0, 1280, 600, text -> {
             if (!automationRunning) {
                 return;
             }
@@ -2146,20 +2145,23 @@ public final class HelperAccessibilityService extends AccessibilityService
                 result.accept("");
                 return;
             }
-            int left = 430 * bitmap.getWidth() / 1280;
-            int top = 630 * bitmap.getHeight() / 720;
-            int right = 850 * bitmap.getWidth() / 1280;
-            int bottom = 710 * bitmap.getHeight() / 720;
+            int left = 440 * bitmap.getWidth() / 1280;
+            int top = 655 * bitmap.getHeight() / 720;
+            int right = 525 * bitmap.getWidth() / 1280;
+            int bottom = 700 * bitmap.getHeight() / 720;
             Bitmap cropped = Bitmap.createBitmap(
                     bitmap, left, top, right - left, bottom - top);
             bitmap.recycle();
             Bitmap enlarged = Bitmap.createScaledBitmap(
-                    cropped, cropped.getWidth() * 3, cropped.getHeight() * 3, true);
+                    cropped, cropped.getWidth() * 8, cropped.getHeight() * 8, true);
             cropped.recycle();
 
             recognizeText(enlarged, text -> {
                 enlarged.recycle();
-                result.accept(text.getText());
+                String value = text.getText();
+                DiagnosticLog.info("OCR",
+                        "Map coordinate Paddle OCR='" + value.replace('\n', ' ') + "'");
+                result.accept(value);
             }, error -> {
                 enlarged.recycle();
                 DiagnosticLog.warn("OCR",

@@ -77,7 +77,8 @@ final class ScreenGuard {
     static boolean hasAutoPathPanel(List<String> values) {
         for (String raw : values) {
             String value = raw.replaceAll("\\s+", "");
-            if (value.contains("敌人") || value.equals("寻路")) {
+            if (value.equals("寻路")
+                    || value.contains("敌人") && value.contains("寻路")) {
                 return true;
             }
         }
