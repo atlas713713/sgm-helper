@@ -16,9 +16,9 @@ final class Dungeon40Action extends BaseDungeonAction {
     }
 
     static DungeonBattleAutomation.RouteDecision decideRoute(int x) {
-        if (x >= 32) {
+        if (x > 32) {
             return DungeonBattleAutomation.RouteDecision.search(
-                    scanLeft(x, 32), 25, 0, true);
+                    scanLeft(x, 32), 25, 0, false);
         }
         return DungeonBattleAutomation.RouteDecision.exit(25, 25);
     }

@@ -203,7 +203,7 @@ final class TrainingAutomation {
                 boolean attack = fields.length == 3 || "1".equals(fields[3]);
                 if (x < 0 || x > AutomationHost.MAP_GAME_MAX_X
                         || y < 0 || y > AutomationHost.MAP_GAME_MAX_Y) {
-                    throw new IllegalArgumentException("坐标范围：X 0–600，Y 0–50");
+                    throw new IllegalArgumentException("坐标范围：X 0–599，Y 0–49");
                 }
                 if (durationMillis < 100 || durationMillis > 60_000) {
                     throw new IllegalArgumentException("停留时间范围：100–60000 毫秒");

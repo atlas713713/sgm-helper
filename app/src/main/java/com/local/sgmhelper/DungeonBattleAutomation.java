@@ -193,21 +193,9 @@ final class DungeonBattleAutomation {
     private void openCampNpc() {
         host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
                 () -> clickNpcSequence(currentDungeon().dungeonName(), new int[] {4, 3},
-                        () -> host.postDelayed(() -> waitForCamp(20), 3_000)));
-    }
-
-    private void waitForCamp(int remainingAttempts) {
-        host.recognizeMapName(mapName -> {
-            String normalized = mapName == null ? "" : mapName.replaceAll("\\s", "");
-            if (normalized.contains(currentDungeon().campName())) {
-                gotoEntryNpc();
-            } else if (remainingAttempts > 1) {
-                host.postDelayed(() -> waitForCamp(remainingAttempts - 1), 1_000);
-            } else {
-                host.failAutomation(currentLevel() + "级副本：未进入"
-                        + currentDungeon().campName());
-            }
-        });
+                        () -> host.postDelayed(
+                                () -> host.waitForMapReady(20, this::gotoEntryNpc),
+                                MAP_WAIT_MS)));
     }
 
     private void gotoEntryNpc() {
@@ -254,20 +242,23 @@ final class DungeonBattleAutomation {
 
     private void clickNpcSequence(
             String expectedTitle, int[] rows, Runnable next) {
-        clickNpcSequence(expectedTitle, rows, 0, next);
+        clickNpcOption(expectedTitle, rows[0], () -> {
+            if (rows.length == 1) {
+                next.run();
+            } else {
+                host.postDelayed(() -> clickNpcRows(rows, 1, next), 1_000);
+            }
+        }, 8);
     }
 
-    private void clickNpcSequence(
-            String expectedTitle, int[] rows, int index, Runnable next) {
-        clickNpcOption(expectedTitle, rows[index], () -> {
+    private void clickNpcRows(int[] rows, int index, Runnable next) {
+        host.tap(npcOptionX(rows[index]), npcOptionY(rows[index]), () -> {
             if (index + 1 == rows.length) {
                 next.run();
             } else {
-                host.postDelayed(
-                        () -> clickNpcSequence(expectedTitle, rows, index + 1, next),
-                        1_000);
+                host.postDelayed(() -> clickNpcRows(rows, index + 1, next), 1_000);
             }
-        }, 8);
+        });
     }
 
     private void clickNpcOption(
@@ -359,6 +350,10 @@ final class DungeonBattleAutomation {
     }
 
     private void findEnemy(RouteDecision decision) {
+        if (currentLevel() == 40 || currentLevel() == 50) {
+            findRedBoss(decision);
+            return;
+        }
         host.showProgress(currentLevel() + "级副本：搜索 " + decision.enemyDescription());
         host.recognizeDungeonText(lines -> {
             EnemyRow enemy = selectEnemyRow(
@@ -375,6 +370,20 @@ final class DungeonBattleAutomation {
             }
             host.showProgress(currentLevel() + "级副本：攻击 " + enemy.label);
             host.tap(enemy.bounds.centerX(), enemy.bounds.centerY(),
+                    () -> host.ensureAutoAttackEnabled(
+                            () -> host.postDelayed(this::inspectPosition, FIGHT_CHECK_MS)));
+        });
+    }
+
+    private void findRedBoss(RouteDecision decision) {
+        host.showProgress(currentLevel() + "级副本：搜索红名 BOSS");
+        host.recognizeRedBoss(boss -> {
+            if (boss == null) {
+                move(decision);
+                return;
+            }
+            host.showProgress(currentLevel() + "级副本：攻击 " + boss.name);
+            host.tap(boss.bounds.centerX(), boss.bounds.centerY(),
                     () -> host.ensureAutoAttackEnabled(
                             () -> host.postDelayed(this::inspectPosition, FIGHT_CHECK_MS)));
         });

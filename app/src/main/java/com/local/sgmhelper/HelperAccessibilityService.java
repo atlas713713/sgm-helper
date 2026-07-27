@@ -2156,7 +2156,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             }
             int left = 440 * bitmap.getWidth() / 1280;
             int top = 655 * bitmap.getHeight() / 720;
-            int right = 525 * bitmap.getWidth() / 1280;
+            int right = 850 * bitmap.getWidth() / 1280;
             int bottom = 700 * bitmap.getHeight() / 720;
             Bitmap cropped = Bitmap.createBitmap(
                     bitmap, left, top, right - left, bottom - top);

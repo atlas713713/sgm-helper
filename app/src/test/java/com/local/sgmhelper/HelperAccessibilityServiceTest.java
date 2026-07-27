@@ -285,8 +285,8 @@ public final class HelperAccessibilityServiceTest {
 
     @Test
     public void scalesCoordinatesForTheShortDungeonCampMap() {
-        assertEquals(642, AutomationHost.mapScreenX(100, 199));
-        assertEquals(842, AutomationHost.mapScreenX(199, 199));
+        assertEquals(641, AutomationHost.mapScreenX(100, 199));
+        assertEquals(847, AutomationHost.mapScreenX(199, 199));
     }
 
     @Test
@@ -523,12 +523,17 @@ public final class HelperAccessibilityServiceTest {
             DungeonBattleAutomation.RouteDecision decision =
                     Dungeon40Action.decideRoute(positions[index]);
             assertTrue(decision.searchEnemies);
-            assertTrue(decision.acceptAnyEnemy);
+            assertFalse(decision.acceptAnyEnemy);
             assertTrue(decision.targetX >= Math.max(32, positions[index] - 49));
             assertTrue(decision.targetX <= Math.max(32, positions[index] - 40));
             assertEquals(25, decision.targetY);
         }
-        assertTrue(Dungeon40Action.decideRoute(25).exit);
+        DungeonBattleAutomation.RouteDecision boundary =
+                Dungeon40Action.decideRoute(32);
+        assertTrue(boundary.exit);
+        assertEquals(25, boundary.targetX);
+        assertEquals(25, boundary.targetY);
+        assertTrue(Dungeon40Action.decideRoute(33).searchEnemies);
     }
 
     @Test
@@ -540,11 +545,13 @@ public final class HelperAccessibilityServiceTest {
         assertArrayEquals(new int[] {46, 45}, opening[1]);
         assertArrayEquals(new int[] {60, 45}, opening[2]);
         assertTrue(Dungeon50Action.decideRoute(80).searchEnemies);
+        assertFalse(Dungeon50Action.decideRoute(80).acceptAnyEnemy);
         assertTrue(Dungeon50Action.decideRoute(150).targetX >= 190);
         assertTrue(Dungeon50Action.decideRoute(150).targetX <= 199);
         assertEquals("交给我吧", Dungeon50Action.decideRoute(300).interactionText);
         assertTrue(Dungeon50Action.decideRoute(350).targetX >= 390);
         assertTrue(Dungeon50Action.decideRoute(350).targetX <= 399);
+        assertFalse(Dungeon50Action.decideRoute(350).acceptAnyEnemy);
         assertTrue(Dungeon50Action.decideRoute(450).targetX >= 490);
         assertTrue(Dungeon50Action.decideRoute(450).targetX <= 495);
         assertEquals(583, Dungeon50Action.decideRoute(550).targetX);
@@ -970,11 +977,13 @@ public final class HelperAccessibilityServiceTest {
     @Test
     public void convertsGameMapCoordinatesToSafeScreenTaps() {
         assertEquals(640, AutomationHost.mapScreenX(300));
-        assertEquals(650, AutomationHost.mapScreenY(25));
-        assertEquals(689, AutomationHost.mapScreenY(50));
-        assertEquals(437, AutomationHost.mapScreenX(0));
-        assertEquals(612, AutomationHost.mapScreenY(0));
-        assertEquals(843, AutomationHost.mapScreenX(600));
+        assertEquals(651, AutomationHost.mapScreenY(25));
+        assertEquals(691, AutomationHost.mapScreenY(49));
+        assertEquals(433, AutomationHost.mapScreenX(0));
+        assertEquals(610, AutomationHost.mapScreenY(0));
+        assertEquals(847, AutomationHost.mapScreenX(599));
+        assertEquals(464, AutomationHost.mapScreenX(46, 599));
+        assertEquals(684, AutomationHost.mapScreenY(45));
     }
 
     @Test
@@ -1010,12 +1019,12 @@ public final class HelperAccessibilityServiceTest {
 
     @Test
     public void recognizesBossMapCoordinatesAndRedNames() {
-        assertEquals(Integer.valueOf(567), BossAutomation.parseMapX("567,50"));
+        assertEquals(Integer.valueOf(567), BossAutomation.parseMapX("567,49"));
         assertEquals(Integer.valueOf(590), BossAutomation.parseMapX("590.24"));
         assertEquals(Integer.valueOf(590), BossAutomation.parseMapX("590 24"));
         assertEquals(Integer.valueOf(590), BossAutomation.parseMapX("590：24"));
         assertEquals(Integer.valueOf(4), BossAutomation.parseMapX("坐标 4，7"));
-        assertNull(BossAutomation.parseMapX("601,25"));
+        assertNull(BossAutomation.parseMapX("600,25"));
         assertTrue(Arrays.equals(new int[] {300, 25},
                 BossAutomation.parseMapCoordinate("300,25")));
         assertEquals(Integer.valueOf(4), BossAutomation.parseChannel("第 4 分流"));

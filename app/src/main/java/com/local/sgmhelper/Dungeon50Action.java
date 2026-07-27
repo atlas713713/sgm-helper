@@ -26,30 +26,30 @@ final class Dungeon50Action extends BaseDungeonAction {
         }
         if (x <= 110) {
             return DungeonBattleAutomation.RouteDecision.search(
-                    scanRight(x, 112), 25, 0, true);
+                    scanRight(x, 112), 25, 0, false);
         }
         if (x <= 194) {
             return DungeonBattleAutomation.RouteDecision.search(
-                    scanRight(x, 205), 25, 0, true);
+                    scanRight(x, 205), 25, 0, false);
         }
         if (x <= 287) {
             return DungeonBattleAutomation.RouteDecision.search(
-                    scanRight(x, 291), 25, 0, true);
+                    scanRight(x, 291), 25, 0, false);
         }
         if (x <= 308) {
             return DungeonBattleAutomation.RouteDecision.interact("交给我吧");
         }
         if (x <= 388) {
             return DungeonBattleAutomation.RouteDecision.search(
-                    scanRight(x, 399), 25, 0, true);
+                    scanRight(x, 399), 25, 0, false);
         }
         if (x <= 484) {
             return DungeonBattleAutomation.RouteDecision.search(
-                    scanRight(x, 495), 25, 0, true);
+                    scanRight(x, 495), 25, 0, false);
         }
         if (x <= 581) {
             return DungeonBattleAutomation.RouteDecision.search(
-                    scanRight(x, 583), 25, 0, true);
+                    scanRight(x, 583), 25, 0, false);
         }
         return DungeonBattleAutomation.RouteDecision.exit(570, 25);
     }

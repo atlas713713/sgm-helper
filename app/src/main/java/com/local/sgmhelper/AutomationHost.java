@@ -13,12 +13,12 @@ interface AutomationHost {
         DUNGEON
     }
 
-    int MAP_GAME_MAX_X = 600;
-    int MAP_GAME_MAX_Y = 50;
-    int MAP_SCREEN_LEFT = 436;
+    int MAP_GAME_MAX_X = 599;
+    int MAP_GAME_MAX_Y = 49;
+    int MAP_SCREEN_LEFT = 433;
     int MAP_SCREEN_TOP = 610;
-    int MAP_SCREEN_WIDTH = 408;
-    int MAP_SCREEN_HEIGHT = 80;
+    int MAP_SCREEN_WIDTH = 414;
+    int MAP_SCREEN_HEIGHT = 81;
 
     Context context();
 
@@ -80,20 +80,14 @@ interface AutomationHost {
         if (mapMaxX <= 1 || mapX < 0 || mapX > mapMaxX) {
             throw new IllegalArgumentException("mapX must be inside the supplied map width");
         }
-        int safeX = Math.max(1, Math.min(mapX, mapMaxX - 1));
-        int screenX = MAP_SCREEN_LEFT
-                + (int) Math.ceil(safeX * MAP_SCREEN_WIDTH / (double) mapMaxX);
-        return Math.min(screenX, MAP_SCREEN_LEFT + MAP_SCREEN_WIDTH - 1);
+        return MAP_SCREEN_LEFT + mapX * MAP_SCREEN_WIDTH / mapMaxX;
     }
 
     static int mapScreenY(int mapY) {
         if (mapY < 0 || mapY > MAP_GAME_MAX_Y) {
-            throw new IllegalArgumentException("mapY must be between 0 and 50");
+            throw new IllegalArgumentException("mapY must be between 0 and 49");
         }
-        int safeY = Math.max(1, Math.min(mapY, MAP_GAME_MAX_Y - 1));
-        int screenY = MAP_SCREEN_TOP
-                + (int) Math.ceil(safeY * MAP_SCREEN_HEIGHT / (double) MAP_GAME_MAX_Y);
-        return Math.min(screenY, MAP_SCREEN_TOP + MAP_SCREEN_HEIGHT - 1);
+        return MAP_SCREEN_TOP + mapY * MAP_SCREEN_HEIGHT / MAP_GAME_MAX_Y;
     }
 
     void swipe(int startX, int startY, int endX, int endY, Runnable next);
