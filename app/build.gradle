@@ -2,9 +2,28 @@ plugins {
     id "com.android.application"
 }
 
+// 发布包必须固定用同一把签名 key：换 key 会让已装的应用报“安装包与现有软件存在
+// 冲突”。以前 release 直接用 signingConfigs.debug，CI 上没有拿到恢复出来的
+// keystore，AGP 每次都新生成一把 debug key，所以每个 release 的签名都不一样。
+// 这里改成显式指向一个具体文件：本地默认用 ~/.android/debug.keystore，CI 用
+// SGM_KEYSTORE_FILE 指到从 secret 还原出来的那份。文件不在就直接构建失败。
+def sgmKeystorePath = System.getenv("SGM_KEYSTORE_FILE")
+        ?: project.findProperty("sgmKeystoreFile")
+        ?: "${System.getProperty('user.home')}/.android/debug.keystore"
+def sgmKeystoreFile = file(sgmKeystorePath)
+
 android {
     namespace = "com.local.sgmhelper"
     compileSdk = 36
+
+    signingConfigs {
+        release {
+            storeFile = sgmKeystoreFile
+            storePassword = System.getenv("SGM_KEYSTORE_PASSWORD") ?: "android"
+            keyAlias = System.getenv("SGM_KEY_ALIAS") ?: "androiddebugkey"
+            keyPassword = System.getenv("SGM_KEY_PASSWORD") ?: "android"
+        }
+    }
 
     buildFeatures {
         buildConfig = true
@@ -14,8 +33,8 @@ android {
         applicationId = "com.local.sgmhelper"
         minSdk = 24
         targetSdk = 36
-        versionCode = 253
-        versionName = "0.1.253"
+        versionCode = 254
+        versionName = "0.1.254"
 
         ndk {
             abiFilters "arm64-v8a"
@@ -29,9 +48,19 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            signingConfig = signingConfigs.release
             minifyEnabled = false
         }
+    }
+}
+
+// 打 release 包时 keystore 必须真实存在，不能让构建悄悄换一把 key。
+gradle.taskGraph.whenReady { graph ->
+    boolean buildsRelease = graph.allTasks.any { it.name.contains("Release") }
+    if (buildsRelease && !sgmKeystoreFile.exists()) {
+        throw new GradleException(
+                "Release 签名 keystore 不存在：${sgmKeystoreFile}。"
+                        + "本地请确认 ~/.android/debug.keystore，CI 请设置 SGM_KEYSTORE_FILE。")
     }
 }
 

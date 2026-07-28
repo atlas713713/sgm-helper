@@ -27,13 +27,48 @@ jobs:
         env:
           SGM_DEBUG_KEYSTORE_BASE64: ${{ secrets.SGM_DEBUG_KEYSTORE_BASE64 }}
         run: |
+          set -euo pipefail
           test -n "${SGM_DEBUG_KEYSTORE_BASE64}"
-          mkdir -p "${HOME}/.android"
           printf '%s' "${SGM_DEBUG_KEYSTORE_BASE64}" \
-            | base64 --decode > "${HOME}/.android/debug.keystore"
+            | base64 --decode > "${RUNNER_TEMP}/release.keystore"
+          test -s "${RUNNER_TEMP}/release.keystore"
+
+      # 签名一变，已经装好的应用就只能卸载重装（“安装包与现有软件存在冲突”）。
+      # 这里在构建前先确认还原出来的 keystore 就是发布用的那把。
+      - name: Verify signing key
+        run: |
+          set -euo pipefail
+          actual=$(keytool -list -v \
+            -keystore "${RUNNER_TEMP}/release.keystore" \
+            -storepass android -alias androiddebugkey \
+            | sed -n 's/.*SHA256: *\(.*\)/\1/p' | head -1 | tr -d ' :' | tr 'A-Z' 'a-z')
+          echo "keystore SHA-256: ${actual}"
+          if [ "${actual}" != "${EXPECTED}" ]; then
+            echo "签名 key 和发布用的不一致，构建中止。" >&2
+            echo "expected ${EXPECTED}" >&2
+            exit 1
+          fi
+        env:
+          EXPECTED: 914b7d9543e27414906f2aa649c83f3d2f570a6bc868dd251c360e6496a5ad62
 
       - name: Build APK
+        env:
+          SGM_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
         run: ./gradlew testDebugUnitTest assembleRelease
+
+      # 再确认打出来的 APK 确实用了这把 key，避免又悄悄退回自动生成的 debug key。
+      - name: Verify APK signature
+        run: |
+          set -euo pipefail
+          apksigner="$(ls "${ANDROID_HOME}"/build-tools/*/apksigner | tail -1)"
+          actual=$("${apksigner}" verify --print-certs \
+            app/build/outputs/apk/release/app-release.apk \
+            | sed -n 's/.*certificate SHA-256 digest: *\(.*\)/\1/p' | head -1 \
+            | tr 'A-Z' 'a-z')
+          echo "apk SHA-256: ${actual}"
+          test "${actual}" = "${EXPECTED}"
+        env:
+          EXPECTED: 914b7d9543e27414906f2aa649c83f3d2f570a6bc868dd251c360e6496a5ad62
 
       - name: Prepare release
         id: release
