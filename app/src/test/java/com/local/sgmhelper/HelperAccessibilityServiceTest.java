@@ -318,7 +318,7 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(17, BaseDungeonAction.forLevel(70).entryNpcY());
         assertTrue(BaseDungeonAction.forLevel(10).isAtEntryNpc("100,16"));
         assertTrue(BaseDungeonAction.forLevel(60).isAtEntryNpc("坐标 100，18"));
-        assertTrue(BaseDungeonAction.forLevel(70).isAtEntryNpc("103.17"));
+        assertTrue(BaseDungeonAction.forLevel(70).isAtEntryNpc("103,17"));
         assertFalse(BaseDungeonAction.forLevel(75).isAtEntryNpc("90,16"));
         assertFalse(BaseDungeonAction.forLevel(40).isAtEntryNpc("识别失败"));
         assertTrue(DungeonBattleAutomation.isAtCoordinate("208,34", 210, 33));
@@ -1020,10 +1020,12 @@ public final class HelperAccessibilityServiceTest {
     @Test
     public void recognizesBossMapCoordinatesAndRedNames() {
         assertEquals(Integer.valueOf(567), BossAutomation.parseMapX("567,49"));
-        assertEquals(Integer.valueOf(590), BossAutomation.parseMapX("590.24"));
-        assertEquals(Integer.valueOf(590), BossAutomation.parseMapX("590 24"));
-        assertEquals(Integer.valueOf(590), BossAutomation.parseMapX("590：24"));
+        assertNull(BossAutomation.parseMapX("590.24"));
+        assertNull(BossAutomation.parseMapX("590 24"));
+        assertNull(BossAutomation.parseMapX("590：24"));
         assertEquals(Integer.valueOf(4), BossAutomation.parseMapX("坐标 4，7"));
+        assertTrue(Arrays.equals(new int[] {349, 26},
+                BossAutomation.parseMapCoordinate("29 349,26")));
         assertNull(BossAutomation.parseMapX("600,25"));
         assertTrue(Arrays.equals(new int[] {300, 25},
                 BossAutomation.parseMapCoordinate("300,25")));

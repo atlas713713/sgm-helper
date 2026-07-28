@@ -109,6 +109,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_SUPPLY_RETRY_AT = "supply_retry_at";
     static final String PREF_WILDERNESS_RETRY_AT = "wilderness_retry_at";
     private static final String PREF_DUNGEON_SWEEP_LEVELS = "dungeon_sweep_levels";
+    private static final String PREF_DUNGEON_BATTLE_LEVELS = "dungeon_battle_levels";
     static final String PREF_TRAINING_LOCATION = "training_location";
     static final String PREF_TRAINING_WILDERNESS_ZONE = "training_wilderness_zone";
     static final String PREF_TRAINING_MONSTER = "training_monster";
@@ -372,7 +373,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         addMenuButton(menu, R.string.menu_training, view -> startTrainingMain());
         addMenuButton(menu, R.string.menu_boss, this::startBossFromMenu);
         addMenuButton(menu, R.string.menu_dungeon_sweep,
-                view -> startDungeonSweep(false));
+                view -> startDungeonBattle());
         addMenuButton(menu, R.string.menu_channel_test, view -> channelSwitchTest.start());
         addMenuButton(menu, R.string.menu_stop, view -> stopAutomation(STATE_STOPPED));
         addMenuButton(menu, R.string.menu_settings, view -> showTrainingSettings());
@@ -912,21 +913,37 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (menu == null) {
             return;
         }
-        addSettingsText(menu, R.string.dungeon_sweep_title);
-
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        addDungeonSection(menu, preferences, R.string.dungeon_battle_section,
+                DungeonBattleAutomation.LEVELS, PREF_DUNGEON_BATTLE_LEVELS,
+                R.string.dungeon_start_battle, view -> startDungeonBattle());
+        addDungeonSection(menu, preferences, R.string.dungeon_sweep_section,
+                DungeonSweepAutomation.LEVELS, PREF_DUNGEON_SWEEP_LEVELS,
+                R.string.dungeon_start_sweep, view -> startDungeonSweep(false));
+
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
+        updateMenuPosition();
+    }
+
+    /** One dungeon mode: its own level checkboxes, select-all/clear, and start button. */
+    private void addDungeonSection(LinearLayout menu, SharedPreferences preferences,
+            int titleResource, int[] levels, String preferenceKey,
+            int startResource, View.OnClickListener onStart) {
+        addSettingsText(menu, titleResource).setTextColor(COLOR_SETTINGS_TEXT);
+
         Set<String> selected = new HashSet<>(preferences.getStringSet(
-                PREF_DUNGEON_SWEEP_LEVELS, Collections.emptySet()));
+                preferenceKey, Collections.emptySet()));
         List<CheckBox> boxes = new ArrayList<>();
         int columns = 6;
-        for (int start = 0; start < DungeonSweepAutomation.LEVELS.length; start += columns) {
+        for (int start = 0; start < levels.length; start += columns) {
             LinearLayout row = new LinearLayout(this);
             for (int index = start; index < start + columns; index++) {
-                if (index >= DungeonSweepAutomation.LEVELS.length) {
+                if (index >= levels.length) {
                     row.addView(new View(this), new LinearLayout.LayoutParams(0, dp(38), 1));
                     continue;
                 }
-                int level = DungeonSweepAutomation.LEVELS[index];
+                int level = levels[index];
                 CheckBox box = new CheckBox(this);
                 box.setText(String.valueOf(level));
                 box.setTextColor(Color.WHITE);
@@ -935,13 +952,13 @@ public final class HelperAccessibilityService extends AccessibilityService
                 box.setChecked(selected.contains(String.valueOf(level)));
                 box.setOnCheckedChangeListener((button, checked) -> {
                     Set<String> updated = new HashSet<>(preferences.getStringSet(
-                            PREF_DUNGEON_SWEEP_LEVELS, Collections.emptySet()));
+                            preferenceKey, Collections.emptySet()));
                     if (checked) {
                         updated.add(String.valueOf(level));
                     } else {
                         updated.remove(String.valueOf(level));
                     }
-                    preferences.edit().putStringSet(PREF_DUNGEON_SWEEP_LEVELS, updated).apply();
+                    preferences.edit().putStringSet(preferenceKey, updated).apply();
                 });
                 boxes.add(box);
                 row.addView(box, new LinearLayout.LayoutParams(0, dp(38), 1));
@@ -954,22 +971,21 @@ public final class HelperAccessibilityService extends AccessibilityService
                 createSettingsButton(R.string.dungeon_select_all, false,
                         view -> boxes.forEach(box -> box.setChecked(true))),
                 createSettingsButton(R.string.dungeon_clear, false,
-                        view -> boxes.forEach(box -> box.setChecked(false))));
-        addSettingsButtonRow(menu,
-                createSettingsButton(R.string.dungeon_start_battle, true,
-                        view -> startDungeonBattle()),
-                createSettingsButton(R.string.dungeon_start_sweep, true,
-                        view -> startDungeonSweep(false)));
-        addSettingsButtonRow(menu,
-                createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
-        updateMenuPosition();
+                        view -> boxes.forEach(box -> box.setChecked(false))),
+                createSettingsButton(startResource, true, onStart));
     }
 
     private static List<Integer> selectedDungeonLevels(SharedPreferences preferences) {
+        return selectedDungeonLevels(preferences, PREF_DUNGEON_SWEEP_LEVELS,
+                DungeonSweepAutomation.LEVELS);
+    }
+
+    private static List<Integer> selectedDungeonLevels(SharedPreferences preferences,
+            String preferenceKey, int[] available) {
         Set<String> selected = preferences.getStringSet(
-                PREF_DUNGEON_SWEEP_LEVELS, Collections.emptySet());
+                preferenceKey, Collections.emptySet());
         List<Integer> levels = new ArrayList<>();
-        for (int level : DungeonSweepAutomation.LEVELS) {
+        for (int level : available) {
             if (selected.contains(String.valueOf(level))) {
                 levels.add(level);
             }
@@ -3065,16 +3081,23 @@ public final class HelperAccessibilityService extends AccessibilityService
     private void startDungeonBattle() {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         preferences.edit().putBoolean(PREF_DUNGEON_BATTLE_MODE, true).apply();
-        dungeonBattleAutomation.start(selectedDungeonLevels(preferences));
+        dungeonBattleAutomation.start(selectedBattleLevels(preferences));
+    }
+
+    private static List<Integer> selectedBattleLevels(SharedPreferences preferences) {
+        return selectedDungeonLevels(preferences, PREF_DUNGEON_BATTLE_LEVELS,
+                DungeonBattleAutomation.LEVELS);
     }
 
     private void restartDungeonTask() {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        List<Integer> levels = selectedDungeonLevels(preferences);
+        boolean battleMode = preferences.getBoolean(PREF_DUNGEON_BATTLE_MODE, false);
+        List<Integer> levels = battleMode
+                ? selectedBattleLevels(preferences) : selectedDungeonLevels(preferences);
         if (levels.isEmpty()) {
             resetPrimaryTaskToTraining();
             startTrainingPrimaryTask(trainingAutomation::start);
-        } else if (preferences.getBoolean(PREF_DUNGEON_BATTLE_MODE, false)) {
+        } else if (battleMode) {
             dungeonBattleAutomation.start(levels);
         } else {
             dungeonSweepAutomation.start(levels);

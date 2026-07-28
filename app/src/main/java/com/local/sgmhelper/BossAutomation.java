@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 
 final class BossAutomation {
     private static final Pattern MAP_COORDINATE =
-            Pattern.compile("(\\d{1,3})(?:\\s*[,，.。·:：/]\\s*|\\s+)(\\d{1,2})");
+            Pattern.compile("(?<!\\d)(\\d{1,3})\\s*[,，]\\s*(\\d{1,2})(?!\\d)");
     private static final Pattern CHANNEL =
             Pattern.compile("(?:第\\s*([1-8])\\s*分流|分流\\s*([1-8]))");
     private static final int MAP_LEFT = 50;

@@ -10,6 +10,9 @@ import java.util.regex.Pattern;
 
 /** Runs the dungeon itself. This is separate from {@link DungeonSweepAutomation}. */
 final class DungeonBattleAutomation {
+    /** Levels with a route implemented; {@link BaseDungeonAction#forLevel} rejects the rest. */
+    static final int[] LEVELS = {10, 20, 30, 40, 50, 60, 65, 70, 75};
+
     private static final Pattern INTEGER = Pattern.compile("\\d+");
     private static final int CAMP_MAP_MAX_X = 199;
     private static final int PALACE_MAP_MAX_X = 399;
