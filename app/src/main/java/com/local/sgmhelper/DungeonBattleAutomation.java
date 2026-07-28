@@ -11,7 +11,8 @@ import java.util.regex.Pattern;
 /** Runs the dungeon itself. This is separate from {@link DungeonSweepAutomation}. */
 final class DungeonBattleAutomation {
     /** Levels with a route implemented; {@link BaseDungeonAction#forLevel} rejects the rest. */
-    static final int[] LEVELS = {10, 20, 30, 40, 50, 60, 65, 70, 75};
+    static final int[] LEVELS =
+            {10, 20, 30, 40, 50, 60, 65, 70, 75, 80, 90, 105, 120, 135, 150, 165};
 
     private static final Pattern INTEGER = Pattern.compile("\\d+");
     private static final int CAMP_MAP_MAX_X = 199;
@@ -28,6 +29,12 @@ final class DungeonBattleAutomation {
     private static final int NPC_OPTION_X = 251;
     private static final int NPC_OPTION_4_X = 176;
     private static final int[] NPC_OPTION_Y = {0, 450, 512, 574, 636};
+    // Wudang's NPCDialog item1..item4 boxes: x 133..369, 40 tall, 62 apart.
+    private static final int NPC_ROW_LEFT = 133;
+    private static final int NPC_ROW_RIGHT = 369;
+    private static final int NPC_ROW_TOP = 430;
+    private static final int NPC_ROW_BOTTOM = 656;
+    private static final int NPC_ROW_TOLERANCE = 26;
     private static final int GUIDE_ENEMY_X = 1025;
     private static final int GUIDE_ENEMY_Y = 160;
     private static final int[] GUIDE_UP_ENEMY_CENTERS = {151, 206, 261, 316, 371};
@@ -65,7 +72,7 @@ final class DungeonBattleAutomation {
             try {
                 dungeons.add(BaseDungeonAction.forLevel(level));
             } catch (IllegalArgumentException unsupported) {
-                host.showProgress("实战副本：目前支持 10–75 级，暂不执行 "
+                host.showProgress("实战副本：目前支持 10–165 级，暂不执行 "
                         + level + " 级");
                 return;
             }
@@ -194,11 +201,18 @@ final class DungeonBattleAutomation {
     }
 
     private void openCampNpc() {
-        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
-                () -> clickNpcSequence(currentDungeon().dungeonName(), new int[] {4, 3},
-                        () -> host.postDelayed(
-                                () -> host.waitForMapReady(20, this::gotoEntryNpc),
-                                MAP_WAIT_MS)));
+        Runnable next = () -> host.postDelayed(
+                () -> host.waitForMapReady(20, this::gotoEntryNpc), MAP_WAIT_MS);
+        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, () -> {
+            String title = currentDungeon().dungeonName();
+            int[] rows = {4, 3};
+            if (title == null) {
+                // 80 级以上的副本名来自服务端配置，APK 里没有，只能直接按固定行走。
+                clickNpcRows(rows, 0, next);
+            } else {
+                clickNpcSequence(title, rows, next);
+            }
+        });
     }
 
     private void gotoEntryNpc() {
@@ -237,10 +251,15 @@ final class DungeonBattleAutomation {
     }
 
     private void openEntryNpc() {
-        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
-                () -> clickNpcSequence(
-                        currentDungeon().entryNpcName(),
-                        currentDungeon().entryNpcRows(), this::waitForDungeon));
+        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, () -> {
+            String[] buttons = currentDungeon().entryNpcButtons();
+            if (buttons != null) {
+                clickNpcButtons(buttons, 0, this::waitForDungeon);
+            } else {
+                clickNpcSequence(currentDungeon().entryNpcName(),
+                        currentDungeon().entryNpcRows(), this::waitForDungeon);
+            }
+        });
     }
 
     private void clickNpcSequence(
@@ -326,10 +345,12 @@ final class DungeonBattleAutomation {
             tapNpcShortcut(decision.shortcutClicks);
         } else if (decision.interactionText != null) {
             host.showProgress(currentLevel() + "级副本：" + decision.interactionText);
-            Runnable click = () -> clickNpcOption(
-                    currentDungeon().interactionNpcName(),
-                    currentDungeon().interactionNpcRow(),
-                    () -> host.postDelayed(this::inspectPosition, 2_000), 8);
+            String npcName = currentDungeon().interactionNpcName();
+            Runnable afterClick = () -> host.postDelayed(this::inspectPosition, 2_000);
+            Runnable click = npcName == null
+                    ? () -> clickNpcButton(decision.interactionText, 8, afterClick)
+                    : () -> clickNpcOption(npcName,
+                            currentDungeon().interactionNpcRow(), afterClick, 8);
             if (decision.openNpc) {
                 host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, click);
             } else {
@@ -425,19 +446,51 @@ final class DungeonBattleAutomation {
     }
 
     private void gotoExit() {
-        RouteDecision exit = currentDungeon().decide(0, 25);
+        int[] exit = currentDungeon().exitPoint();
         host.showProgress(currentLevel() + "级副本：前往出口 "
-                + exit.targetX + "," + exit.targetY);
-        host.tapMapCoordinate(exit.targetX, exit.targetY, currentDungeon().dungeonMapMaxX(),
+                + exit[0] + "," + exit[1]);
+        host.tapMapCoordinate(exit[0], exit[1], currentDungeon().dungeonMapMaxX(),
                 () -> host.postDelayed(() -> host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
                         this::claimReward), MAP_WAIT_MS));
     }
 
     private void claimReward() {
         host.showProgress(currentLevel() + "级副本：离开并领取奖励");
-        clickNpcSequence(
-                currentDungeon().exitNpcName(),
-                currentDungeon().exitNpcRows(), this::finishCurrent);
+        String[] buttons = currentDungeon().exitNpcButtons();
+        if (buttons != null) {
+            clickNpcButtons(buttons, 0, this::finishCurrent);
+        } else {
+            clickNpcSequence(currentDungeon().exitNpcName(),
+                    currentDungeon().exitNpcRows(), this::finishCurrent);
+        }
+    }
+
+    /** 复刻武当按按钮文字点行：OCR 四个选项框，命中哪一行就点哪一行。 */
+    private void clickNpcButtons(String[] buttons, int index, Runnable next) {
+        clickNpcButton(buttons[index], 10, () -> {
+            if (index + 1 == buttons.length) {
+                next.run();
+            } else {
+                host.postDelayed(() -> clickNpcButtons(buttons, index + 1, next), 1_000);
+            }
+        });
+    }
+
+    private void clickNpcButton(String button, int remainingAttempts, Runnable next) {
+        host.recognizeTextRegion(NPC_ROW_LEFT, NPC_ROW_TOP, NPC_ROW_RIGHT, NPC_ROW_BOTTOM,
+                text -> {
+                    int row = npcRowForButton(text, button);
+                    DiagnosticLog.info("Dungeon", "NPC button \"" + button + "\" row " + row
+                            + " from " + (text == null ? "" : text.getText()));
+                    if (row > 0) {
+                        host.tap(npcOptionX(row), npcOptionY(row), next);
+                    } else if (remainingAttempts > 1) {
+                        host.postDelayed(
+                                () -> clickNpcButton(button, remainingAttempts - 1, next), 500);
+                    } else {
+                        host.failAutomation(currentLevel() + "级副本：未找到“" + button + "”按钮");
+                    }
+                });
     }
 
     private void finishCurrent() {
@@ -504,6 +557,35 @@ final class DungeonBattleAutomation {
 
     private static String normalizeDialogText(String value) {
         return value == null ? "" : value.replaceAll("[\\s·:：()（）]", "");
+    }
+
+    /**
+     * 在 NPCDialog 的四个选项框里找按钮文字，返回 1..4；找不到返回 0。
+     * 用 OCR 行的中心 y 去对最近的固定行中心，避免依赖 OCR 的分行方式。
+     */
+    static int npcRowForButton(OcrText text, String button) {
+        String target = normalizeDialogText(button);
+        if (text == null || target.isEmpty()) {
+            return 0;
+        }
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
+                if (!normalizeDialogText(line.getText()).contains(target)) {
+                    continue;
+                }
+                Rect bounds = line.getBoundingBox();
+                if (bounds == null) {
+                    continue;
+                }
+                int centerY = rectCenterY(bounds);
+                for (int row = 1; row < NPC_OPTION_Y.length; row++) {
+                    if (Math.abs(centerY - NPC_OPTION_Y[row]) <= NPC_ROW_TOLERANCE) {
+                        return row;
+                    }
+                }
+            }
+        }
+        return 0;
     }
 
     static EnemyRow selectEnemyRow(
@@ -646,6 +728,12 @@ final class DungeonBattleAutomation {
             return new RouteDecision(x, y, unstuckX, true, false, false, null, false,
                     Collections.emptyList(), priorityNames, protectName, false, 0,
                     new int[0][]);
+        }
+
+        static RouteDecision searchNamed(int x, int y, int unstuckX,
+                List<String> priorityNames, String protectName, Integer... levels) {
+            return new RouteDecision(x, y, unstuckX, true, false, false, null, false,
+                    List.of(levels), priorityNames, protectName, false, 0, new int[0][]);
         }
 
         static RouteDecision searchThenExit(int x, int y,

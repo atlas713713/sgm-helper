@@ -12,6 +12,7 @@ final class Dungeon70Action extends BaseDungeonAction {
     @Override int entryNpcY() { return 17; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
     @Override int[] exitNpcRows() { return new int[] {4, 4, 4}; }
+    @Override int[] exitPoint() { return new int[] {560, 27}; }
 
     @Override
     DungeonBattleAutomation.RouteDecision decide(int x, int y) {

@@ -11,6 +11,8 @@ final class Dungeon75Action extends BaseDungeonAction {
     @Override int campNpcX() { return 152; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
     @Override int[] exitNpcRows() { return new int[] {4, 4, 4}; }
+    @Override int[] exitPoint() { return new int[] {187, 27}; }
+    @Override int dungeonMapMaxX() { return 199; }
 
     @Override
     DungeonBattleAutomation.RouteDecision decide(int x, int y) {
