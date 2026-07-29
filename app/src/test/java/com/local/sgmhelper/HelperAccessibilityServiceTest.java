@@ -485,6 +485,15 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void detectsTheNoDungeonCountConfirmationWithoutMatchingNormalDialogText() {
+        assertTrue(DungeonBattleAutomation.isNoDungeonCountDialog(
+                "您已经没有此副本的次数：\n1.无法获得所有怪物的掉落\n是否要继续进行此副本？"));
+        assertTrue(DungeonBattleAutomation.isNoDungeonCountDialog("副本次数已用完"));
+        assertFalse(DungeonBattleAutomation.isNoDungeonCountDialog(
+                "详情告知 下一步 进入副本"));
+    }
+
+    @Test
     public void dungeonNpcDialogsFollowEveryWudangClickSequence() {
         assertArrayEquals(new int[] {3, 3},
                 BaseDungeonAction.forLevel(10).entryNpcRows());
@@ -577,6 +586,12 @@ public final class HelperAccessibilityServiceTest {
         int tapY = (rows.get(0).bounds.top + rows.get(0).bounds.bottom) / 2;
         assertTrue(tapY >= 262 && tapY <= 295);
 
+        // OCR 常把“剩余时间”和“敌人/寻路”并成一行，它在表头上方，不能当成敌人行。
+        OcrLine chrome = new OcrLine(
+                "利全时问 08·54 敌人 寻路", testRect(966, 136, 1160, 166), 0.9f);
+        assertTrue(DungeonBattleAutomation.readEnemyRows(
+                Arrays.asList(chrome, header)).isEmpty());
+
         // 没有表头就说明面板没开，不要瞎猜坐标。
         assertTrue(DungeonBattleAutomation.readEnemyRows(
                 Arrays.asList(progress, bag, skill)).isEmpty());
@@ -637,6 +652,31 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(part5.exit);
         assertEquals(22, part5.targetX);
         assertTrue(Dungeon20Action.decideRoute(31).exit);
+    }
+
+    @Test
+    public void retriesEveryLevel20And30GateWithTheWudangOffsets() {
+        int[][] level20Gates = {{485, 480, 27}, {400, 350, 27}, {215, 211, 27}};
+        for (int[] gate : level20Gates) {
+            Dungeon20Action dungeon = new Dungeon20Action();
+            assertGateOffsets(gate, call -> dungeon.decide(gate[0], 27));
+        }
+
+        int[][] level30Gates = {{470, 458, 4}, {320, 304, 27}, {180, 174, 4}};
+        for (int[] gate : level30Gates) {
+            Dungeon30Action dungeon = new Dungeon30Action();
+            assertGateOffsets(gate, call -> dungeon.decideRoute(gate[0]));
+        }
+    }
+
+    private static void assertGateOffsets(
+            int[] gate, java.util.function.IntFunction<DungeonBattleAutomation.RouteDecision> next) {
+        int[][] offsets = {{0, 0}, {2, 2}, {-2, -2}, {0, 0}};
+        for (int index = 0; index < offsets.length; index++) {
+            DungeonBattleAutomation.RouteDecision decision = next.apply(index);
+            assertEquals(gate[1] + offsets[index][0], decision.targetX);
+            assertEquals(gate[2] + offsets[index][1], decision.targetY);
+        }
     }
 
     @Test

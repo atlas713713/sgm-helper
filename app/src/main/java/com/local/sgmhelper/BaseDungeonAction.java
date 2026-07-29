@@ -6,6 +6,8 @@ import java.util.concurrent.ThreadLocalRandom;
 abstract class BaseDungeonAction {
     /** 武当 80 级以上副本 toLeft/toRight 的固定步长。 */
     private static final int HIGH_LEVEL_STEP = 30;
+    private int lastGateX = -1;
+    private int gateAttempt;
 
     abstract int level();
 
@@ -170,6 +172,28 @@ abstract class BaseDungeonAction {
 
     protected static boolean isNear(int x, int y, int targetX, int targetY) {
         return Math.abs(x - targetX) <= 3 && Math.abs(y - targetY) <= 3;
+    }
+
+    /**
+     * 武当 LocationUtil.A 的门点重试计数：停在同一坐标才推进偏移，
+     * 一旦人物继续移动或离开门区就从门点中心重新开始。
+     */
+    protected final int nextWudangGateAttempt(int currentX, boolean atGate) {
+        if (!atGate) {
+            lastGateX = -1;
+            gateAttempt = 0;
+            return 0;
+        }
+        gateAttempt = currentX == lastGateX ? gateAttempt + 1 : 0;
+        lastGateX = currentX;
+        return gateAttempt;
+    }
+
+    /** 武当门点顺序：中心、(+2,+2)、(-2,-2)、中心，然后循环。 */
+    protected static int[] wudangGate(int x, int y, int attempt) {
+        int phase = Math.floorMod(attempt, 4);
+        int offset = phase == 1 ? 2 : phase == 2 ? -2 : 0;
+        return new int[] {x + offset, y + offset};
     }
 
     private static int randomGuideStep() {

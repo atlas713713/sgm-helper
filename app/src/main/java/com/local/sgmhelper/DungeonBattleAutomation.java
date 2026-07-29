@@ -28,6 +28,10 @@ final class DungeonBattleAutomation {
     private static final int NPC_TITLE_TOP = 195;
     private static final int NPC_TITLE_RIGHT = 390;
     private static final int NPC_TITLE_BOTTOM = 245;
+    private static final int NPC_BODY_LEFT = 95;
+    private static final int NPC_BODY_TOP = 245;
+    private static final int NPC_BODY_RIGHT = 410;
+    private static final int NPC_BODY_BOTTOM = 540;
     private static final int NPC_OPTION_X = 251;
     private static final int NPC_OPTION_4_X = 176;
     private static final int[] NPC_OPTION_Y = {0, 450, 512, 574, 636};
@@ -52,6 +56,7 @@ final class DungeonBattleAutomation {
     private static final int ROUTE_MAX_CHECKS = 30;
     private static final int ROUTE_RETRY_INTERVAL = 5;
     private static final int ROUTE_TOLERANCE = 3;
+    private static final int CAMP_NPC_TOLERANCE = 5;
     private static final long MAP_WAIT_MS = 5_000;
     private static final long FIGHT_CHECK_MS = 4_000;
 
@@ -61,6 +66,7 @@ final class DungeonBattleAutomation {
     private int lastX = -1;
     private int samePositionCount;
     private int routeChecks;
+    private int noCountAttempts;
 
     DungeonBattleAutomation(AutomationHost host) {
         this.host = host;
@@ -103,6 +109,7 @@ final class DungeonBattleAutomation {
 
     private void begin() {
         currentIndex = 0;
+        noCountAttempts = 0;
         returnHomeForDungeon();
     }
 
@@ -116,7 +123,9 @@ final class DungeonBattleAutomation {
         host.showProgress(dungeonTitle() + "：识别回城地点");
         host.recognizeMapName(mapName -> {
             String normalized = mapName == null ? "" : mapName.replaceAll("\\s", "");
-            if (!normalized.isEmpty()) {
+            if (isPalaceMap(normalized, currentDungeon().dungeonType())) {
+                gotoCampNpc();
+            } else if (!normalized.isEmpty()) {
                 gotoPalaceGuide(normalized);
             } else if (remainingAttempts > 1) {
                 host.postDelayed(() -> readHomeCity(remainingAttempts - 1), 1_000);
@@ -173,10 +182,9 @@ final class DungeonBattleAutomation {
     }
 
     private void waitForPalace(int remainingAttempts) {
-        String palaceType = currentDungeon().dungeonType() == 2 ? "精英" : "一般";
         host.recognizeMapName(mapName -> {
             String normalized = mapName == null ? "" : mapName.replaceAll("\\s", "");
-            if (normalized.contains("副本宫殿") && normalized.contains(palaceType)) {
+            if (isPalaceMap(normalized, currentDungeon().dungeonType())) {
                 gotoCampNpc();
             } else if (remainingAttempts > 1) {
                 host.postDelayed(() -> waitForPalace(remainingAttempts - 1), 1_000);
@@ -212,7 +220,7 @@ final class DungeonBattleAutomation {
         int targetX = currentDungeon().campNpcX();
         int targetY = currentDungeon().campNpcY();
         host.recognizeMapCoordinate(value -> {
-            if (isAtCoordinate(value, targetX, targetY)) {
+            if (isAtCoordinate(value, targetX, targetY, CAMP_NPC_TOLERANCE)) {
                 openCampNpc();
                 return;
             }
@@ -274,7 +282,28 @@ final class DungeonBattleAutomation {
         host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
                 () -> talkToNpc(currentDungeon().entryNpcName(),
                         currentDungeon().entryNpcButtons(),
-                        currentDungeon().entryNpcRows(), this::waitForDungeon));
+                        currentDungeon().entryNpcRows(),
+                        () -> host.postDelayed(this::checkNoDungeonCount, 1_000)));
+    }
+
+    /** 武当 STEP_NO_COUNT：退出后重试一次，仍无次数就跳过当前副本。 */
+    private void checkNoDungeonCount() {
+        host.recognizeTextRegion(
+                NPC_BODY_LEFT, NPC_BODY_TOP, NPC_BODY_RIGHT, NPC_BODY_BOTTOM,
+                text -> {
+                    String recognized = text == null ? "" : text.getText();
+                    DiagnosticLog.info("Dungeon", "entry result OCR: " + recognized);
+                    if (!isNoDungeonCountDialog(recognized)) {
+                        waitForDungeon();
+                        return;
+                    }
+                    noCountAttempts++;
+                    host.showProgress(dungeonTitle() + "：没有副本次数"
+                            + (noCountAttempts == 1 ? "，重新确认一次" : "，跳过"));
+                    host.tap(npcOptionX(4), npcOptionY(4), () -> host.postDelayed(
+                            noCountAttempts == 1 ? this::gotoEntryNpc : this::finishCurrent,
+                            1_000));
+                });
     }
 
     /**
@@ -515,6 +544,7 @@ final class DungeonBattleAutomation {
 
     private void finishCurrent() {
         currentIndex++;
+        noCountAttempts = 0;
         if (currentIndex < selectedDungeons.size()) {
             host.postDelayed(this::returnHomeForDungeon, MAP_WAIT_MS);
         } else {
@@ -550,10 +580,20 @@ final class DungeonBattleAutomation {
 
 
     static boolean isAtCoordinate(String coordinateText, int targetX, int targetY) {
+        return isAtCoordinate(coordinateText, targetX, targetY, ROUTE_TOLERANCE);
+    }
+
+    static boolean isAtCoordinate(String coordinateText, int targetX, int targetY, int tolerance) {
         int[] coordinate = BossAutomation.parseMapCoordinate(coordinateText);
         return coordinate != null
-                && Math.abs(coordinate[0] - targetX) <= ROUTE_TOLERANCE
-                && Math.abs(coordinate[1] - targetY) <= ROUTE_TOLERANCE;
+                && Math.abs(coordinate[0] - targetX) <= tolerance
+                && Math.abs(coordinate[1] - targetY) <= tolerance;
+    }
+
+    static boolean isPalaceMap(String mapName, int dungeonType) {
+        String normalized = mapName == null ? "" : mapName.replaceAll("\\s", "");
+        return normalized.contains("副本宫殿")
+                && normalized.contains(dungeonType == 2 ? "精英" : "一般");
     }
 
     static int npcOptionY(int row) {
@@ -578,6 +618,13 @@ final class DungeonBattleAutomation {
             }
         }
         return false;
+    }
+
+    static boolean isNoDungeonCountDialog(String recognized) {
+        String value = normalizeDialogText(recognized);
+        return value.contains("没有此副本的次数")
+                || value.contains("没有副本的次数")
+                || value.contains("副本次数已用完");
     }
 
     private static String normalizeDialogText(String value) {
@@ -729,6 +776,16 @@ final class DungeonBattleAutomation {
             bounds.bottom = bottom;
             rows.add(new EnemyRow(level, label.toString(), bounds));
         }
+    }
+
+    static boolean isGuideChromeText(String text) {
+        String normalized = text == null ? "" : text.replaceAll("\\s", "");
+        return normalized.equals("敌人")
+                || normalized.equals("寻路")
+                || normalized.contains("全部怪物")
+                || normalized.contains("寻路")
+                || (normalized.contains("时")
+                        && (normalized.contains("间") || normalized.contains("问")));
     }
 
     private static int rectCenterY(Rect bounds) {

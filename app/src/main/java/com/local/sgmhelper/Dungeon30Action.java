@@ -27,14 +27,18 @@ final class Dungeon30Action extends BaseDungeonAction {
     }
 
     DungeonBattleAutomation.RouteDecision decideRoute(int x) {
+        boolean atGate = (x >= 451 && x < 510)
+                || (x >= 301 && x < 350)
+                || (x >= 151 && x < 205);
+        int gateAttempt = nextWudangGateAttempt(x, atGate);
         if (x >= 451) {
-            return part0(x);
+            return part0(x, gateAttempt);
         }
         if (x >= 301) {
-            return part1(x);
+            return part1(x, gateAttempt);
         }
         if (x >= 151) {
-            return part2(x);
+            return part2(x, gateAttempt);
         }
         if (x >= 33) {
             return part3(x);
@@ -43,7 +47,7 @@ final class Dungeon30Action extends BaseDungeonAction {
     }
 
     /** part0（599..451）：570 → 500 → part1 门点 (458,4)。 */
-    private DungeonBattleAutomation.RouteDecision part0(int x) {
+    private DungeonBattleAutomation.RouteDecision part0(int x, int gateAttempt) {
         if (x >= 580) {
             return DungeonBattleAutomation.RouteDecision.search(570, 27, 570, true, 30);
         }
@@ -55,11 +59,13 @@ final class Dungeon30Action extends BaseDungeonAction {
             }
             return DungeonBattleAutomation.RouteDecision.search(500, 27, 570, true, 30);
         }
-        return DungeonBattleAutomation.RouteDecision.search(458, 4, 570, true, 30);
+        int[] gate = wudangGate(458, 4, gateAttempt);
+        return DungeonBattleAutomation.RouteDecision.search(
+                gate[0], gate[1], 570, true, 30);
     }
 
     /** part1（448..301）：410 → 340 → part2 门点 (304,27)。 */
-    private DungeonBattleAutomation.RouteDecision part1(int x) {
+    private DungeonBattleAutomation.RouteDecision part1(int x, int gateAttempt) {
         if (x >= 420) {
             return DungeonBattleAutomation.RouteDecision.search(410, 25, 430, true, 30);
         }
@@ -71,11 +77,13 @@ final class Dungeon30Action extends BaseDungeonAction {
             }
             return DungeonBattleAutomation.RouteDecision.search(340, 25, 430, true, 30);
         }
-        return DungeonBattleAutomation.RouteDecision.search(304, 27, 430, true, 30);
+        int[] gate = wudangGate(304, 27, gateAttempt);
+        return DungeonBattleAutomation.RouteDecision.search(
+                gate[0], gate[1], 430, true, 30);
     }
 
     /** part2（297..151）：只找副本 BOSS，235 → 195 → part3 门点 (174,4)。 */
-    private DungeonBattleAutomation.RouteDecision part2(int x) {
+    private DungeonBattleAutomation.RouteDecision part2(int x, int gateAttempt) {
         if (x >= 245) {
             return DungeonBattleAutomation.RouteDecision.searchNamed(
                     235, 25, 0, List.of("董军阵旗"), null);
@@ -84,8 +92,9 @@ final class Dungeon30Action extends BaseDungeonAction {
             return DungeonBattleAutomation.RouteDecision.searchNamed(
                     195, 25, 0, List.of("董军阵旗"), null);
         }
+        int[] gate = wudangGate(174, 4, gateAttempt);
         return DungeonBattleAutomation.RouteDecision.searchNamed(
-                174, 4, 0, List.of("董军阵旗"), null);
+                gate[0], gate[1], 0, List.of("董军阵旗"), null);
     }
 
     /** part3（148..33）：85 → 45 → 出口点 (24,27)。 */
