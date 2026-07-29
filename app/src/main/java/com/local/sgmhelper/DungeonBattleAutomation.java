@@ -37,10 +37,16 @@ final class DungeonBattleAutomation {
     private static final int NPC_ROW_TOLERANCE = 26;
     private static final int GUIDE_ENEMY_X = 1025;
     private static final int GUIDE_ENEMY_Y = 160;
-    private static final int[] GUIDE_UP_ENEMY_CENTERS = {151, 206, 261, 316, 371};
-    private static final int[] GUIDE_DOWN_ENEMY_CENTERS = {294, 349, 404};
     private static final int GUIDE_ROW_LEFT = 950;
-    private static final int GUIDE_ROW_RIGHT = 1235;
+    private static final int GUIDE_ROW_RIGHT = 1245;
+    /** 引路面板列表的表头，用来定位敌人行从哪里开始。 */
+    private static final String GUIDE_HEADER = "全部";
+    /** 列表下边界：再往下是“辅助开关/循环开关/自动”和技能栏，那里的数字不是敌人等级。 */
+    private static final int GUIDE_LIST_BOTTOM = 440;
+    /** 同一行里 OCR 行中心的最大间距。 */
+    private static final int GUIDE_ROW_GAP = 26;
+    /** 等级数字只出现在行的左侧。 */
+    private static final int GUIDE_LEVEL_RIGHT = 1015;
     private static final int ROUTE_MAX_CHECKS = 30;
     private static final int ROUTE_RETRY_INTERVAL = 5;
     private static final int ROUTE_TOLERANCE = 3;
@@ -381,7 +387,7 @@ final class DungeonBattleAutomation {
         host.showProgress(currentLevel() + "级副本：搜索 " + decision.enemyDescription());
         host.recognizeDungeonText(lines -> {
             EnemyRow enemy = selectEnemyRow(
-                    readEnemyRows(lines, currentDungeon().usesGuideUp()), decision.enemyLevels,
+                    readEnemyRows(lines), decision.enemyLevels,
                     decision.priorityEnemyNames, decision.protectName,
                     decision.acceptAnyEnemy);
             if (enemy == null) {
@@ -620,37 +626,90 @@ final class DungeonBattleAutomation {
         return null;
     }
 
-    static List<EnemyRow> readEnemyRows(List<OcrLine> lines, boolean guideUp) {
-        List<EnemyRow> rows = new ArrayList<>();
-        int[] centers = guideUp ? GUIDE_UP_ENEMY_CENTERS : GUIDE_DOWN_ENEMY_CENTERS;
-        for (int centerY : centers) {
-            StringBuilder label = new StringBuilder();
-            Integer level = null;
-            for (OcrLine line : lines) {
-                Rect bounds = line.bounds;
-                if (bounds == null || bounds.left < GUIDE_ROW_LEFT
-                        || bounds.right > GUIDE_ROW_RIGHT
-                        || rectCenterY(bounds) < centerY - 20
-                        || rectCenterY(bounds) > centerY + 22) {
-                    continue;
-                }
-                if (label.length() > 0) {
-                    label.append(' ');
-                }
-                label.append(line.text);
-                if (bounds.left < 1015) {
-                    Integer parsed = firstInteger(line.text);
-                    if (parsed != null) {
-                        level = parsed;
-                    }
-                }
+    /**
+     * 以“全部怪物”表头为锚点读敌人行。原来按写死的行中心（151/206/261…）匹配，
+     * 实测这一版游戏第一行在 y≈279，整条阶梯差了 120 多像素，所以经常一个敌人都读不到，
+     * 只会一直走门点。表头是引路面板里稳定存在的一行，锚在它下面就不用再关心
+     * 面板停在上面还是下面。
+     */
+    static List<EnemyRow> readEnemyRows(List<OcrLine> lines) {
+        List<OcrLine> panel = new ArrayList<>();
+        int listTop = 0;
+        for (OcrLine line : lines) {
+            Rect bounds = line.bounds;
+            if (bounds == null || bounds.left < GUIDE_ROW_LEFT
+                    || bounds.right > GUIDE_ROW_RIGHT) {
+                continue;
             }
-            if (label.length() > 0) {
-                rows.add(new EnemyRow(level, label.toString(),
-                        new Rect(960, centerY - 20, 1233, centerY + 20)));
+            if (line.text.contains(GUIDE_HEADER)) {
+                listTop = Math.max(listTop, bounds.bottom);
+            }
+            panel.add(line);
+        }
+        if (listTop == 0) {
+            // 没读到表头就当作没开引路面板，不猜坐标。
+            return Collections.emptyList();
+        }
+        List<OcrLine> listLines = new ArrayList<>();
+        for (OcrLine line : panel) {
+            int centerY = rectCenterY(line.bounds);
+            if (centerY > listTop && centerY <= GUIDE_LIST_BOTTOM) {
+                listLines.add(line);
             }
         }
+        listLines.sort((left, right) ->
+                Integer.compare(rectCenterY(left.bounds), rectCenterY(right.bounds)));
+
+        List<EnemyRow> rows = new ArrayList<>();
+        List<OcrLine> current = new ArrayList<>();
+        for (OcrLine line : listLines) {
+            if (!current.isEmpty() && rectCenterY(line.bounds)
+                    - rectCenterY(current.get(0).bounds) > GUIDE_ROW_GAP) {
+                addEnemyRow(rows, current);
+                current = new ArrayList<>();
+            }
+            current.add(line);
+        }
+        addEnemyRow(rows, current);
         return rows;
+    }
+
+    /** 一行必须带等级数字，否则就是表头、开关之类的其它文字。 */
+    private static void addEnemyRow(List<EnemyRow> rows, List<OcrLine> lineGroup) {
+        if (lineGroup.isEmpty()) {
+            return;
+        }
+        StringBuilder label = new StringBuilder();
+        Integer level = null;
+        int left = Integer.MAX_VALUE;
+        int top = Integer.MAX_VALUE;
+        int right = Integer.MIN_VALUE;
+        int bottom = Integer.MIN_VALUE;
+        for (OcrLine line : lineGroup) {
+            if (label.length() > 0) {
+                label.append(' ');
+            }
+            label.append(line.text);
+            left = Math.min(left, line.bounds.left);
+            top = Math.min(top, line.bounds.top);
+            right = Math.max(right, line.bounds.right);
+            bottom = Math.max(bottom, line.bounds.bottom);
+            if (line.bounds.left < GUIDE_LEVEL_RIGHT) {
+                Integer parsed = firstInteger(line.text);
+                if (parsed != null) {
+                    level = parsed;
+                }
+            }
+        }
+        if (level != null) {
+            // 单元测试里的 android.jar 是桩，Rect(l,t,r,b) 构造器不写字段，只能逐个赋值。
+            Rect bounds = new Rect();
+            bounds.left = left;
+            bounds.top = top;
+            bounds.right = right;
+            bounds.bottom = bottom;
+            rows.add(new EnemyRow(level, label.toString(), bounds));
+        }
     }
 
     private static int rectCenterY(Rect bounds) {

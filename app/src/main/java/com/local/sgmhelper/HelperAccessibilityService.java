@@ -97,11 +97,16 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_DUNGEON_ENABLED = "dungeon_enabled";
     static final String PREF_START_TRAINING_ON_LAUNCH = "start_training";
     static final String PREF_AUTO_SELL_ENABLED = "auto_sell_enabled";
+    /** 默认开启；读取点有好几处，用常量保证不会各写各的默认值。 */
+    static final boolean DEFAULT_AUTO_SELL_ENABLED = true;
     static final String PREF_AUTO_SELL_MIN_FREE_SLOTS = "auto_sell_min_free_slots";
     static final String PREF_PRIMARY_TASK = "primary_task";
     static final String PREF_MANUALLY_STOPPED = "manually_stopped";
     private static final String PREF_DUNGEON_BATTLE_MODE = "dungeon_battle_mode";
     static final String PREF_SOLDIER_REVIVAL_ENABLED = "soldier_revival_before_training";
+    static final boolean DEFAULT_SOLDIER_REVIVAL_ENABLED = true;
+    private final SharedPreferences.OnSharedPreferenceChangeListener settingsBackupListener =
+            (preferences, key) -> SettingsBackup.export(this);
     static final String PREF_BOSS_FOLLOW_LEADER = "boss_follow_leader";
     static final String PREF_WORLD_BOSS_MAP = "world_boss_map";
     static final String PREF_WORLD_BOSS_TARGET = "world_boss_target";
@@ -188,6 +193,10 @@ public final class HelperAccessibilityService extends AccessibilityService
         super.onServiceConnected();
         instance = this;
         DiagnosticLog.info("SERVICE", "accessibility service connected");
+        SettingsBackup.restoreIfEmpty(this);
+        // 一个监听器覆盖所有设置项，改哪一项都会重新导出，不用在每个写入点加代码。
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .registerOnSharedPreferenceChangeListener(settingsBackupListener);
         restorePrimaryTask();
         showOverlay();
         WorshipAlarmReceiver.scheduleAll(this);
@@ -501,7 +510,7 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void startTrainingWithOptionalRevival() {
         if (getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .getBoolean(PREF_SOLDIER_REVIVAL_ENABLED, false)) {
+                .getBoolean(PREF_SOLDIER_REVIVAL_ENABLED, DEFAULT_SOLDIER_REVIVAL_ENABLED)) {
             soldierRevivalAutomation.run(trainingAutomation::start);
         } else {
             trainingAutomation.start();
@@ -1133,7 +1142,8 @@ public final class HelperAccessibilityService extends AccessibilityService
                 .putBoolean(PREF_START_TRAINING_ON_LAUNCH, checked)
                 .apply());
 
-        boolean sellEnabled = preferences.getBoolean(PREF_AUTO_SELL_ENABLED, false);
+        boolean sellEnabled = preferences.getBoolean(
+                PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED);
         CheckBox autoSell = addSettingsCheckBox(menu, R.string.training_auto_sell, sellEnabled);
 
         LinearLayout slotsWrap = new LinearLayout(this);
@@ -1160,7 +1170,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         });
 
         CheckBox autoRevival = addSettingsCheckBox(menu, R.string.soldier_revival_auto,
-                preferences.getBoolean(PREF_SOLDIER_REVIVAL_ENABLED, false));
+                preferences.getBoolean(
+                        PREF_SOLDIER_REVIVAL_ENABLED, DEFAULT_SOLDIER_REVIVAL_ENABLED));
         autoRevival.setOnCheckedChangeListener((button, checked) -> preferences.edit()
                 .putBoolean(PREF_SOLDIER_REVIVAL_ENABLED, checked)
                 .apply());
@@ -1496,7 +1507,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public void checkInventoryBeforePrimary(Runnable next) {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        boolean enabled = preferences.getBoolean(PREF_AUTO_SELL_ENABLED, false);
+        boolean enabled = preferences.getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED);
         if (!shouldCheckInventoryBeforePrimary(enabled, primaryTask)) {
             next.run();
             return;
@@ -2991,7 +3002,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         stopInventoryMonitoring();
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         if (!inventorySelling && taskState == STATE_RUNNING
-                && preferences.getBoolean(PREF_AUTO_SELL_ENABLED, false)
+                && preferences.getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED)
                 && (primaryTask == PrimaryTask.TRAINING || primaryTask == PrimaryTask.BOSS)) {
             inventoryHandler.postDelayed(this::checkInventory, INVENTORY_CHECK_INTERVAL_MS);
         }
@@ -3026,7 +3037,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private boolean canCheckInventory() {
         if (inventorySelling || taskState != STATE_RUNNING
                 || !getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                        .getBoolean(PREF_AUTO_SELL_ENABLED, false)) {
+                        .getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED)) {
             return false;
         }
         if (primaryTask == PrimaryTask.TRAINING) {

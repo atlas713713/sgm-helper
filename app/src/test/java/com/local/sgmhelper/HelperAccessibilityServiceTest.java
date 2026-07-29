@@ -290,6 +290,12 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void soldierRevivalAndAutoSellDefaultToChecked() {
+        assertTrue(HelperAccessibilityService.DEFAULT_SOLDIER_REVIVAL_ENABLED);
+        assertTrue(HelperAccessibilityService.DEFAULT_AUTO_SELL_ENABLED);
+    }
+
+    @Test
     public void createsOneWudangStyleActionClassPerDungeon() {
         assertTrue(BaseDungeonAction.forLevel(10) instanceof Dungeon10Action);
         assertTrue(BaseDungeonAction.forLevel(20) instanceof Dungeon20Action);
@@ -519,32 +525,30 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void dungeonEnemyOcrUsesOnlyTheFixedWudangGuideRows() {
-        android.graphics.Rect upBounds = testRect(966, 136, 1160, 166);
-        android.graphics.Rect downBounds = testRect(966, 279, 1160, 309);
-        android.graphics.Rect progressBounds = testRect(780, 351, 1100, 391);
-        OcrLine upEnemy = new OcrLine(
-                "10级 黄巾兵", upBounds, 0.9f);
-        OcrLine downEnemy = new OcrLine(
-                "20级 羽林军", downBounds, 0.9f);
-        OcrLine progress = new OcrLine(
-                "副本进度10·42", progressBounds, 0.9f);
+    public void dungeonEnemyOcrAnchorsOnTheGuideHeaderNotFixedRows() {
+        // 坐标取自 1280x720 真机截图：表头 210..245，第一行 260..297。
+        OcrLine header = new OcrLine("全部怪物", testRect(1000, 210, 1100, 245), 0.9f);
+        OcrLine level = new OcrLine("27", testRect(965, 262, 995, 295), 0.9f);
+        OcrLine name = new OcrLine("凉州力士", testRect(1010, 262, 1140, 295), 0.9f);
+        OcrLine second = new OcrLine("30 凉州副将", testRect(965, 317, 1140, 350), 0.9f);
+        // 面板外的数字：背包 76/91 在 y≈137，技能栏在 y≈560，副本进度在左上角。
+        OcrLine bag = new OcrLine("76/91", testRect(1100, 122, 1160, 152), 0.9f);
+        OcrLine skill = new OcrLine("10", testRect(1000, 550, 1030, 580), 0.9f);
+        OcrLine progress = new OcrLine("副本进度10·42", testRect(780, 12, 1100, 42), 0.9f);
 
-        List<DungeonBattleAutomation.EnemyRow> upRows =
-                DungeonBattleAutomation.readEnemyRows(
-                        Arrays.asList(upEnemy, downEnemy, progress), true);
-        assertEquals(1, upRows.size());
-        assertEquals(Integer.valueOf(10), upRows.get(0).level);
+        List<DungeonBattleAutomation.EnemyRow> rows = DungeonBattleAutomation.readEnemyRows(
+                Arrays.asList(progress, bag, header, name, level, second, skill));
+        assertEquals(2, rows.size());
+        assertEquals(Integer.valueOf(27), rows.get(0).level);
+        assertTrue(rows.get(0).label.contains("凉州力士"));
+        assertEquals(Integer.valueOf(30), rows.get(1).level);
+        // 点击点必须落在这一行上。
+        int tapY = (rows.get(0).bounds.top + rows.get(0).bounds.bottom) / 2;
+        assertTrue(tapY >= 262 && tapY <= 295);
 
-        List<DungeonBattleAutomation.EnemyRow> downRows =
-                DungeonBattleAutomation.readEnemyRows(
-                        Arrays.asList(upEnemy, downEnemy, progress), false);
-        assertEquals(1, downRows.size());
-        assertEquals(Integer.valueOf(20), downRows.get(0).level);
-
-        assertTrue(BaseDungeonAction.forLevel(10).usesGuideUp());
-        assertFalse(BaseDungeonAction.forLevel(40).usesGuideUp());
-        assertTrue(BaseDungeonAction.forLevel(75).usesGuideUp());
+        // 没有表头就说明面板没开，不要瞎猜坐标。
+        assertTrue(DungeonBattleAutomation.readEnemyRows(
+                Arrays.asList(progress, bag, skill)).isEmpty());
     }
 
     private static android.graphics.Rect testRect(int left, int top, int right, int bottom) {

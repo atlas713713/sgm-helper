@@ -52,10 +52,6 @@ abstract class BaseDungeonAction {
         return 16;
     }
 
-    boolean usesGuideUp() {
-        return level() <= 30 || level() == 65 || level() >= 70;
-    }
-
     /** 副本地图宽度：武当的 `mapType`。 */
     int dungeonMapMaxX() {
         return 599;
