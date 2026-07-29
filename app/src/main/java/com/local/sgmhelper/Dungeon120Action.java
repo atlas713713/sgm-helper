@@ -15,10 +15,10 @@ final class Dungeon120Action extends BaseDungeonAction {
     private boolean firstBand90 = true;
 
     @Override int level() { return 120; }
-    @Override String dungeonName() { return null; }
-    @Override String entryNpcName() { return null; }
-    @Override String exitNpcName() { return null; }
-    @Override String campName() { return "120级副本驻地"; }
+    @Override String dungeonName() { return "汉中之战"; }
+    @Override String entryNpcName() { return "黄权"; }
+    @Override String exitNpcName() { return "黄权"; }
+    @Override String campName() { return "汉中大营"; }
     @Override int campNpcX() { return 232; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
     @Override int[] exitNpcRows() { return new int[] {4, 4}; }

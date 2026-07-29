@@ -2,7 +2,9 @@ package com.local.sgmhelper;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertArrayEquals;
 
@@ -336,10 +338,8 @@ public final class HelperAccessibilityServiceTest {
 
     @Test
     public void highLevelDungeonsClickDialogButtonsByTextInsteadOfFixedRows() {
-        // 80 级以上没有副本名/NPC 名可 OCR，改成按武当的按钮文字找行。
+        // 80 级以上按武当的按钮文字找行，但 NPC 名字照样要 OCR 校验。
         BaseDungeonAction level80 = BaseDungeonAction.forLevel(80);
-        assertNull(level80.dungeonName());
-        assertNull(level80.entryNpcName());
         assertArrayEquals(new String[] {"随时可以出击", "进入"}, level80.entryNpcButtons());
         assertArrayEquals(new String[] {"收下奖赏"}, level80.exitNpcButtons());
         assertArrayEquals(new String[] {"下一步", "收下战利品"},
@@ -347,6 +347,37 @@ public final class HelperAccessibilityServiceTest {
         // 10–75 继续用已经验证过的固定行号。
         assertNull(BaseDungeonAction.forLevel(10).entryNpcButtons());
         assertEquals("邹靖", BaseDungeonAction.forLevel(10).entryNpcName());
+    }
+
+    @Test
+    public void everyDungeonHasTheWudangNameAndNpcsFromTheApkConfig() {
+        // res/values/arrays.xml 的 dungeon_list_cn：80 级以上的副本名并不是读不到的，
+        // 所以这些副本也能在点固定行/按钮前先 OCR 校验对话框标题。
+        String[][] config = {
+            {"80", "火烧博望坡", "博望营寨", "李典", "李典"},
+            {"90", "血战长坂坡", "当阳营寨", "诸葛亮", "诸葛亮"},
+            {"105", "逍遥津之战", "合肥城中", "乐进", "乐进"},
+            {"120", "汉中之战", "汉中大营", "黄权", "黄权"},
+            {"135", "麦城之战", "荆州东部", "陆逊", "陆逊"},
+            {"150", "罗马竞技场", "场外广场", "克利安德", "克利安德"},
+            {"165", "高句丽入侵", "北平城门", "司马懿", "司马懿"},
+        };
+        for (String[] entry : config) {
+            BaseDungeonAction dungeon =
+                    BaseDungeonAction.forLevel(Integer.parseInt(entry[0]));
+            assertEquals(entry[1], dungeon.dungeonName());
+            assertEquals(entry[2], dungeon.campName());
+            assertEquals(entry[3], dungeon.entryNpcName());
+            assertEquals(entry[4], dungeon.exitNpcName());
+        }
+        for (int level : DungeonBattleAutomation.LEVELS) {
+            assertNotNull("缺少副本名：" + level,
+                    BaseDungeonAction.forLevel(level).dungeonName());
+            assertNotNull("缺少入口 NPC：" + level,
+                    BaseDungeonAction.forLevel(level).entryNpcName());
+            assertNotNull("缺少出口 NPC：" + level,
+                    BaseDungeonAction.forLevel(level).exitNpcName());
+        }
     }
 
     @Test
@@ -762,6 +793,60 @@ public final class HelperAccessibilityServiceTest {
         assertArrayEquals(new int[] {410, 4}, gate[2]);
         assertEquals(538, Dungeon65Action.decideRoute(500).targetX);
         assertTrue(Dungeon65Action.decideRoute(550).exit);
+    }
+
+    @Test
+    public void reproducesTheWudangEliteDungeonEntries() {
+        // dungeon_pro_list_cn 的 id 2060/2065/2070/2075 + DungeonUtil.h 的 type 2 宫殿入口。
+        int[][] palace = {{60, 26}, {65, 41}, {70, 57}, {75, 73}};
+        for (int[] entry : palace) {
+            BaseDungeonAction elite = BaseDungeonAction.forElite(entry[0]);
+            assertEquals(2, elite.dungeonType());
+            assertEquals(entry[1], elite.campNpcX());
+            // 精英副本的宫殿入口 y 是 20，一般副本是 16。
+            assertEquals(20, elite.campNpcY());
+            assertEquals(16, BaseDungeonAction.forLevel(entry[0]).campNpcY());
+            assertEquals(1, BaseDungeonAction.forLevel(entry[0]).dungeonType());
+        }
+        assertEquals("精英盘河桥西", BaseDungeonAction.forElite(60).campName());
+        assertEquals("精英虎牢关近郊", BaseDungeonAction.forElite(65).campName());
+        assertEquals("精英安邑郊外", BaseDungeonAction.forElite(70).campName());
+        // 75 级精英的驻地是“濮阳城内”，不是一般副本的“濮阳城外”。
+        assertEquals("精英濮阳城内", BaseDungeonAction.forElite(75).campName());
+        assertEquals("濮阳城外", BaseDungeonAction.forLevel(75).campName());
+
+        // 入口/出口 NPC、驻地内 NPC 坐标、地图宽度都沿用一般副本。
+        assertEquals("说书人", BaseDungeonAction.forElite(60).entryNpcName());
+        assertEquals("公孙瓒", BaseDungeonAction.forElite(60).exitNpcName());
+        assertEquals(102, BaseDungeonAction.forElite(60).entryNpcX());
+        assertEquals(17, BaseDungeonAction.forElite(70).entryNpcY());
+        assertEquals(199, BaseDungeonAction.forElite(75).dungeonMapMaxX());
+        assertArrayEquals(new int[] {4, 4, 4}, BaseDungeonAction.forElite(75).exitNpcRows());
+    }
+
+    @Test
+    public void eliteDungeonsReuseTheirGeneralRoutesExceptTheLevel65EnemyLevel() {
+        // 武当 Dungeon60/70/75Action 不看副本类型，路线完全相同。
+        assertArrayEquals(new int[] {486, 27}, BaseDungeonAction.forElite(60).exitPoint());
+        assertEquals(115, BaseDungeonAction.forElite(70).decide(80, 27).targetX);
+        assertEquals(73, BaseDungeonAction.forElite(75).decide(50, 27).targetX);
+        assertTrue(BaseDungeonAction.forElite(75).decide(187, 27).exit);
+
+        // Dungeon65Action：priorityEnemyLevels 一般 64、精英 68。
+        assertEquals(Arrays.asList(64),
+                BaseDungeonAction.forLevel(65).decide(150, 27).enemyLevels);
+        assertEquals(Arrays.asList(68),
+                BaseDungeonAction.forElite(65).decide(150, 27).enemyLevels);
+        assertEquals(Arrays.asList(68),
+                BaseDungeonAction.forElite(65).decide(350, 25).enemyLevels);
+        assertEquals(245, BaseDungeonAction.forElite(65).decide(150, 27).targetX);
+    }
+
+    @Test
+    public void rejectsLevelsThatHaveNoEliteDungeon() {
+        assertThrows(IllegalArgumentException.class, () -> BaseDungeonAction.forElite(10));
+        assertThrows(IllegalArgumentException.class, () -> BaseDungeonAction.forElite(80));
+        assertArrayEquals(new int[] {60, 65, 70, 75}, DungeonBattleAutomation.ELITE_LEVELS);
     }
 
     @Test

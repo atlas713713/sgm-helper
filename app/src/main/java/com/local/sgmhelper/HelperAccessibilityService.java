@@ -103,6 +103,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_PRIMARY_TASK = "primary_task";
     static final String PREF_MANUALLY_STOPPED = "manually_stopped";
     private static final String PREF_DUNGEON_BATTLE_MODE = "dungeon_battle_mode";
+    private static final String PREF_DUNGEON_ELITE_MODE = "dungeon_elite_mode";
     static final String PREF_SOLDIER_REVIVAL_ENABLED = "soldier_revival_before_training";
     static final boolean DEFAULT_SOLDIER_REVIVAL_ENABLED = true;
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsBackupListener =
@@ -115,6 +116,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_WILDERNESS_RETRY_AT = "wilderness_retry_at";
     private static final String PREF_DUNGEON_SWEEP_LEVELS = "dungeon_sweep_levels";
     private static final String PREF_DUNGEON_BATTLE_LEVELS = "dungeon_battle_levels";
+    private static final String PREF_DUNGEON_ELITE_LEVELS = "dungeon_elite_levels";
     static final String PREF_TRAINING_LOCATION = "training_location";
     static final String PREF_TRAINING_WILDERNESS_ZONE = "training_wilderness_zone";
     static final String PREF_TRAINING_MONSTER = "training_monster";
@@ -240,8 +242,9 @@ public final class HelperAccessibilityService extends AccessibilityService
         return dispatchGesture(gesture, callback, handler);
     }
 
+    /** 幂等：悬浮球还在就直接返回。退出后 MainActivity 靠它把悬浮球叫回来。 */
     @SuppressLint("ClickableViewAccessibility")
-    private void showOverlay() {
+    void showOverlay() {
         if (bubbleView != null) {
             return;
         }
@@ -926,6 +929,9 @@ public final class HelperAccessibilityService extends AccessibilityService
         addDungeonSection(menu, preferences, R.string.dungeon_battle_section,
                 DungeonBattleAutomation.LEVELS, PREF_DUNGEON_BATTLE_LEVELS,
                 R.string.dungeon_start_battle, view -> startDungeonBattle());
+        addDungeonSection(menu, preferences, R.string.dungeon_elite_section,
+                DungeonBattleAutomation.ELITE_LEVELS, PREF_DUNGEON_ELITE_LEVELS,
+                R.string.dungeon_start_elite, view -> startDungeonElite());
         addDungeonSection(menu, preferences, R.string.dungeon_sweep_section,
                 DungeonSweepAutomation.LEVELS, PREF_DUNGEON_SWEEP_LEVELS,
                 R.string.dungeon_start_sweep, view -> startDungeonSweep(false));
@@ -3080,7 +3086,8 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void startDungeonSweep(boolean scheduled) {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        preferences.edit().putBoolean(PREF_DUNGEON_BATTLE_MODE, false).apply();
+        preferences.edit().putBoolean(PREF_DUNGEON_BATTLE_MODE, false)
+                .putBoolean(PREF_DUNGEON_ELITE_MODE, false).apply();
         List<Integer> levels = selectedDungeonLevels(preferences);
         if (scheduled) {
             dungeonSweepAutomation.startScheduled(levels);
@@ -3091,8 +3098,16 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void startDungeonBattle() {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        preferences.edit().putBoolean(PREF_DUNGEON_BATTLE_MODE, true).apply();
+        preferences.edit().putBoolean(PREF_DUNGEON_BATTLE_MODE, true)
+                .putBoolean(PREF_DUNGEON_ELITE_MODE, false).apply();
         dungeonBattleAutomation.start(selectedBattleLevels(preferences));
+    }
+
+    private void startDungeonElite() {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        preferences.edit().putBoolean(PREF_DUNGEON_BATTLE_MODE, true)
+                .putBoolean(PREF_DUNGEON_ELITE_MODE, true).apply();
+        dungeonBattleAutomation.startElite(selectedEliteLevels(preferences));
     }
 
     private static List<Integer> selectedBattleLevels(SharedPreferences preferences) {
@@ -3100,14 +3115,29 @@ public final class HelperAccessibilityService extends AccessibilityService
                 DungeonBattleAutomation.LEVELS);
     }
 
+    private static List<Integer> selectedEliteLevels(SharedPreferences preferences) {
+        return selectedDungeonLevels(preferences, PREF_DUNGEON_ELITE_LEVELS,
+                DungeonBattleAutomation.ELITE_LEVELS);
+    }
+
     private void restartDungeonTask() {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         boolean battleMode = preferences.getBoolean(PREF_DUNGEON_BATTLE_MODE, false);
-        List<Integer> levels = battleMode
-                ? selectedBattleLevels(preferences) : selectedDungeonLevels(preferences);
+        boolean eliteMode = battleMode
+                && preferences.getBoolean(PREF_DUNGEON_ELITE_MODE, false);
+        List<Integer> levels;
+        if (eliteMode) {
+            levels = selectedEliteLevels(preferences);
+        } else if (battleMode) {
+            levels = selectedBattleLevels(preferences);
+        } else {
+            levels = selectedDungeonLevels(preferences);
+        }
         if (levels.isEmpty()) {
             resetPrimaryTaskToTraining();
             startTrainingPrimaryTask(trainingAutomation::start);
+        } else if (eliteMode) {
+            dungeonBattleAutomation.startElite(levels);
         } else if (battleMode) {
             dungeonBattleAutomation.start(levels);
         } else {
@@ -3191,10 +3221,14 @@ public final class HelperAccessibilityService extends AccessibilityService
         progressView = null;
     }
 
+    /**
+     * 退出：停掉一切并收起悬浮球，但**不**调 disableSelf()——那会把无障碍服务在系统
+     * 设置里关掉，下次开 app 还得手动开回来。服务保持绑定，所以 cleanUp() 之后要把
+     * instance 放回去，MainActivity 才能在下次启动时重新叫出悬浮球。
+     */
     private void exitService() {
-        closeMenu();
         cleanUp();
-        disableSelf();
+        instance = this;
     }
 
     private void updateMenuPosition() {

@@ -10,10 +10,10 @@ final class Dungeon105Action extends BaseDungeonAction {
     private static final List<String> PRIORITY = List.of("谷利");
 
     @Override int level() { return 105; }
-    @Override String dungeonName() { return null; }
-    @Override String entryNpcName() { return null; }
-    @Override String exitNpcName() { return null; }
-    @Override String campName() { return "105级副本驻地"; }
+    @Override String dungeonName() { return "逍遥津之战"; }
+    @Override String entryNpcName() { return "乐进"; }
+    @Override String exitNpcName() { return "乐进"; }
+    @Override String campName() { return "合肥城中"; }
     @Override int campNpcX() { return 216; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
     @Override int[] exitNpcRows() { return new int[] {4, 4}; }

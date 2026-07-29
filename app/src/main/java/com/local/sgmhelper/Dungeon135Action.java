@@ -12,10 +12,10 @@ final class Dungeon135Action extends BaseDungeonAction {
             "傅士仁", "糜芳", "周仓", "刘备精锐骑兵");
 
     @Override int level() { return 135; }
-    @Override String dungeonName() { return null; }
-    @Override String entryNpcName() { return null; }
-    @Override String exitNpcName() { return null; }
-    @Override String campName() { return "135级副本驻地"; }
+    @Override String dungeonName() { return "麦城之战"; }
+    @Override String entryNpcName() { return "陆逊"; }
+    @Override String exitNpcName() { return "陆逊"; }
+    @Override String campName() { return "荆州东部"; }
     @Override int campNpcX() { return 248; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
     @Override int[] exitNpcRows() { return new int[] {4, 4}; }

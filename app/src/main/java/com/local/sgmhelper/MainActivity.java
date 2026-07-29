@@ -79,6 +79,11 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         boolean enabled = isAccessibilityServiceEnabled();
+        HelperAccessibilityService service = HelperAccessibilityService.getInstance();
+        if (service != null) {
+            // 上次是从悬浮菜单“退出”的：服务还开着，只是悬浮球收起来了。
+            service.showOverlay();
+        }
         updateServiceStatus(enabled);
 
         if (!showControls && enabled && !launchAttempted) {

@@ -16,10 +16,10 @@ final class Dungeon80Action extends BaseDungeonAction {
             "孙干", "刘备军游击队长", "刘备军巡守队长");
 
     @Override int level() { return 80; }
-    @Override String dungeonName() { return null; }
-    @Override String entryNpcName() { return null; }
-    @Override String exitNpcName() { return null; }
-    @Override String campName() { return "80级副本驻地"; }
+    @Override String dungeonName() { return "火烧博望坡"; }
+    @Override String entryNpcName() { return "李典"; }
+    @Override String exitNpcName() { return "李典"; }
+    @Override String campName() { return "博望营寨"; }
     @Override int campNpcX() { return 169; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
     @Override int[] exitNpcRows() { return new int[] {4, 4}; }

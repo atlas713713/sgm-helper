@@ -22,6 +22,16 @@ abstract class BaseDungeonAction {
 
     abstract int campNpcX();
 
+    /** 武当 `DungeonEntity.type`：1=一般副本，2=精英副本。 */
+    int dungeonType() {
+        return 1;
+    }
+
+    /** `DungeonUtil.h` 的宫殿入口 y：一般副本 16，精英副本 20。 */
+    int campNpcY() {
+        return 16;
+    }
+
     abstract int[] entryNpcRows();
 
     abstract int[] exitNpcRows();
@@ -110,6 +120,27 @@ abstract class BaseDungeonAction {
                 return new Dungeon165Action();
             default:
                 throw new IllegalArgumentException("Unsupported dungeon level " + level);
+        }
+    }
+
+    /**
+     * 精英副本（武当 `DungeonEntity.type == 2`）。副本内的路线和一般副本完全一样，
+     * 差别都在入场：宫殿是“副本宫殿(精英)”、驻地引路员点第二行、宫殿入口坐标另有一张
+     * 表（`DungeonUtil.h`），副本名和驻地名多一个“精英”前缀。65 级另外把优先敌人
+     * 等级从 64 换成 68。
+     */
+    static BaseDungeonAction forElite(int level) {
+        switch (level) {
+            case 60:
+                return new Dungeon60EliteAction();
+            case 65:
+                return new Dungeon65EliteAction();
+            case 70:
+                return new Dungeon70EliteAction();
+            case 75:
+                return new Dungeon75EliteAction();
+            default:
+                throw new IllegalArgumentException("Unsupported elite dungeon level " + level);
         }
     }
 

@@ -14,10 +14,10 @@ final class Dungeon90Action extends BaseDungeonAction {
             "张南", "张顗", "焦触", "钟缙", "钟绅");
 
     @Override int level() { return 90; }
-    @Override String dungeonName() { return null; }
-    @Override String entryNpcName() { return null; }
-    @Override String exitNpcName() { return null; }
-    @Override String campName() { return "90级副本驻地"; }
+    @Override String dungeonName() { return "血战长坂坡"; }
+    @Override String entryNpcName() { return "诸葛亮"; }
+    @Override String exitNpcName() { return "诸葛亮"; }
+    @Override String campName() { return "当阳营寨"; }
     @Override int campNpcX() { return 184; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
     @Override int[] exitNpcRows() { return new int[] {4, 4, 4}; }
