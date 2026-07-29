@@ -16,9 +16,9 @@ final class AutoSellAutomation {
         this.host = host;
     }
 
-    void start(Runnable next) {
-        host.startInGameAutomation(
-                "Auto sell: starting", () -> recycleYuanbao(next, true));
+    void runInline(Runnable next) {
+        host.showProgress("Auto sell: starting");
+        recycleYuanbao(next, true);
     }
 
     void checkNearlyFull(int minimumFreeSlots, Consumer<Boolean> result) {

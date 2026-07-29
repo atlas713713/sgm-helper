@@ -184,6 +184,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private Runnable primaryTaskAction = trainingAutomation::start;
     private boolean inventoryCheckRunning;
     private boolean inventorySelling;
+    private final GearHandleEvent gearHandleEvent = new GearHandleEvent();
     private PaddleDungeonTextRecognizer paddleDungeonTextRecognizer;
 
     static HelperAccessibilityService getInstance() {
@@ -1470,6 +1471,10 @@ public final class HelperAccessibilityService extends AccessibilityService
     private void cancelManagedRun(AutomationTaskManager.Run run) {
         DiagnosticLog.info("TASK", "cancel run=" + run.id + " key=" + run.request.key);
         retireManagedRun(run);
+        if (run.request.kind == AutomationTaskManager.Kind.PRIMARY) {
+            inventorySelling = false;
+            gearHandleEvent.defer();
+        }
         automationRunning = false;
         stopInventoryMonitoring();
         currentAutomationAction = null;
@@ -1526,7 +1531,10 @@ public final class HelperAccessibilityService extends AccessibilityService
                         return;
                     }
                     if (Boolean.TRUE.equals(nearlyFull)) {
-                        interruptForAutoSell();
+                        requestGearHandle();
+                        if (!handlePendingGear(next)) {
+                            next.run();
+                        }
                     } else {
                         if (nearlyFull == null) {
                             showProgress("启动前未识别到背包容量，跳过本次检查");
@@ -1534,6 +1542,29 @@ public final class HelperAccessibilityService extends AccessibilityService
                         next.run();
                     }
                 }));
+    }
+
+    @Override
+    public boolean handlePendingGear(Runnable afterHandled) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null || run.request.kind != AutomationTaskManager.Kind.PRIMARY
+                || !gearHandleEvent.begin()) {
+            return false;
+        }
+        inventorySelling = true;
+        stopInventoryMonitoring();
+        DiagnosticLog.info("AUTO_SELL", "handling pending gear in primary run=" + run.id);
+        showProgress("Auto sell: handling pending backpack event");
+        ensureAutoAttackDisabled(() -> autoSellAutomation.runInline(() -> {
+            if (!taskManager.isCurrent(run.id)) {
+                return;
+            }
+            gearHandleEvent.complete();
+            inventorySelling = false;
+            DiagnosticLog.info("AUTO_SELL", "pending gear handling completed");
+            afterHandled.run();
+        }));
+        return true;
     }
 
     static boolean shouldCheckInventoryBeforePrimary(boolean enabled, PrimaryTask task) {
@@ -2860,7 +2891,6 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (run == null) {
             return;
         }
-        inventorySelling = false;
         clearAutomationRecovery();
         retireManagedRun(run);
         taskManager.finish(run.id);
@@ -2914,9 +2944,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void recoverPrimaryTask(AutomationTaskManager.Run failedRun, String message) {
-        if (inventorySelling) {
-            inventorySelling = false;
-        }
+        inventorySelling = false;
+        gearHandleEvent.clear();
         automationRecoveryAttempts++;
         boolean finalAttempt = !shouldRetryAutomation(automationRecoveryAttempts);
         Runnable recovery = primaryTaskAction;
@@ -2956,6 +2985,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         }
         automationRunning = false;
         inventorySelling = false;
+        gearHandleEvent.clear();
         stopInventoryMonitoring();
         clearAutomationRecovery();
         resetPrimaryTaskToTraining();
@@ -3033,7 +3063,10 @@ public final class HelperAccessibilityService extends AccessibilityService
                 return;
             }
             if (nearlyFull) {
-                interruptForAutoSell();
+                requestGearHandle();
+                if (primaryTask == PrimaryTask.TRAINING && !isTrainingPullActive()) {
+                    handlePendingGear(trainingAutomation::resumeAfterGearHandle);
+                }
             } else {
                 startInventoryMonitoring();
             }
@@ -3046,11 +3079,9 @@ public final class HelperAccessibilityService extends AccessibilityService
                         .getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED)) {
             return false;
         }
-        if (primaryTask == PrimaryTask.TRAINING) {
-            return taskManager.hasCurrent();
-        }
-        return primaryTask == PrimaryTask.BOSS
-                && automationRunning && currentAutomationAction == primaryTaskAction;
+        AutomationTaskManager.Run run = taskManager.current();
+        return run != null && run.request.kind == AutomationTaskManager.Kind.PRIMARY
+                && (primaryTask == PrimaryTask.TRAINING || primaryTask == PrimaryTask.BOSS);
     }
 
     private boolean isTrainingPullActive() {
@@ -3060,15 +3091,12 @@ public final class HelperAccessibilityService extends AccessibilityService
                         .getBoolean(PREF_TRAINING_PULL_FOR_OTHERS, false);
     }
 
-    private void interruptForAutoSell() {
-        inventorySelling = true;
+    private void requestGearHandle() {
         stopInventoryMonitoring();
-        showProgress("Auto sell: backpack is nearly full");
-        // ponytail: restart the primary task after selling instead of resuming a stale callback.
-        autoSellAutomation.start(() -> {
-            inventorySelling = false;
-            resumePrimaryTask();
-        });
+        if (gearHandleEvent.request()) {
+            DiagnosticLog.info("AUTO_SELL", "backpack event pending");
+            showProgress("Auto sell: backpack event pending");
+        }
     }
 
     private void restartPrimaryTask(PrimaryTask task) {

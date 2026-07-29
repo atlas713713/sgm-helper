@@ -108,6 +108,9 @@ final class TrainingAutomation {
         if (!host.isAutomationRunning()) {
             return;
         }
+        if (host.handlePendingGear(this::resumeAfterGearHandle)) {
+            return;
+        }
         PullPoint point = pullRoute.get(pullRouteIndex);
         host.showProgress("为别人拉怪：前往 " + point.x + "," + point.y);
         host.ensureAutoAttackDisabled(() -> host.openAutoPathPanel(
@@ -153,6 +156,10 @@ final class TrainingAutomation {
     private void enterTraining() {
         long nextMilitaryAt = WorshipAlarmReceiver.scheduleMilitary(host.context());
         host.enterTraining(nextMilitaryAt);
+    }
+
+    void resumeAfterGearHandle() {
+        start();
     }
 
     static List<String> monstersForZone(int zone) {

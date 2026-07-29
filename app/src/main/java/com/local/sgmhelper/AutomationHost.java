@@ -50,6 +50,8 @@ interface AutomationHost {
 
     void checkInventoryBeforePrimary(Runnable next);
 
+    boolean handlePendingGear(Runnable afterHandled);
+
     void postDelayed(Runnable action, long delayMillis);
 
     String formatTime(long value);

@@ -317,7 +317,14 @@ final class BossAutomation {
     }
 
     private void moveNext() {
+        if (host.handlePendingGear(this::resumeAfterGearHandle)) {
+            return;
+        }
         maybeFollowLeader(this::moveNextAfterLeaderCheck);
+    }
+
+    private void resumeAfterGearHandle() {
+        prepareBoss();
     }
 
     private void moveNextAfterLeaderCheck() {
