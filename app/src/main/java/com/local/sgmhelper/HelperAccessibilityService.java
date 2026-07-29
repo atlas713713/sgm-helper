@@ -233,8 +233,9 @@ public final class HelperAccessibilityService extends AccessibilityService
         return dispatchGesture(gesture, callback, handler);
     }
 
+    /** 幂等：悬浮球还在就直接返回。退出后 MainActivity 靠它把悬浮球叫回来。 */
     @SuppressLint("ClickableViewAccessibility")
-    private void showOverlay() {
+    void showOverlay() {
         if (bubbleView != null) {
             return;
         }
@@ -3209,10 +3210,14 @@ public final class HelperAccessibilityService extends AccessibilityService
         progressView = null;
     }
 
+    /**
+     * 退出：停掉一切并收起悬浮球，但**不**调 disableSelf()——那会把无障碍服务在系统
+     * 设置里关掉，下次开 app 还得手动开回来。服务保持绑定，所以 cleanUp() 之后要把
+     * instance 放回去，MainActivity 才能在下次启动时重新叫出悬浮球。
+     */
     private void exitService() {
-        closeMenu();
         cleanUp();
-        disableSelf();
+        instance = this;
     }
 
     private void updateMenuPosition() {
