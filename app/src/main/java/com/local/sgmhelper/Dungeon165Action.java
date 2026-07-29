@@ -17,10 +17,10 @@ final class Dungeon165Action extends BaseDungeonAction {
             "慕本王", "闵中王", "大武神王", "琉璃明王", "东明圣王", "高句丽兵营");
 
     @Override int level() { return 165; }
-    @Override String dungeonName() { return null; }
-    @Override String entryNpcName() { return null; }
-    @Override String exitNpcName() { return null; }
-    @Override String campName() { return "165级副本驻地"; }
+    @Override String dungeonName() { return "高句丽入侵"; }
+    @Override String entryNpcName() { return "司马懿"; }
+    @Override String exitNpcName() { return "司马懿"; }
+    @Override String campName() { return "北平城门"; }
     @Override int campNpcX() { return 279; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
     @Override int[] exitNpcRows() { return new int[] {4, 4}; }

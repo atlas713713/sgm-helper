@@ -8,10 +8,10 @@ final class Dungeon150Action extends BaseDungeonAction {
     private static final int PART1_END_X = 190;
 
     @Override int level() { return 150; }
-    @Override String dungeonName() { return null; }
-    @Override String entryNpcName() { return null; }
-    @Override String exitNpcName() { return null; }
-    @Override String campName() { return "150级副本驻地"; }
+    @Override String dungeonName() { return "罗马竞技场"; }
+    @Override String entryNpcName() { return "克利安德"; }
+    @Override String exitNpcName() { return "克利安德"; }
+    @Override String campName() { return "场外广场"; }
     @Override int campNpcX() { return 263; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
     @Override int[] exitNpcRows() { return new int[] {4, 4}; }

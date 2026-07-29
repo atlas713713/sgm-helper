@@ -5,7 +5,7 @@ package com.local.sgmhelper;
  * 武当的 partStep 状态决定，不能只看 x：清完第一间点一次快捷键后 partStep=1，
  * 清完第二间后 partStep=2。
  */
-final class Dungeon60Action extends BaseDungeonAction {
+class Dungeon60Action extends BaseDungeonAction {
     private int partStep;
 
     @Override int level() { return 60; }

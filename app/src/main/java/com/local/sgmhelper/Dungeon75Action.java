@@ -2,7 +2,7 @@ package com.local.sgmhelper;
 
 import java.util.List;
 
-final class Dungeon75Action extends BaseDungeonAction {
+class Dungeon75Action extends BaseDungeonAction {
     @Override int level() { return 75; }
     @Override String dungeonName() { return "濮阳之战"; }
     @Override String entryNpcName() { return "吕布"; }
