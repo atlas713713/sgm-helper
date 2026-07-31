@@ -2,6 +2,7 @@ package com.local.sgmhelper;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -151,6 +152,31 @@ public final class AutomationTaskManagerTest {
                 "start:welfare",
                 "cancel:welfare",
                 "start:reward",
+                "resume"), events);
+    }
+
+    @Test
+    public void scheduledDungeonRunsBattleThenSweepBeforeResumingPrimary() {
+        List<String> events = new ArrayList<>();
+        AutomationTaskManager manager = recordingManager(events);
+        manager.submit(request("primary", AutomationTaskManager.Kind.PRIMARY));
+
+        // 定时“自动副本”提交的两段。键必须不同，否则第二段会被当成重复任务合并掉。
+        String battle = HelperAccessibilityService.taskKey("定时一般副本：打开游戏");
+        String sweep = HelperAccessibilityService.taskKey("定时副本：打开游戏");
+        assertNotEquals(battle, sweep);
+        assertTrue(manager.submit(request(battle, AutomationTaskManager.Kind.INTERRUPT)));
+        assertTrue(manager.submit(request(sweep, AutomationTaskManager.Kind.INTERRUPT)));
+
+        assertTrue(manager.finish(manager.current().id));
+        assertEquals(sweep, manager.current().request.key);
+        assertTrue(manager.finish(manager.current().id));
+
+        assertEquals(List.of(
+                "start:primary",
+                "cancel:primary",
+                "start:" + battle,
+                "start:" + sweep,
                 "resume"), events);
     }
 

@@ -381,6 +381,20 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void dungeonLevelOptionsOnlyUseWudangGeneralDungeonLevels() {
+        // res/values/arrays.xml 的 dungeon_list（一般副本）等级，没有 85 级。
+        List<Integer> wudang = Arrays.asList(
+                10, 20, 30, 40, 50, 60, 65, 70, 75, 80, 90, 105, 120, 135, 150, 165, 180,
+                195, 210, 225, 240, 255, 270);
+        for (int level : DungeonSweepAutomation.LEVELS) {
+            assertTrue("扫荡副本没有这个等级：" + level, wudang.contains(level));
+        }
+        for (int level : DungeonBattleAutomation.LEVELS) {
+            assertTrue("一般副本没有这个等级：" + level, wudang.contains(level));
+        }
+    }
+
+    @Test
     public void findsTheNpcDialogRowThatCarriesTheWudangButtonText() {
         OcrText dialog = new OcrText(Arrays.asList(
                 new OcrLine("再稍做准备", testRect(140, 432, 300, 468), 0.9f),

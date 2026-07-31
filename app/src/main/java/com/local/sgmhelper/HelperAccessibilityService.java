@@ -941,7 +941,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 R.string.dungeon_start_elite, view -> startDungeonElite());
         addDungeonSection(menu, preferences, R.string.dungeon_sweep_section,
                 DungeonSweepAutomation.LEVELS, PREF_DUNGEON_SWEEP_LEVELS,
-                R.string.dungeon_start_sweep, view -> startDungeonSweep(false));
+                R.string.dungeon_start_sweep, view -> startDungeonSweep());
 
         addSettingsButtonRow(menu,
                 createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
@@ -1308,8 +1308,24 @@ public final class HelperAccessibilityService extends AccessibilityService
         heavenfallAutomation.start();
     }
 
+    /**
+     * 定时“自动副本”：先跑勾选的一般副本，再跑勾选的扫荡副本。两段都是插入任务，谁没勾
+     * 就跳过谁；两段都没勾就整个任务跳过，不提示错误。
+     */
     void startScheduledDungeon() {
-        startDungeonSweep(true);
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        List<Integer> battleLevels = selectedBattleLevels(preferences);
+        List<Integer> sweepLevels = selectedDungeonLevels(preferences);
+        if (battleLevels.isEmpty() && sweepLevels.isEmpty()) {
+            DiagnosticLog.info("DUNGEON", "scheduled dungeon skipped; no level selected");
+            return;
+        }
+        if (!battleLevels.isEmpty()) {
+            dungeonBattleAutomation.startScheduled(battleLevels);
+        }
+        if (!sweepLevels.isEmpty()) {
+            dungeonSweepAutomation.startScheduled(sweepLevels);
+        }
     }
 
     void startScheduledMilitary() {
@@ -1503,7 +1519,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         }
     }
 
-    private static String taskKey(String progress) {
+    /** 任务去重键：取“：”前的前缀，所以两个定时段的前缀必须不同，否则后一段会被合并掉。 */
+    static String taskKey(String progress) {
         int separator = progress.indexOf('：');
         return separator < 0 ? progress : progress.substring(0, separator);
     }
@@ -3352,16 +3369,11 @@ public final class HelperAccessibilityService extends AccessibilityService
         }
     }
 
-    private void startDungeonSweep(boolean scheduled) {
+    private void startDungeonSweep() {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         preferences.edit().putBoolean(PREF_DUNGEON_BATTLE_MODE, false)
                 .putBoolean(PREF_DUNGEON_ELITE_MODE, false).apply();
-        List<Integer> levels = selectedDungeonLevels(preferences);
-        if (scheduled) {
-            dungeonSweepAutomation.startScheduled(levels);
-        } else {
-            dungeonSweepAutomation.start(levels);
-        }
+        dungeonSweepAutomation.start(selectedDungeonLevels(preferences));
     }
 
     private void startDungeonBattle() {

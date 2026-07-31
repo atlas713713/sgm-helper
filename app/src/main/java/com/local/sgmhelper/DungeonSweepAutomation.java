@@ -8,8 +8,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class DungeonSweepAutomation {
+    /** 等级取自武当 {@code dungeon_list}（一般副本）：80 级是火烧博望坡，游戏里没有 85 级。 */
     static final int[] LEVELS = {
-            10, 20, 30, 40, 50, 60, 65, 70, 75, 85, 90, 105, 120, 135, 150, 165, 180
+            10, 20, 30, 40, 50, 60, 65, 70, 75, 80, 90, 105, 120, 135, 150, 165, 180
     };
 
     private static final Pattern LEVEL_PATTERN = Pattern.compile("等[级級][:：]?\\s*(\\d+)");

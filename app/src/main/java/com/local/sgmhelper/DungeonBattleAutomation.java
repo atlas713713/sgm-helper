@@ -69,6 +69,7 @@ final class DungeonBattleAutomation {
     private int samePositionCount;
     private int routeChecks;
     private int noCountAttempts;
+    private boolean resumePrimaryTask;
 
     DungeonBattleAutomation(AutomationHost host) {
         this.host = host;
@@ -105,8 +106,30 @@ final class DungeonBattleAutomation {
             }
         }
         selectedDungeons = dungeons;
+        resumePrimaryTask = false;
         host.startPrimaryAutomation(
                 AutomationHost.PrimaryTask.DUNGEON, "实战副本：打开游戏", this::begin);
+    }
+
+    /**
+     * 定时“自动副本”的一般副本段。和手动实战不同，它是插入任务：跑完把位置让给排在后面的
+     * 扫荡段或原主线，不会把主线切成副本。没有可执行等级时直接返回，不算错误。
+     */
+    void startScheduled(List<Integer> levels) {
+        List<BaseDungeonAction> dungeons = new ArrayList<>();
+        for (int level : levels) {
+            try {
+                dungeons.add(BaseDungeonAction.forLevel(level));
+            } catch (IllegalArgumentException unsupported) {
+                DiagnosticLog.warn("Dungeon", "定时副本跳过没有路线的等级 " + level);
+            }
+        }
+        if (dungeons.isEmpty()) {
+            return;
+        }
+        selectedDungeons = dungeons;
+        resumePrimaryTask = true;
+        host.startAutomation("定时一般副本：打开游戏", this::begin);
     }
 
     private void begin() {
@@ -585,6 +608,9 @@ final class DungeonBattleAutomation {
         noCountAttempts = 0;
         if (currentIndex < selectedDungeons.size()) {
             host.postDelayed(this::returnHomeForDungeon, MAP_WAIT_MS);
+        } else if (resumePrimaryTask) {
+            host.showProgress("定时一般副本已完成");
+            host.postDelayed(host::resumePrimaryTask, MAP_WAIT_MS);
         } else {
             host.completeAutomation();
         }
