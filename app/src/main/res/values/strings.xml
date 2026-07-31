@@ -41,6 +41,9 @@
     <string name="menu_dungeon_sweep">副本</string>
     <string name="menu_channel_test">换线测试</string>
     <string name="menu_soldier_revival">复活士兵</string>
+    <string name="travel_city">前往城市：</string>
+    <string name="travel_start">前往</string>
+    <string name="travel_select_required">请选择城市</string>
     <string name="menu_stop">终止</string>
     <string name="menu_settings">设置</string>
     <string name="menu_update">更新助手</string>

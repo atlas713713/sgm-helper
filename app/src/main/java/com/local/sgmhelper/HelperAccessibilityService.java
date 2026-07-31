@@ -120,6 +120,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_MILITARY_RETRY_AT = "military_retry_at";
     static final String PREF_SUPPLY_RETRY_AT = "supply_retry_at";
     static final String PREF_WILDERNESS_RETRY_AT = "wilderness_retry_at";
+    private static final String PREF_TRAVEL_CITY = "travel_city";
     private static final String PREF_DUNGEON_SWEEP_LEVELS = "dungeon_sweep_levels";
     private static final String PREF_DUNGEON_BATTLE_LEVELS = "dungeon_battle_levels";
     private static final String PREF_DUNGEON_ELITE_LEVELS = "dungeon_elite_levels";
@@ -162,6 +163,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             new AntiCheatVerification(this);
     private final DungeonSweepAutomation dungeonSweepAutomation =
             new DungeonSweepAutomation(this);
+    private final CityTravelAutomation cityTravelAutomation = new CityTravelAutomation(this);
     private final DungeonBattleAutomation dungeonBattleAutomation =
             new DungeonBattleAutomation(this);
     private final BossAutomation bossAutomation = new BossAutomation(this);
@@ -1191,7 +1193,24 @@ public final class HelperAccessibilityService extends AccessibilityService
                 .putBoolean(PREF_SOLDIER_REVIVAL_ENABLED, checked)
                 .apply());
 
+        String chooseCity = getString(R.string.travel_select_required);
+        List<String> cityValues = new ArrayList<>();
+        cityValues.add(chooseCity);
+        cityValues.addAll(CityTeleportCatalog.travelCities());
+        String savedCity = preferences.getString(PREF_TRAVEL_CITY, "");
+        addTextSpinnerRow(menu, R.string.travel_city, cityValues,
+                CityTeleportCatalog.canTravelTo(savedCity) ? savedCity : chooseCity,
+                value -> {
+                    if (CityTeleportCatalog.canTravelTo(value)) {
+                        preferences.edit().putString(PREF_TRAVEL_CITY, value).apply();
+                    } else {
+                        preferences.edit().remove(PREF_TRAVEL_CITY).apply();
+                    }
+                });
+
         addSettingsButtonRow(menu,
+                createSettingsButton(R.string.travel_start, false,
+                        view -> startCityTravel()),
                 createSettingsButton(R.string.menu_soldier_revival, false,
                         view -> soldierRevivalAutomation.start()),
                 createSettingsButton(R.string.settings_login, false,
@@ -3367,6 +3386,18 @@ public final class HelperAccessibilityService extends AccessibilityService
             setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
             startTrainingPrimaryTask(trainingAutomation::start);
         }
+    }
+
+    /** 手动前往某座城市，用来验证城市传送和传送官这两段路。 */
+    private void startCityTravel() {
+        String city = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(PREF_TRAVEL_CITY, "");
+        if (!CityTeleportCatalog.canTravelTo(city)) {
+            showProgress("请先选择要前往的城市");
+            return;
+        }
+        startIdleAutomation("前往城市：打开游戏",
+                () -> cityTravelAutomation.travelTo(city, this::completeAutomation));
     }
 
     private void startDungeonSweep() {

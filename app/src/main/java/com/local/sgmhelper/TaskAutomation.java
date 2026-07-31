@@ -77,10 +77,14 @@ final class TaskAutomation {
     private boolean inWildernessTraining;
     private final Set<String> checkedMilitaryQuests = new HashSet<>();
     private final Set<String> retriedUnacceptedQuests = new HashSet<>();
+    /** 已经为它跑过一趟军务城市的任务，避免来回传送。 */
+    private final Set<String> traveledMilitaryQuests = new HashSet<>();
+    private final CityTravelAutomation cityTravel;
 
     TaskAutomation(AutomationHost host) {
         this.host = host;
         wildernessNavigator = new WildernessNavigator(host, "自动军务");
+        cityTravel = new CityTravelAutomation(host);
     }
 
     void start() {
@@ -263,8 +267,38 @@ final class TaskAutomation {
                 }
                 findAvailableMilitaryQuest(TEXT_RETRY_COUNT);
             } else {
-                acceptMilitaryQuest(questName);
+                acceptMilitaryQuestInCity(questName, rightDetails);
             }
+        });
+    }
+
+    /**
+     * 武当先去军务城市再承接（{@code toTaskCity} → {@code checkTaskCity} → {@code getNewTask}）。
+     * 任务详情里写了别的城市就先关掉任务窗、过去，再重新打开任务窗承接。
+     */
+    private void acceptMilitaryQuestInCity(String questName, String details) {
+        String city = CityTeleportCatalog.findCity(details);
+        if (city == null || !traveledMilitaryQuests.add(questName)) {
+            acceptMilitaryQuest(questName);
+            return;
+        }
+        host.recognizeMapName(mapName -> {
+            if (!host.isAutomationRunning()) {
+                return;
+            }
+            if (city.equals(CityTravelAutomation.normalize(mapName))) {
+                acceptMilitaryQuest(questName);
+                return;
+            }
+            if (!CityTeleportCatalog.canTravelTo(city)) {
+                host.showProgress("自动军务：" + questName + "在" + city + "，暂时到不了，跳过");
+                findAvailableMilitaryQuest(TEXT_RETRY_COUNT);
+                return;
+            }
+            host.showProgress("自动军务：" + questName + "在" + city + "，先过去");
+            // 过去之后要重新挑这个任务，所以把它从“已看过”里摘掉。
+            checkedMilitaryQuests.remove(questName);
+            host.tap(982, 52, () -> cityTravel.travelTo(city, this::openMilitaryTask));
         });
     }
 
@@ -414,6 +448,7 @@ final class TaskAutomation {
             checkedMilitaryQuests.add("巡狩军团荒野");
         }
         retriedUnacceptedQuests.clear();
+        traveledMilitaryQuests.clear();
     }
 
     private void withTaskWindowOpen(Runnable next) {
