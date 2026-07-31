@@ -53,10 +53,10 @@ final class TaskAutomation {
     private static final int TASK_CONFIRM_TOP = 430;
     private static final int TASK_CONFIRM_RIGHT = 760;
     private static final int TASK_CONFIRM_BOTTOM = 535;
-    private static final int AUTO_PATH_LEFT = 900;
-    private static final int AUTO_PATH_TOP = 300;
-    private static final int AUTO_PATH_RIGHT = 1260;
-    private static final int AUTO_PATH_BOTTOM = 620;
+    private static final int AUTO_PATH_LEFT = 400;
+    private static final int AUTO_PATH_TOP = 150;
+    private static final int AUTO_PATH_RIGHT = 800;
+    private static final int AUTO_PATH_BOTTOM = 600;
     private static final Pattern WILDERNESS_ZONE = Pattern.compile(
             "巡狩军团荒野[（(]([一二三四五六七八九十百0-9]+)[）)]");
     private static final Pattern MILITARY_COOLDOWN = Pattern.compile(
