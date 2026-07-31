@@ -48,7 +48,7 @@ final class ChannelSwitcher {
     }
 
     private void confirmSwitch(Runnable next) {
-        host.clickText("确定", true, next, 5,
+        host.clickCenterText("确定", next, 5,
                 () -> host.tap(530, 395, next));
     }
 

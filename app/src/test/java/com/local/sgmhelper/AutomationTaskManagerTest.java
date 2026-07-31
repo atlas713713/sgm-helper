@@ -165,6 +165,37 @@ public final class AutomationTaskManagerTest {
         assertEquals(List.of("start:welfare", "resume"), events);
     }
 
+    @Test
+    public void highPriorityInterruptPreemptsAndThenRestartsRegularInterrupt() {
+        List<String> events = new ArrayList<>();
+        AutomationTaskManager manager = recordingManager(events);
+        manager.submit(request("primary", AutomationTaskManager.Kind.PRIMARY));
+        manager.submit(request("welfare", AutomationTaskManager.Kind.INTERRUPT));
+        manager.submit(request(
+                "reward", AutomationTaskManager.Kind.INTERRUPT));
+
+        assertTrue(manager.submit(request(
+                "heavenfall", AutomationTaskManager.Kind.HIGH_PRIORITY_INTERRUPT)));
+        assertEquals("heavenfall", manager.current().request.key);
+        assertEquals(2, manager.pendingCount());
+
+        assertTrue(manager.finish(manager.current().id));
+        assertEquals("welfare", manager.current().request.key);
+        assertTrue(manager.finish(manager.current().id));
+        assertEquals("reward", manager.current().request.key);
+        assertTrue(manager.finish(manager.current().id));
+
+        assertEquals(List.of(
+                "start:primary",
+                "cancel:primary",
+                "start:welfare",
+                "cancel:welfare",
+                "start:heavenfall",
+                "start:welfare",
+                "start:reward",
+                "resume"), events);
+    }
+
     private static AutomationTaskManager recordingManager(List<String> events) {
         return new AutomationTaskManager(new AutomationTaskManager.Listener() {
             @Override

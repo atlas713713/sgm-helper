@@ -6,6 +6,7 @@ final class AutomationTaskManager {
     enum Kind {
         PRIMARY,
         INTERRUPT,
+        HIGH_PRIORITY_INTERRUPT,
         IDLE_ONLY
     }
 
@@ -63,14 +64,27 @@ final class AutomationTaskManager {
             return false;
         }
         if (current == null) {
-            resumePrimary = request.kind == Kind.INTERRUPT;
+            resumePrimary = isInterrupt(request.kind);
             start(request);
             return true;
         }
-        if (request.kind != Kind.INTERRUPT) {
+        if (!isInterrupt(request.kind)) {
             return false;
         }
-        if (current.request.kind == Kind.INTERRUPT) {
+        if (request.kind == Kind.HIGH_PRIORITY_INTERRUPT) {
+            if (current.request.kind == Kind.HIGH_PRIORITY_INTERRUPT) {
+                pending.addFirst(request);
+                return true;
+            }
+            if (current.request.kind == Kind.INTERRUPT) {
+                pending.addFirst(current.request);
+            }
+            resumePrimary = true;
+            cancelCurrent();
+            start(request);
+            return true;
+        }
+        if (isInterrupt(current.request.kind)) {
             pending.addLast(request);
             return true;
         }
@@ -78,6 +92,10 @@ final class AutomationTaskManager {
         cancelCurrent();
         start(request);
         return true;
+    }
+
+    private static boolean isInterrupt(Kind kind) {
+        return kind == Kind.INTERRUPT || kind == Kind.HIGH_PRIORITY_INTERRUPT;
     }
 
     boolean finish(long runId) {

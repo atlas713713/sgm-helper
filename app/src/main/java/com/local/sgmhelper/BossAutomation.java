@@ -36,6 +36,7 @@ final class BossAutomation {
     private static final int PARTY_DIALOG_CLOSE_X = 1260;
     private static final int PARTY_DIALOG_CLOSE_Y = 150;
     private static final int AUTO_SETTINGS_ATTEMPTS = 2;
+    private static final long MAP_RECOGNITION_RESTART_DELAY_MS = 60_000;
     private static final int WORLD_MAP_NAME_ATTEMPTS = 5;
     private static final int WORLD_MAP_X = 800;
     private static final int WORLD_MAP_Y = 585;
@@ -170,7 +171,9 @@ final class BossAutomation {
 
     private void clickAutoSettings(int remainingAttempts) {
         progress("识别自动设置");
-        host.recognizeText(text -> {
+        host.recognizeTextRegion(1100, 330, 1270, 405, text -> {
+            DiagnosticLog.info("BOSS", "auto settings ROI Paddle OCR='"
+                    + text.getText().replace('\n', ' ') + "'");
             Rect bounds = findMenuAutoBounds(text);
             if (bounds != null) {
                 host.tap(bounds.centerX(), bounds.centerY(), this::selectModeOne);
@@ -244,9 +247,17 @@ final class BossAutomation {
                         () -> readWorldMapName(remainingAttempts - 1), 1_000);
             } else {
                 DiagnosticLog.warn("BOSS", "world map OCR miss: " + value);
-                fail("未识别到标记点所在地图");
+                host.failPrimaryAndRestartAfter(
+                        label() + "：未识别到标记点所在地图（地图 OCR："
+                                + displayOcrValue(value) + "）",
+                        MAP_RECOGNITION_RESTART_DELAY_MS);
             }
         });
+    }
+
+    static String displayOcrValue(String value) {
+        String normalized = value == null ? "" : value.trim().replaceAll("\\s+", " ");
+        return normalized.isEmpty() ? "空" : normalized;
     }
 
     private void openWorldBossMap() {
@@ -377,6 +388,35 @@ final class BossAutomation {
     }
 
     private void attack(BossTarget target) {
+        if (worldBossTarget == null) {
+            attackNow(target);
+            return;
+        }
+        host.recognizeMapCoordinate(value -> {
+            checkFakeBossZone(parseMapX(value));
+            attackNow(target);
+        });
+    }
+
+    /**
+     * 武当 CheckFakeBossAction3 的第一道闸。只能在站位落到刷新区间中点 ±10 之外时确认
+     * 真王；落在窗口内是"排除不掉"，不是"就是假王"——那要第二道 findFakeBoss 图像判据
+     * 和第三道气/血变化才能定性。所以这里只记录，不改打谁。
+     */
+    private void checkFakeBossZone(Integer currentX) {
+        String zone = worldBossTarget.searchLeft + "-" + worldBossTarget.searchRight;
+        if (currentX == null) {
+            DiagnosticLog.warn("BOSS", "假王检测：读不到坐标，跳过本次判定");
+        } else if (worldBossTarget.isInFakeBossZone(currentX)) {
+            DiagnosticLog.warn("BOSS", "假王检测：x=" + currentX
+                    + " 落在假王位（区间 " + zone + " 的中点±10），排除不掉假王");
+        } else {
+            DiagnosticLog.info("BOSS", "假王检测：x=" + currentX
+                    + " 不在假王位（区间 " + zone + " 的中点±10），确认真王");
+        }
+    }
+
+    private void attackNow(BossTarget target) {
         progress("攻击 " + target.name);
         host.tap(target.bounds.centerX(), target.bounds.centerY(),
                 () -> host.postDelayed(
@@ -451,20 +491,11 @@ final class BossAutomation {
 
     private void readCurrentChannel(int remainingAttempts, boolean blockerChecked) {
         progress("判断当前分流");
-        host.recognizeText(text -> host.captureScreenshot(bitmap -> {
-            Integer current = bitmap == null ? null : findCurrentChannel(text, bitmap);
+        host.recognizeChannelDialog(current -> {
             if (current == null) {
                 if (remainingAttempts <= 1) {
-                    if (bitmap != null) {
-                        DiagnosticLog.saveScreenshot(
-                                bitmap, "boss-current-channel-ocr-miss");
-                        bitmap.recycle();
-                    }
                     fail("未识别到当前分流");
                     return;
-                }
-                if (bitmap != null) {
-                    bitmap.recycle();
                 }
                 if (!blockerChecked) {
                     progress("分流读取失败，检查遮挡窗口");
@@ -480,7 +511,6 @@ final class BossAutomation {
                 }
                 return;
             }
-            bitmap.recycle();
             int next = ChannelSwitcher.nextChannel(current);
             progress("第 " + current + " 分流 → 第 " + next + " 分流");
             channelSwitcher.switchOpenTo(next,
@@ -489,12 +519,13 @@ final class BossAutomation {
                                     ? () -> readWorldMapName(WORLD_MAP_NAME_ATTEMPTS)
                                     : this::openEnemyPanel),
                             CHANNEL_CHECK_MS));
-        }));
+        });
     }
 
     private void checkAfterChannelSwitch(Runnable next) {
         antiCheatVerification.checkThen(() -> host.postDelayed(
-                () -> antiCheatVerification.checkThen(next),
+                () -> antiCheatVerification.checkThen(
+                        () -> host.waitForMapReady(20, next)),
                 CHANNEL_READY_MS));
     }
 
@@ -773,7 +804,7 @@ final class BossAutomation {
         return null;
     }
 
-    private static Integer findCurrentChannel(OcrText text, Bitmap bitmap) {
+    static Integer findCurrentChannel(OcrText text, Bitmap bitmap) {
         Integer current = null;
         int bestScore = 19;
         for (OcrText.TextBlock block : text.getTextBlocks()) {

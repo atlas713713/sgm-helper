@@ -1,8 +1,5 @@
 package com.local.sgmhelper;
 
-import android.graphics.Rect;
-
-
 import java.util.concurrent.ThreadLocalRandom;
 
 final class WildernessNavigator {
@@ -41,7 +38,7 @@ final class WildernessNavigator {
         targetZone = zone;
         completed = next;
         progress("前往荒野修炼" + zone + "区");
-        host.tap(1215, 58, () -> scrollMenuToTop(3));
+        host.tapUi(1215, 58, () -> scrollMenuToTop(3));
     }
 
     void navigateToMonster(String monster, Runnable next) {
@@ -84,23 +81,44 @@ final class WildernessNavigator {
     private void scrollMenuToTop(int remainingSwipes) {
         if (remainingSwipes == 0) {
             progress("查找军团入口");
-            host.clickText("军团", true, this::openWildernessFromLegion,
-                    5, () -> host.tap(995, 270, this::openWildernessFromLegion));
+            // Wudang searches its MenuBox crop only; never OCR the whole HUD
+            // while looking for the military entry.
+            host.clickTextRegion("军团", true,
+                    846, 101, 1238, 595,
+                    this::openWildernessFromLegion,
+                    5, () -> host.tapUi(995, 270, this::openWildernessFromLegion));
             return;
         }
-        host.swipe(1000, 180, 1000, 550,
+        host.swipeUi(1000, 180, 1000, 550,
                 () -> scrollMenuToTop(remainingSwipes - 1));
     }
 
     private void openWildernessFromLegion() {
         progress("进入荒野营地");
-        host.tap(780, 613,
-                () -> host.tap(640, 478,
-                        () -> host.postDelayed(
-                                () -> host.waitForText("荒野营地",
-                                        SCREEN_WAIT_RETRY_COUNT,
-                                        this::findWildernessTeleporter),
+        host.tapUi(780, 613,
+                        () -> host.tapUi(640, 478,
+                                () -> host.postDelayed(
+                                () -> waitForWildernessCamp(
+                                        SCREEN_WAIT_RETRY_COUNT),
                                 4_000)));
+    }
+
+    private void waitForWildernessCamp(int remainingAttempts) {
+        progress("等待荒野营地加载");
+        host.recognizeMapName(value -> {
+            if (!host.isAutomationRunning()) {
+                return;
+            }
+            if (isWildernessCampMapName(value)) {
+                findWildernessTeleporter();
+            } else if (remainingAttempts > 1) {
+                host.postDelayed(
+                        () -> waitForWildernessCamp(remainingAttempts - 1),
+                        1_000);
+            } else {
+                host.failAutomation("等待荒野营地加载超时");
+            }
+        });
     }
 
     private void findWildernessTeleporter() {
@@ -108,8 +126,8 @@ final class WildernessNavigator {
         host.closeAutoPathPanel(() -> {
             progress("打开自动寻路");
             host.openAutoPathPanel(
-                    () -> host.tap(1165, 165,
-                            () -> host.tap(TELEPORTER_X, TELEPORTER_Y,
+                    () -> host.tapUi(1165, 165,
+                            () -> host.tapUi(TELEPORTER_X, TELEPORTER_Y,
                                     () -> host.postDelayed(
                                             () -> clickPages(page(targetZone)), 5_000))));
         });
@@ -118,31 +136,24 @@ final class WildernessNavigator {
     private void clickPages(int remainingPages) {
         if (remainingPages == 0) {
             progress("选择荒野修炼" + targetZone + "区");
-            host.tap(DIALOG_X, zoneRowY(targetZone),
+            host.tapUi(DIALOG_X, zoneRowY(targetZone),
                     () -> waitForMap(MAP_LOADING_RETRY_COUNT));
             return;
         }
         progress("荒野传送列表翻到下一页");
-        host.tap(DIALOG_X, NEXT_PAGE_Y,
+        host.tapUi(DIALOG_X, NEXT_PAGE_Y,
                 () -> clickPages(remainingPages - 1));
     }
 
     private void waitForMap(int remainingAttempts) {
         progress("等待荒野修炼" + targetZone + "区加载");
-        host.recognizeText(text -> {
+        host.recognizeMapName(value -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            for (OcrText.TextBlock block : text.getTextBlocks()) {
-                for (OcrText.Line line : block.getLines()) {
-                    Rect bounds = line.getBoundingBox();
-                    if (bounds != null && bounds.centerX() > 300 && bounds.centerX() < 850
-                            && bounds.centerY() > 400
-                            && isSelectedMapName(line.getText(), targetZone)) {
-                        host.closeAutoPathPanel(completed);
-                        return;
-                    }
-                }
+            if (isSelectedMapName(value, targetZone)) {
+                host.closeAutoPathPanel(completed);
+                return;
             }
             if (remainingAttempts > 1) {
                 host.postDelayed(() -> waitForMap(remainingAttempts - 1), 1_000);
@@ -174,6 +185,10 @@ final class WildernessNavigator {
         return normalized.contains("荒野修炼")
                 && (normalized.contains(zone + "区")
                         || normalized.contains(CHINESE_ZONES[zone] + "区"));
+    }
+
+    static boolean isWildernessCampMapName(String value) {
+        return value != null && value.replaceAll("\\s+", "").contains("荒野营地");
     }
 
     static boolean isWildernessMapName(String value) {

@@ -30,6 +30,8 @@ interface AutomationHost {
 
     void startAutomation(String progress, Runnable firstAction);
 
+    void startHighPriorityAutomation(String progress, Runnable firstAction);
+
     void startInGameAutomation(String progress, Runnable firstAction);
 
     void startIdleAutomation(String progress, Runnable firstAction);
@@ -39,6 +41,8 @@ interface AutomationHost {
     void showProgress(String value);
 
     void failAutomation(String message);
+
+    void failPrimaryAndRestartAfter(String message, long delayMillis);
 
     void completeAutomation();
 
@@ -57,6 +61,8 @@ interface AutomationHost {
     String formatTime(long value);
 
     void tap(int x, int y, Runnable next);
+
+    void tapUi(int x, int y, Runnable next);
 
     void tapFast(int x, int y, Runnable next);
 
@@ -93,6 +99,8 @@ interface AutomationHost {
     }
 
     void swipe(int startX, int startY, int endX, int endY, Runnable next);
+
+    void swipeUi(int startX, int startY, int endX, int endY, Runnable next);
 
     void swipe(int startX, int startY, int endX, int endY,
             long durationMillis, Runnable next);
@@ -132,6 +140,8 @@ interface AutomationHost {
 
     void recognizeHudChannel(Bitmap screenshot, Consumer<Integer> result);
 
+    void recognizeChannelDialog(Consumer<Integer> result);
+
     void recognizeLeaderChannel(Consumer<Integer> result);
 
     void recognizeMapCoordinate(Consumer<String> result);
@@ -153,6 +163,16 @@ interface AutomationHost {
     void clickText(String expected, boolean exact, Runnable next,
             int attempts, Runnable ifMissing);
 
+    void clickTextRegion(String expected, boolean exact,
+            int left, int top, int right, int bottom,
+            Runnable next, int attempts, Runnable ifMissing);
+
+    void clickTextUi(String expected, boolean exact, Runnable next,
+            int attempts, Runnable ifMissing);
+
+    void clickCenterText(String expected, Runnable next, int attempts,
+            Runnable ifMissing);
+
     void clickDungeonText(String expected, boolean exact, Runnable next,
             int attempts, Runnable ifMissing);
 
@@ -165,6 +185,10 @@ interface AutomationHost {
     void clickQuickArrival(Runnable next);
 
     void waitForText(String expected, int attempts, Runnable next);
+
+    void waitForTextRegion(String expected,
+            int left, int top, int right, int bottom,
+            int attempts, Runnable next, Runnable ifMissing);
 
     void waitForMapReady(int attempts, Runnable next);
 

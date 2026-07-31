@@ -8,6 +8,8 @@ import java.util.List;
 final class WorldBossCatalog {
     private static final int DEFAULT_LEFT = 260;
     private static final int DEFAULT_RIGHT = 340;
+    /** 武当 CheckFakeBossAction3：假王位是刷新区间中点 ±10。 */
+    private static final int FAKE_BOSS_ZONE_RADIUS = 10;
 
     static final List<MapEntry> MAPS = Collections.unmodifiableList(Arrays.asList(
             map("房陵", boss(30, "孟达", 500, 590)),
@@ -176,6 +178,14 @@ final class WorldBossCatalog {
 
         String displayName() {
             return level + " " + name;
+        }
+
+        /**
+         * 武当 CheckFakeBossAction3 的第一道闸：站位落在刷新区间中点 ±10 之外就是真王，
+         * 落在窗口内还需要第二道（findFakeBoss 图像判据）和第三道（气/血变化）才能定性。
+         */
+        boolean isInFakeBossZone(int x) {
+            return Math.abs(x - (searchLeft + searchRight) / 2) <= FAKE_BOSS_ZONE_RADIUS;
         }
 
         boolean isVisible(String text) {

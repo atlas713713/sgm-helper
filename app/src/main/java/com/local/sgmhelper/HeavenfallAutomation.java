@@ -11,33 +11,50 @@ final class HeavenfallAutomation {
     private static final long CENTER_CHECK_INTERVAL_MS = 1_000;
     private static final long BOSS_SCAN_INTERVAL_MS = 3_000;
     private static final long RESUME_DELAY_MS = 10_000;
+    private static final int TARGET_CHANNEL = 1;
+    private static final int CHANNEL_BUTTON_X = 1215;
+    private static final int CHANNEL_BUTTON_Y = 705;
+    private static final long CHANNEL_DIALOG_WAIT_MS = 1_000;
 
     private final AutomationHost host;
     private final WildernessNavigator wildernessNavigator;
+    private final ChannelSwitcher channelSwitcher;
     private long deadline;
     private boolean finishing;
 
     HeavenfallAutomation(AutomationHost host) {
         this.host = host;
         wildernessNavigator = new WildernessNavigator(host, "天降");
+        channelSwitcher = new ChannelSwitcher(host);
     }
 
     void start() {
         SharedPreferences preferences = host.context().getSharedPreferences(
                 HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE);
         int durationMinutes = preferences.getInt(
-                HelperAccessibilityService.PREF_HEAVENFALL_DURATION_MINUTES, 5);
+                HelperAccessibilityService.PREF_HEAVENFALL_DURATION_MINUTES,
+                HelperAccessibilityService.DEFAULT_HEAVENFALL_DURATION_MINUTES);
         int zone = preferences.getInt(
-                HelperAccessibilityService.PREF_HEAVENFALL_ZONE, 1);
-        host.startAutomation("天降：打开游戏", () -> begin(zone, durationMinutes));
+                HelperAccessibilityService.PREF_HEAVENFALL_ZONE,
+                HelperAccessibilityService.DEFAULT_HEAVENFALL_ZONE);
+        host.startHighPriorityAutomation(
+                "天降：打开游戏", () -> begin(zone, durationMinutes));
     }
 
     private void begin(int zone, int durationMinutes) {
         finishing = false;
         deadline = System.currentTimeMillis() + durationMillis(durationMinutes);
         host.showProgress("天降：停止自动攻击");
-        host.ensureAutoAttackDisabled(
-                () -> wildernessNavigator.navigateToZone(zone, this::goToCenter));
+        host.ensureAutoAttackDisabled(() -> switchToChannelOne(
+                () -> wildernessNavigator.navigateToZone(zone, this::goToCenter)));
+    }
+
+    private void switchToChannelOne(Runnable next) {
+        host.showProgress("天降：切换到第 1 分流");
+        host.tap(CHANNEL_BUTTON_X, CHANNEL_BUTTON_Y,
+                () -> host.postDelayed(
+                        () -> channelSwitcher.switchOpenTo(TARGET_CHANNEL, next),
+                        CHANNEL_DIALOG_WAIT_MS));
     }
 
     private void goToCenter() {

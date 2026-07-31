@@ -836,6 +836,29 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void marksTheWudangFakeBossZoneAtTheMidpointOfTheSpawnRange() {
+        // 房陵 孟达：区间 500-590，中点 545，假王位 535-555。
+        WorldBossCatalog.BossEntry mengDa =
+                WorldBossCatalog.findMapByName("房陵").findBoss("孟达");
+        assertTrue(mengDa.isInFakeBossZone(545));
+        assertTrue(mengDa.isInFakeBossZone(535));
+        assertTrue(mengDa.isInFakeBossZone(555));
+        assertFalse(mengDa.isInFakeBossZone(534));
+        assertFalse(mengDa.isInFakeBossZone(556));
+        assertFalse(mengDa.isInFakeBossZone(500));
+        assertFalse(mengDa.isInFakeBossZone(590));
+
+        // 默认区间 260-340，中点 300，假王位 290-310。
+        WorldBossCatalog.BossEntry chengYuanZhi =
+                WorldBossCatalog.findMapByName("大兴山").findBoss("程远志");
+        assertTrue(chengYuanZhi.isInFakeBossZone(300));
+        assertTrue(chengYuanZhi.isInFakeBossZone(290));
+        assertTrue(chengYuanZhi.isInFakeBossZone(310));
+        assertFalse(chengYuanZhi.isInFakeBossZone(289));
+        assertFalse(chengYuanZhi.isInFakeBossZone(311));
+    }
+
+    @Test
     public void reproducesTheWudangEliteDungeonEntries() {
         // dungeon_pro_list_cn 的 id 2060/2065/2070/2075 + DungeonUtil.h 的 type 2 宫殿入口。
         int[][] palace = {{60, 26}, {65, 41}, {70, 57}, {75, 73}};
@@ -1110,6 +1133,8 @@ public final class HelperAccessibilityServiceTest {
                 "荒野修炼14区", 15));
         assertTrue(WildernessNavigator.isSelectedMapName(
                 "荒野修练 二十四 区", 24));
+        assertTrue(WildernessNavigator.isWildernessCampMapName("对话 荒野营地 地图"));
+        assertFalse(WildernessNavigator.isWildernessCampMapName("荒野修炼十五区"));
     }
 
     @Test
@@ -1261,6 +1286,14 @@ public final class HelperAccessibilityServiceTest {
                 LoginAutomation.screenFor(Arrays.asList("正在连接服务器")));
         assertEquals(LoginAutomation.Screen.UNKNOWN,
                 LoginAutomation.screenFor(Arrays.asList(LoginAutomation.START_PROGRESS)));
+    }
+
+    @Test
+    public void recognizesInnFromItsFixedWindowTitle() {
+        assertTrue(AutoSellAutomation.isInnScreenText("客栈"));
+        assertTrue(AutoSellAutomation.isInnScreenText("客 栈"));
+        assertFalse(AutoSellAutomation.isInnScreenText("女老板"));
+        assertFalse(AutoSellAutomation.isInnScreenText("汉中"));
     }
 
     @Test
@@ -1448,6 +1481,11 @@ public final class HelperAccessibilityServiceTest {
 
     @Test
     public void usesTheConfiguredHeavenfallDurationAndMapCenter() {
+        assertEquals(16, HelperAccessibilityService.DEFAULT_HEAVENFALL_HOUR);
+        assertEquals(0, HelperAccessibilityService.DEFAULT_HEAVENFALL_MINUTE);
+        assertEquals(10,
+                HelperAccessibilityService.DEFAULT_HEAVENFALL_DURATION_MINUTES);
+        assertEquals(1, HelperAccessibilityService.DEFAULT_HEAVENFALL_ZONE);
         assertEquals(300_000, HeavenfallAutomation.durationMillis(5));
         assertTrue(HeavenfallAutomation.expired(300_000, 300_000));
         assertFalse(HeavenfallAutomation.expired(299_999, 300_000));
@@ -1456,6 +1494,13 @@ public final class HelperAccessibilityServiceTest {
         assertFalse(HeavenfallAutomation.centerReached("279,25"));
         assertTrue(HeavenfallAutomation.centerReached("300,30"));
         assertFalse(HeavenfallAutomation.centerReached("300,31"));
+    }
+
+    @Test
+    public void displaysTheActualWorldMapOcrValueInRecoveryErrors() {
+        assertEquals("汉中", BossAutomation.displayOcrValue(" 汉中\n"));
+        assertEquals("空", BossAutomation.displayOcrValue("  "));
+        assertEquals("空", BossAutomation.displayOcrValue(null));
     }
 
     @Test

@@ -27,6 +27,36 @@ final class TaskAutomation {
     private static final int MILITARY_TEXT_TOP = 70;
     private static final int MILITARY_TEXT_RIGHT = 970;
     private static final int MILITARY_TEXT_BOTTOM = 580;
+    // Wudang's LegionTask/NPCDialog ItemViews, expressed in the app's
+    // 1280x720 reference coordinate system.
+    private static final int MILITARY_TASK_LIST_LEFT = 110;
+    private static final int MILITARY_TASK_LIST_TOP = 125;
+    private static final int MILITARY_TASK_LIST_RIGHT = 560;
+    private static final int MILITARY_TASK_LIST_BOTTOM = 660;
+    private static final int MILITARY_TASK_DETAIL_LEFT = 570;
+    private static final int MILITARY_TASK_DETAIL_TOP = 120;
+    private static final int MILITARY_TASK_DETAIL_RIGHT = 950;
+    private static final int MILITARY_TASK_DETAIL_BOTTOM = 435;
+    private static final int MILITARY_RIGHT_TASK_LEFT = 800;
+    private static final int MILITARY_RIGHT_TASK_TOP = 120;
+    private static final int MILITARY_RIGHT_TASK_RIGHT = 1150;
+    private static final int MILITARY_RIGHT_TASK_BOTTOM = 470;
+    private static final int NPC_NAME_LEFT = 120;
+    private static final int NPC_NAME_TOP = 195;
+    private static final int NPC_NAME_RIGHT = 380;
+    private static final int NPC_NAME_BOTTOM = 245;
+    private static final int NPC_DIALOG_LEFT = 105;
+    private static final int NPC_DIALOG_TOP = 235;
+    private static final int NPC_DIALOG_RIGHT = 415;
+    private static final int NPC_DIALOG_BOTTOM = 680;
+    private static final int TASK_CONFIRM_LEFT = 560;
+    private static final int TASK_CONFIRM_TOP = 430;
+    private static final int TASK_CONFIRM_RIGHT = 760;
+    private static final int TASK_CONFIRM_BOTTOM = 535;
+    private static final int AUTO_PATH_LEFT = 900;
+    private static final int AUTO_PATH_TOP = 300;
+    private static final int AUTO_PATH_RIGHT = 1260;
+    private static final int AUTO_PATH_BOTTOM = 620;
     private static final Pattern WILDERNESS_ZONE = Pattern.compile(
             "巡狩军团荒野[（(]([一二三四五六七八九十百0-9]+)[）)]");
     private static final Pattern MILITARY_COOLDOWN = Pattern.compile(
@@ -80,7 +110,7 @@ final class TaskAutomation {
     }
 
     private void findOngoingCollectionTask(int remainingAttempts) {
-        recognizeMilitaryText(text -> {
+        recognizeMilitaryTaskList(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -166,7 +196,7 @@ final class TaskAutomation {
     }
 
     private void findAvailableMilitaryQuest(int remainingAttempts) {
-        recognizeMilitaryText(text -> {
+        recognizeMilitaryTaskList(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -203,7 +233,7 @@ final class TaskAutomation {
     }
 
     private void inspectAvailableMilitaryQuest(String questName) {
-        recognizeMilitaryText(text -> {
+        recognizeMilitaryTaskDetail(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -258,11 +288,11 @@ final class TaskAutomation {
             scheduleMilitaryQuestCheck(questName, completed);
             return;
         }
-        host.recognizeText(text -> {
+        host.recognizeMapName(mapName -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            if (isWildernessLocation(screenLines(text))) {
+            if (isWildernessLocation(List.of(mapName))) {
                 host.showProgress("自动军务：物资任务必须在城内，先回城");
                 host.returnHome(() -> host.postDelayed(
                         () -> continueCollecting(
@@ -279,7 +309,7 @@ final class TaskAutomation {
         host.showProgress("自动军务：再次点击右侧补充军团物资");
         Runnable scheduleNextCheck = () -> scheduleMilitaryQuestCheck(
                 questName, completed);
-        host.clickRightText("团物资",
+        clickMilitaryRightTaskText("团物资",
                 scheduleNextCheck,
                 TEXT_RETRY_COUNT,
                 () -> {
@@ -297,7 +327,9 @@ final class TaskAutomation {
     }
 
     private void logSupplyTaskOcrMiss(Runnable next) {
-        host.recognizeText(text -> {
+        host.recognizeTextRegion(
+                MILITARY_RIGHT_TASK_LEFT, MILITARY_RIGHT_TASK_TOP,
+                MILITARY_RIGHT_TASK_RIGHT, MILITARY_RIGHT_TASK_BOTTOM, text -> {
             List<String> rightLines = new ArrayList<>();
             for (OcrText.TextBlock block : text.getTextBlocks()) {
                 for (OcrText.Line line : block.getLines()) {
@@ -347,7 +379,7 @@ final class TaskAutomation {
         }
         host.showProgress("自动军务：立即检查补充军团物资");
         withTaskWindowOpen(() -> host.tap(180, 101,
-                () -> host.clickLeftText("补充军团物资",
+                () -> clickMilitaryTaskListText("补充军团物资",
                         () -> inspectOngoingMilitaryQuest(
                                 "补充军团物资",
                                 this::recheckAvailableMilitaryQuests,
@@ -443,6 +475,34 @@ final class TaskAutomation {
                 MILITARY_TEXT_RIGHT, MILITARY_TEXT_BOTTOM, result);
     }
 
+    private void recognizeMilitaryTaskList(Consumer<OcrText> result) {
+        host.recognizeTextRegion(
+                MILITARY_TASK_LIST_LEFT, MILITARY_TASK_LIST_TOP,
+                MILITARY_TASK_LIST_RIGHT, MILITARY_TASK_LIST_BOTTOM, result);
+    }
+
+    private void recognizeMilitaryTaskDetail(Consumer<OcrText> result) {
+        host.recognizeTextRegion(
+                MILITARY_TASK_DETAIL_LEFT, MILITARY_TASK_DETAIL_TOP,
+                MILITARY_TASK_DETAIL_RIGHT, MILITARY_TASK_DETAIL_BOTTOM, result);
+    }
+
+    private void clickMilitaryTaskListText(String expected, Runnable next,
+            int attempts, Runnable ifMissing) {
+        host.clickTextRegion(expected, false,
+                MILITARY_TASK_LIST_LEFT, MILITARY_TASK_LIST_TOP,
+                MILITARY_TASK_LIST_RIGHT, MILITARY_TASK_LIST_BOTTOM,
+                next, attempts, ifMissing);
+    }
+
+    private void clickMilitaryRightTaskText(String expected, Runnable next,
+            int attempts, Runnable ifMissing) {
+        host.clickTextRegion(expected, false,
+                MILITARY_RIGHT_TASK_LEFT, MILITARY_RIGHT_TASK_TOP,
+                MILITARY_RIGHT_TASK_RIGHT, MILITARY_RIGHT_TASK_BOTTOM,
+                next, attempts, ifMissing);
+    }
+
     static boolean isTaskWindowVisible(List<String> values) {
         boolean title = false;
         boolean ongoing = false;
@@ -478,8 +538,12 @@ final class TaskAutomation {
                                         () -> finishMilitaryConversation(questName), 19_000);
                             } else {
                                 host.showProgress("自动军务：等待" + npc + "对话");
-                                host.waitForText(npc, SCREEN_WAIT_RETRY_COUNT,
-                                        () -> finishMilitaryConversation(questName));
+                                host.waitForTextRegion(npc,
+                                        NPC_NAME_LEFT, NPC_NAME_TOP,
+                                        NPC_NAME_RIGHT, NPC_NAME_BOTTOM,
+                                        SCREEN_WAIT_RETRY_COUNT,
+                                        () -> finishMilitaryConversation(questName),
+                                        () -> host.failAutomation("NPC 窗口未找到：" + npc));
                             }
                         }));
     }
@@ -496,7 +560,7 @@ final class TaskAutomation {
 
     private void findOngoingWildernessQuest(
             int remainingTextAttempts, int remainingRecoveryAttempts) {
-        recognizeMilitaryText(text -> {
+        recognizeMilitaryTaskList(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -602,7 +666,9 @@ final class TaskAutomation {
         Runnable leave = () -> host.tap(250, 635,
                 () -> host.tap(316, 101,
                         () -> findAvailableMilitaryQuest(TEXT_RETRY_COUNT)));
-        host.clickLeftText("想", () -> {
+        host.clickTextRegion("想", false,
+                NPC_DIALOG_LEFT, NPC_DIALOG_TOP,
+                NPC_DIALOG_RIGHT, NPC_DIALOG_BOTTOM, () -> {
             host.showProgress("自动军务：点击“离开”完成承接");
             leave.run();
         }, SCREEN_WAIT_RETRY_COUNT,
@@ -673,7 +739,7 @@ final class TaskAutomation {
             host.failAutomation("未读取到巡狩军团荒野区号");
             return;
         }
-        host.clickRightTextFast("巡狩军团荒野",
+        clickMilitaryRightTaskText("巡狩军团荒野",
                 () -> confirmMilitaryQuestStarted(
                         remainingClickAttempts, TASK_START_CONFIRM_RETRY_COUNT),
                 SCREEN_WAIT_RETRY_COUNT,
@@ -682,7 +748,9 @@ final class TaskAutomation {
 
     private void confirmMilitaryQuestStarted(
             int remainingClickAttempts, int remainingConfirmAttempts) {
-        host.recognizeText(text -> {
+        host.recognizeTextRegion(
+                TASK_CONFIRM_LEFT, TASK_CONFIRM_TOP,
+                TASK_CONFIRM_RIGHT, TASK_CONFIRM_BOTTOM, text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -751,7 +819,7 @@ final class TaskAutomation {
         Runnable inspect = () -> host.closeAutoPathPanel(
                 () -> withTaskWindowOpen(
                         () -> host.tap(180, 101,
-                                () -> host.clickLeftText(questName,
+                                () -> clickMilitaryTaskListText(questName,
                                         () -> inspectOngoingMilitaryQuest(
                                                 questName, completed,
                                                 () -> continueCollecting(
@@ -780,11 +848,11 @@ final class TaskAutomation {
 
     private void detectWildernessLocation(Runnable next) {
         host.showProgress("自动军务：确认是否在荒野修炼区");
-        host.recognizeText(text -> {
+        host.recognizeMapName(mapName -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            inWildernessTraining = isWildernessTrainingLocation(screenLines(text));
+            inWildernessTraining = isWildernessTrainingMapName(mapName);
             next.run();
         });
     }
@@ -822,7 +890,7 @@ final class TaskAutomation {
     private void inspectOngoingMilitaryQuest(
             String questName, Runnable completed, Runnable incomplete,
             int remainingAttempts) {
-        recognizeMilitaryText(text -> {
+        recognizeMilitaryTaskDetail(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
@@ -867,8 +935,11 @@ final class TaskAutomation {
         host.showProgress("自动军务：" + questName + "材料已满，快速抵达");
         Runnable afterArrival = () -> {
             host.showProgress("自动军务：点击自动寻路");
-            host.clickText("自动寻路", false,
-                    leaveCompletedQuest(questName, completed), SCREEN_WAIT_RETRY_COUNT);
+            host.clickTextRegion("自动寻路", false,
+                    AUTO_PATH_LEFT, AUTO_PATH_TOP,
+                    AUTO_PATH_RIGHT, AUTO_PATH_BOTTOM,
+                    leaveCompletedQuest(questName, completed),
+                    SCREEN_WAIT_RETRY_COUNT, null);
         };
         host.postDelayed(
                 () -> host.clickQuickArrival(afterArrival),
@@ -899,7 +970,7 @@ final class TaskAutomation {
         };
         host.closeAutoPathPanel(() -> withTaskWindowOpen(
                 () -> host.tap(180, 101,
-                        () -> host.clickLeftText(questName,
+                        () -> clickMilitaryTaskListText(questName,
                                 arrive,
                                 TEXT_RETRY_COUNT,
                                 () -> useSelectedCompletedQuest(
@@ -907,7 +978,7 @@ final class TaskAutomation {
     }
 
     private void useSelectedCompletedQuest(String questName, Runnable next) {
-        recognizeMilitaryText(text -> {
+        recognizeMilitaryTaskDetail(text -> {
             List<String> rightValues = new ArrayList<>();
             for (OcrText.TextBlock block : text.getTextBlocks()) {
                 for (OcrText.Line line : block.getLines()) {
@@ -940,7 +1011,9 @@ final class TaskAutomation {
     private void finishWildernessArrival(String questName, Runnable completed) {
         Runnable waitForDialogue = leaveCompletedQuest(questName, completed);
         host.showProgress("自动军务：检测是否出现自动寻路");
-        host.clickText("自动寻路", false,
+        host.clickTextRegion("自动寻路", false,
+                AUTO_PATH_LEFT, AUTO_PATH_TOP,
+                AUTO_PATH_RIGHT, AUTO_PATH_BOTTOM,
                 () -> {
                     host.showProgress("自动军务：已点击自动寻路，等待对话");
                     waitForDialogue.run();
@@ -963,14 +1036,14 @@ final class TaskAutomation {
         host.showProgress("自动军务：重新读取" + questName + "冷却");
         withTaskWindowOpen(() -> host.tap(55, 369,
                 () -> host.tap(316, 101,
-                        () -> host.clickLeftText(questName,
+                        () -> clickMilitaryTaskListText(questName,
                                 () -> inspectCompletedQuestCooldown(questName, completed),
                                 TEXT_RETRY_COUNT,
                                 () -> useCompletedQuestFallback(questName, completed)))));
     }
 
     private void inspectCompletedQuestCooldown(String questName, Runnable completed) {
-        recognizeMilitaryText(text -> {
+        recognizeMilitaryTaskDetail(text -> {
             if (!host.isAutomationRunning()) {
                 return;
             }

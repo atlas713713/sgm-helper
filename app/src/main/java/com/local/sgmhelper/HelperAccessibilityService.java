@@ -64,6 +64,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     private static final int STATE_COMPLETED = 4;
     private static final int ACTION_DELAY_MS = 1000;
     private static final int CLICK_DELAY_MS = 2000;
+    private static final int UI_DELAY_MS = 500;
+    private static final int FAST_BACK_DELAY_MS = 150;
     private static final int TEXT_RETRY_COUNT = 5;
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
     private static final int MAX_AUTOMATION_RECOVERY_ATTEMPTS = 3;
@@ -87,6 +89,10 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_DUNGEON_MINUTE = "dungeon_minute";
     static final String PREF_HEAVENFALL_DURATION_MINUTES = "heavenfall_duration_minutes";
     static final String PREF_HEAVENFALL_ZONE = "heavenfall_zone";
+    static final int DEFAULT_HEAVENFALL_HOUR = 16;
+    static final int DEFAULT_HEAVENFALL_MINUTE = 0;
+    static final int DEFAULT_HEAVENFALL_DURATION_MINUTES = 10;
+    static final int DEFAULT_HEAVENFALL_ZONE = 1;
     static final String PREF_WORSHIP_ENABLED = "worship_enabled";
     static final String PREF_MILITARY_ENABLED = "military_enabled";
     static final String PREF_MILITARY_SUPPLY_ENABLED = "military_supply_enabled";
@@ -1122,15 +1128,17 @@ public final class HelperAccessibilityService extends AccessibilityService
                 this::startScheduledDungeon);
         addTimerRow(menu, R.string.timer_heavenfall,
                 PREF_HEAVENFALL_HOUR, PREF_HEAVENFALL_MINUTE,
-                PREF_HEAVENFALL_ENABLED, true, 22, 0,
+                PREF_HEAVENFALL_ENABLED, true,
+                DEFAULT_HEAVENFALL_HOUR, DEFAULT_HEAVENFALL_MINUTE,
                 () -> WorshipAlarmReceiver.scheduleHeavenfall(this),
                 this::startScheduledHeavenfall);
         addSpinnerRow(menu, R.string.heavenfall_duration, 60,
-                preferences.getInt(PREF_HEAVENFALL_DURATION_MINUTES, 5),
+                preferences.getInt(PREF_HEAVENFALL_DURATION_MINUTES,
+                        DEFAULT_HEAVENFALL_DURATION_MINUTES),
                 value -> preferences.edit()
                         .putInt(PREF_HEAVENFALL_DURATION_MINUTES, value).apply());
         addSpinnerRow(menu, R.string.heavenfall_zone, 15,
-                preferences.getInt(PREF_HEAVENFALL_ZONE, 1),
+                preferences.getInt(PREF_HEAVENFALL_ZONE, DEFAULT_HEAVENFALL_ZONE),
                 value -> preferences.edit().putInt(PREF_HEAVENFALL_ZONE, value).apply());
         addSettingsButtonRow(menu,
                 createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
@@ -1386,6 +1394,12 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void startHighPriorityAutomation(String progress, Runnable firstAction) {
+        submitGameTask(AutomationTaskManager.Kind.HIGH_PRIORITY_INTERRUPT,
+                taskKey(progress), progress, firstAction, firstAction);
+    }
+
+    @Override
     public void startInGameAutomation(String progress, Runnable firstAction) {
         submitManagedTask(AutomationTaskManager.Kind.INTERRUPT,
                 taskKey(progress), progress, () -> {
@@ -1440,7 +1454,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (accepted) {
             return;
         }
-        if (kind == AutomationTaskManager.Kind.INTERRUPT) {
+        if (kind == AutomationTaskManager.Kind.INTERRUPT
+                || kind == AutomationTaskManager.Kind.HIGH_PRIORITY_INTERRUPT) {
             DiagnosticLog.info("TASK", "coalesced duplicate task=" + key);
         } else {
             showProgress("已有任务正在运行，请先终止");
@@ -1621,11 +1636,17 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void performSwipe(int startX, int startY, int endX, int endY, Runnable next) {
-        performSwipe(startX, startY, endX, endY, 300, next);
+        performSwipe(startX, startY, endX, endY, 300, next, CLICK_DELAY_MS);
     }
 
     private void performSwipe(int startX, int startY, int endX, int endY,
             long durationMillis, Runnable next) {
+        performSwipe(startX, startY, endX, endY,
+                durationMillis, next, CLICK_DELAY_MS);
+    }
+
+    private void performSwipe(int startX, int startY, int endX, int endY,
+            long durationMillis, Runnable next, int nextDelayMillis) {
         AutomationTaskManager.Run run = taskManager.current();
         if (run == null) {
             return;
@@ -1640,7 +1661,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             @Override
             public void onCompleted(GestureDescription gestureDescription) {
                 if (taskManager.isCurrent(run.id)) {
-                    scheduleNext(next);
+                    scheduleNext(next, nextDelayMillis);
                 }
             }
 
@@ -1667,6 +1688,11 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public void tap(int x, int y, Runnable next) {
         performTap(x, y, next);
+    }
+
+    @Override
+    public void tapUi(int x, int y, Runnable next) {
+        performTap(x, y, next, UI_DELAY_MS);
     }
 
     @Override
@@ -1702,6 +1728,11 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public void swipe(int startX, int startY, int endX, int endY, Runnable next) {
         performSwipe(startX, startY, endX, endY, next);
+    }
+
+    @Override
+    public void swipeUi(int startX, int startY, int endX, int endY, Runnable next) {
+        performSwipe(startX, startY, endX, endY, 300, next, UI_DELAY_MS);
     }
 
     @Override
@@ -1756,8 +1787,13 @@ public final class HelperAccessibilityService extends AccessibilityService
             retryGameHudGuard(next, remainingAttempts, "助手菜单未关闭");
             return;
         }
-        showProgress("准备游戏画面：检查遮挡窗口");
-        closeBlockingWindowIfNeeded(next, remainingAttempts, attempt);
+        showProgress("准备游戏画面：快速关闭遮挡窗口");
+        pressBackQuicklyThen(
+                () -> {
+                    showProgress("准备游戏画面：检查遮挡窗口");
+                    closeBlockingWindowIfNeeded(next, remainingAttempts, attempt);
+                },
+                3);
     }
 
     private void closeBlockingWindowIfNeeded(
@@ -1879,6 +1915,24 @@ public final class HelperAccessibilityService extends AccessibilityService
                 ACTION_DELAY_MS);
     }
 
+    private void pressBackQuicklyThen(Runnable next, int remaining) {
+        if (!automationRunning) {
+            return;
+        }
+        if (remaining == 0) {
+            DiagnosticLog.info("SCREEN_GUARD",
+                    "state=FAST_BACK_3_COMPLETE action=full_screen_ocr");
+            next.run();
+            return;
+        }
+        boolean sent = performGlobalAction(GLOBAL_ACTION_BACK);
+        DiagnosticLog.info("SCREEN_GUARD", "state=FAST_BACK action="
+                + (sent ? "sent" : "failed") + " remaining=" + (remaining - 1));
+        postDelayed(
+                () -> pressBackQuicklyThen(next, remaining - 1),
+                FAST_BACK_DELAY_MS);
+    }
+
     private void retryGameHudGuard(
             Runnable next, int remainingAttempts, String failureMessage) {
         if (remainingAttempts > 1) {
@@ -1946,7 +2000,8 @@ public final class HelperAccessibilityService extends AccessibilityService
                     showProgress("关闭自动寻路栏");
                     performTap(1248, 147,
                             () -> closeAutoPathPanelIfNeeded(
-                                    next, remainingAttempts - 1));
+                                    next, remainingAttempts - 1),
+                            UI_DELAY_MS);
                 } else {
                     failAutomation("Auto path panel did not close after retries");
                 }
@@ -1965,7 +2020,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     public void openAutoPathPanel(Runnable next) {
         showProgress("打开自动寻路栏");
         performTap(1150, 500,
-                () -> waitForAutoPathPanel(next, TEXT_RETRY_COUNT));
+                () -> waitForAutoPathPanel(next, TEXT_RETRY_COUNT),
+                UI_DELAY_MS);
     }
 
     private void waitForAutoPathPanel(Runnable next, int remainingAttempts) {
@@ -2166,6 +2222,34 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void recognizeChannelDialog(Consumer<Integer> result) {
+        captureScreenshot(screenshot -> {
+            if (screenshot == null) {
+                result.accept(null);
+                return;
+            }
+            int left = 380 * screenshot.getWidth() / 1280;
+            int top = 90 * screenshot.getHeight() / 720;
+            int right = 900 * screenshot.getWidth() / 1280;
+            int bottom = 640 * screenshot.getHeight() / 720;
+            Bitmap region = Bitmap.createBitmap(
+                    screenshot, left, top, right - left, bottom - top);
+            recognizeText(region, text -> {
+                region.recycle();
+                result.accept(BossAutomation.findCurrentChannel(
+                        OcrText.offset(text, left, top), screenshot));
+                screenshot.recycle();
+            }, error -> {
+                region.recycle();
+                screenshot.recycle();
+                DiagnosticLog.warn("OCR", "Channel dialog Paddle OCR failed: "
+                        + error.getMessage());
+                result.accept(null);
+            });
+        });
+    }
+
+    @Override
     public void recognizeLeaderChannel(Consumer<Integer> result) {
         captureScreenshot(screenshot -> {
             if (screenshot == null) {
@@ -2246,7 +2330,9 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void recognizeMapName(Consumer<String> result) {
-        recognizePaddleTextCrop(430, 550, 760, 615, 4, "Map name", result);
+        // Wudang reads only the fixed map-title label above the mini-map. Keeping
+        // this crop narrow avoids progress-bar and chat text entering the OCR.
+        recognizePaddleTextCrop(520, 565, 780, 610, 5, "Map name", result);
     }
 
     @Override
@@ -2501,6 +2587,83 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void clickTextRegion(String expected, boolean exact,
+            int left, int top, int right, int bottom,
+            Runnable next, int attempts, Runnable ifMissing) {
+        clickTextRegion(expected, exact, left, top, right, bottom,
+                next, attempts, ifMissing, CLICK_DELAY_MS);
+    }
+
+    private void clickTextRegion(String expected, boolean exact,
+            int left, int top, int right, int bottom,
+            Runnable next, int remainingAttempts, Runnable ifMissing,
+            int nextDelayMillis) {
+        if (!automationRunning) {
+            return;
+        }
+        recognizeTextRegion(left, top, right, bottom, text -> {
+            if (!automationRunning) {
+                return;
+            }
+            List<OcrText.Line> lines = new ArrayList<>();
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                lines.addAll(block.getLines());
+            }
+            Rect match = findTextBounds(lines, normalizeText(expected), exact);
+            if (match != null) {
+                performTap(match.centerX(), match.centerY(), next, nextDelayMillis);
+            } else if (remainingAttempts > 1) {
+                postDelayed(() -> clickTextRegion(expected, exact,
+                        left, top, right, bottom, next,
+                        remainingAttempts - 1, ifMissing, nextDelayMillis),
+                        ACTION_DELAY_MS);
+            } else if (ifMissing != null) {
+                ifMissing.run();
+            } else {
+                failAutomation("Region text was not found: " + expected);
+            }
+        });
+    }
+
+    @Override
+    public void clickTextUi(String expected, boolean exact, Runnable next,
+            int attempts, Runnable ifMissing) {
+        clickScreenText(expected, exact, next, attempts, ifMissing,
+                0, Integer.MAX_VALUE, UI_DELAY_MS);
+    }
+
+    @Override
+    public void clickCenterText(String expected, Runnable next, int attempts,
+            Runnable ifMissing) {
+        clickCenterText(expected, next, attempts, ifMissing, CLICK_DELAY_MS);
+    }
+
+    private void clickCenterText(String expected, Runnable next, int remainingAttempts,
+            Runnable ifMissing, int nextDelayMillis) {
+        if (!automationRunning) {
+            return;
+        }
+        recognizeTextRegion(280, 220, 1000, 480, text -> {
+            List<OcrText.Line> lines = new ArrayList<>();
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                lines.addAll(block.getLines());
+            }
+            Rect match = findTextBounds(lines, expected, true);
+            if (match != null) {
+                performTap(match.centerX(), match.centerY(), next, nextDelayMillis);
+            } else if (remainingAttempts > 1) {
+                postDelayed(() -> clickCenterText(expected, next,
+                        remainingAttempts - 1, ifMissing, nextDelayMillis),
+                        ACTION_DELAY_MS);
+            } else if (ifMissing != null) {
+                ifMissing.run();
+            } else {
+                failAutomation("Center text was not found: " + expected);
+            }
+        });
+    }
+
+    @Override
     public void clickDungeonText(String expected, boolean exact, Runnable next,
             int attempts, Runnable ifMissing) {
         clickDungeonScreenText(expected, exact, next, attempts, ifMissing);
@@ -2723,6 +2886,38 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void waitForTextRegion(String expected,
+            int left, int top, int right, int bottom,
+            int attempts, Runnable next, Runnable ifMissing) {
+        if (!automationRunning) {
+            return;
+        }
+        recognizeTextRegion(left, top, right, bottom, text -> {
+            if (!automationRunning) {
+                return;
+            }
+            String target = normalizeText(expected);
+            for (OcrText.TextBlock block : text.getTextBlocks()) {
+                for (OcrText.Line line : block.getLines()) {
+                    if (normalizeText(line.getText()).contains(target)) {
+                        next.run();
+                        return;
+                    }
+                }
+            }
+            if (attempts > 1) {
+                postDelayed(() -> waitForTextRegion(expected,
+                        left, top, right, bottom, attempts - 1, next, ifMissing),
+                        ACTION_DELAY_MS);
+            } else if (ifMissing != null) {
+                ifMissing.run();
+            } else {
+                failAutomation("Region text was not found: " + expected);
+            }
+        });
+    }
+
+    @Override
     public void waitForMapReady(int attempts, Runnable next) {
         captureScreenshot(bitmap -> {
             if (bitmap == null || !automationRunning) {
@@ -2899,6 +3094,15 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void failAutomation(String message) {
+        failAutomation(message, null);
+    }
+
+    @Override
+    public void failPrimaryAndRestartAfter(String message, long delayMillis) {
+        failAutomation(message, Math.max(0, delayMillis));
+    }
+
+    private void failAutomation(String message, Long requestedRestartDelayMillis) {
         AutomationTaskManager.Run run = taskManager.current();
         if (run == null || failingRunId == run.id) {
             return;
@@ -2916,12 +3120,14 @@ public final class HelperAccessibilityService extends AccessibilityService
                 if (bitmap != null) {
                     bitmap.recycle();
                 }
-                finishAutomationFailure(run.id, message);
+                finishAutomationFailure(
+                        run.id, message, requestedRestartDelayMillis);
             }
         });
     }
 
-    private void finishAutomationFailure(long runId, String message) {
+    private void finishAutomationFailure(
+            long runId, String message, Long requestedRestartDelayMillis) {
         AutomationTaskManager.Run run = taskManager.current();
         if (run == null || run.id != runId) {
             return;
@@ -2940,12 +3146,19 @@ public final class HelperAccessibilityService extends AccessibilityService
             return;
         }
 
-        recoverPrimaryTask(run, message);
+        recoverPrimaryTask(run, message, requestedRestartDelayMillis);
     }
 
-    private void recoverPrimaryTask(AutomationTaskManager.Run failedRun, String message) {
+    private void recoverPrimaryTask(
+            AutomationTaskManager.Run failedRun, String message,
+            Long requestedRestartDelayMillis) {
         inventorySelling = false;
         gearHandleEvent.clear();
+        if (requestedRestartDelayMillis != null) {
+            restartPrimaryTaskAfterFailure(
+                    failedRun, message, requestedRestartDelayMillis);
+            return;
+        }
         automationRecoveryAttempts++;
         boolean finalAttempt = !shouldRetryAutomation(automationRecoveryAttempts);
         Runnable recovery = primaryTaskAction;
@@ -2971,6 +3184,33 @@ public final class HelperAccessibilityService extends AccessibilityService
                         showProgress("错误恢复：恢复主要任务 · " + taskLabel);
                         recovery.run();
                     }, delay);
+                },
+                true);
+        taskManager.restart(failedRun.id, retry);
+    }
+
+    private void restartPrimaryTaskAfterFailure(
+            AutomationTaskManager.Run failedRun, String message, long delayMillis) {
+        Runnable recovery = primaryTaskAction;
+        String taskLabel = primaryTaskLabel(primaryTask);
+        AutomationTaskManager.Request retry = new AutomationTaskManager.Request(
+                failedRun.request.key,
+                failedRun.request.progress,
+                AutomationTaskManager.Kind.PRIMARY,
+                () -> {
+                    currentAutomationAction = recovery;
+                    setTaskState(STATE_RUNNING);
+                    startInventoryMonitoring();
+                    showProgress("错误：" + message + " · "
+                            + delayMillis / 1_000 + "秒后重启当前主线任务：" + taskLabel);
+                    postDelayed(() -> {
+                        if (recovery == null) {
+                            failAutomation("没有可恢复的主要任务");
+                            return;
+                        }
+                        showProgress("错误恢复：重启当前主线任务 · " + taskLabel);
+                        recovery.run();
+                    }, delayMillis);
                 },
                 true);
         taskManager.restart(failedRun.id, retry);

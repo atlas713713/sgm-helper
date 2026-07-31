@@ -59,6 +59,8 @@ final class DungeonBattleAutomation {
     private static final int CAMP_NPC_TOLERANCE = 5;
     private static final long MAP_WAIT_MS = 5_000;
     private static final long FIGHT_CHECK_MS = 4_000;
+    /** 一次寻路移动预算，到点还没找到目标就重新读坐标推进下一段。 */
+    private static final long MOVE_DURATION_MS = 4_000;
 
     private final AutomationHost host;
     private List<BaseDungeonAction> selectedDungeons = Collections.emptyList();
@@ -427,8 +429,13 @@ final class DungeonBattleAutomation {
         });
     }
 
+    /** 40/50 级靠红名 BOSS 识别，其余副本读右侧引路敌人列表。 */
+    private boolean usesRedBoss() {
+        return currentLevel() == 40 || currentLevel() == 50;
+    }
+
     private void findEnemy(RouteDecision decision) {
-        if (currentLevel() == 40 || currentLevel() == 50) {
+        if (usesRedBoss()) {
             findRedBoss(decision);
             return;
         }
@@ -458,13 +465,45 @@ final class DungeonBattleAutomation {
         host.recognizeRedBoss(boss -> {
             if (boss == null) {
                 move(decision);
+            } else {
+                attackRedBoss(boss);
+            }
+        });
+    }
+
+    private void attackRedBoss(BossAutomation.BossTarget boss) {
+        host.showProgress(dungeonTitle() + "：攻击 " + boss.name);
+        host.tap(boss.bounds.centerX(), boss.bounds.centerY(),
+                () -> host.ensureAutoAttackEnabled(
+                        () -> host.postDelayed(this::inspectPosition, FIGHT_CHECK_MS)));
+    }
+
+    /**
+     * 复刻 BossAutomation 的边走边扫：红名副本在移动途中每 250ms 扫一次，命中就立刻
+     * 打断移动开打，不必等这一段路走完。读引路列表的副本一次 OCR 太贵，仍旧走完再扫。
+     */
+    private void scanDuringMove(long deadline) {
+        host.recognizeRedBoss(boss -> {
+            if (boss != null) {
+                attackRedBoss(boss);
                 return;
             }
-            host.showProgress(dungeonTitle() + "：攻击 " + boss.name);
-            host.tap(boss.bounds.centerX(), boss.bounds.centerY(),
-                    () -> host.ensureAutoAttackEnabled(
-                            () -> host.postDelayed(this::inspectPosition, FIGHT_CHECK_MS)));
+            long delay = BossAutomation.moveScanDelayMillis(
+                    System.currentTimeMillis(), deadline);
+            if (delay == 0) {
+                inspectPosition();
+            } else {
+                host.postDelayed(() -> scanDuringMove(deadline), delay);
+            }
         });
+    }
+
+    private void afterMove() {
+        if (usesRedBoss()) {
+            scanDuringMove(System.currentTimeMillis() + MOVE_DURATION_MS);
+        } else {
+            host.postDelayed(this::inspectPosition, MOVE_DURATION_MS);
+        }
     }
 
     private void move(RouteDecision decision) {
@@ -482,8 +521,7 @@ final class DungeonBattleAutomation {
         host.showProgress(dungeonTitle() + "：前往 "
                 + decision.targetX + "," + decision.targetY);
         host.tapMapCoordinate(decision.targetX, decision.targetY,
-                currentDungeon().dungeonMapMaxX(),
-                () -> host.postDelayed(this::inspectPosition, 4_000));
+                currentDungeon().dungeonMapMaxX(), this::afterMove);
     }
 
     private void moveWaypoints(int[][] points, int index) {
@@ -494,7 +532,7 @@ final class DungeonBattleAutomation {
             if (index + 1 < points.length) {
                 host.postDelayed(() -> moveWaypoints(points, index + 1), 2_000);
             } else {
-                host.postDelayed(this::inspectPosition, 4_000);
+                afterMove();
             }
         });
     }

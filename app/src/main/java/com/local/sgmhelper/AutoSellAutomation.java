@@ -7,6 +7,10 @@ import java.util.regex.Pattern;
 final class AutoSellAutomation {
     private static final int ARRIVAL_ATTEMPTS = 90;
     private static final int PREFLIGHT_CAPACITY_ATTEMPTS = 3;
+    private static final int INN_TITLE_LEFT = 400;
+    private static final int INN_TITLE_TOP = 0;
+    private static final int INN_TITLE_RIGHT = 880;
+    private static final int INN_TITLE_BOTTOM = 100;
     private static final Pattern CAPACITY = Pattern.compile(
             "(\\d{1,3})\\s*[/／]\\s*(\\d{1,3})");
 
@@ -217,7 +221,31 @@ final class AutoSellAutomation {
 
     private void waitForInn(Runnable next) {
         host.showProgress("Auto sell: waiting for Inn");
-        host.waitForText("女老板", ARRIVAL_ATTEMPTS, () -> sell(next));
+        waitForInn(next, ARRIVAL_ATTEMPTS);
+    }
+
+    private void waitForInn(Runnable next, int remainingAttempts) {
+        host.recognizeTextRegion(
+                INN_TITLE_LEFT, INN_TITLE_TOP, INN_TITLE_RIGHT, INN_TITLE_BOTTOM,
+                text -> {
+                    String recognized = text == null ? "" : text.getText();
+                    boolean arrived = isInnScreenText(recognized);
+                    DiagnosticLog.info("AUTO_SELL", "Inn title ROI Paddle OCR='"
+                            + recognized + "' matched=" + arrived);
+                    if (arrived) {
+                        sell(next);
+                    } else if (remainingAttempts > 1) {
+                        host.postDelayed(
+                                () -> waitForInn(next, remainingAttempts - 1),
+                                500);
+                    } else {
+                        host.failAutomation("Auto sell: Inn did not open");
+                    }
+                });
+    }
+
+    static boolean isInnScreenText(String value) {
+        return value != null && value.replaceAll("\\s+", "").contains("客栈");
     }
 
     private void sell(Runnable next) {

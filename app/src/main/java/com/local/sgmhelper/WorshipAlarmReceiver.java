@@ -162,7 +162,9 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
         schedule(context, ACTION_HEAVENFALL, 5,
                 HelperAccessibilityService.PREF_HEAVENFALL_ENABLED, true,
                 HelperAccessibilityService.PREF_HEAVENFALL_HOUR,
-                HelperAccessibilityService.PREF_HEAVENFALL_MINUTE, 22, 0);
+                HelperAccessibilityService.PREF_HEAVENFALL_MINUTE,
+                HelperAccessibilityService.DEFAULT_HEAVENFALL_HOUR,
+                HelperAccessibilityService.DEFAULT_HEAVENFALL_MINUTE);
     }
 
     static void scheduleDungeon(Context context) {
