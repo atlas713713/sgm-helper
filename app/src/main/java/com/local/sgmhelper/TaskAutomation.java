@@ -4,6 +4,7 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.os.SystemClock;
 
 
 import java.util.ArrayList;
@@ -56,6 +57,8 @@ final class TaskAutomation {
     private static final int AUTO_PATH_TOP = 150;
     private static final int AUTO_PATH_RIGHT = 800;
     private static final int AUTO_PATH_BOTTOM = 600;
+    private static final long MILITARY_HOME_WAIT_MS = 4_000L;
+    private static final long MILITARY_HOME_OCR_WINDOW_MS = 5_000L;
     private static final Pattern WILDERNESS_ZONE = Pattern.compile(
             "巡狩军团荒野[（(]([一二三四五六七八九十百0-9]+)[）)]");
     private static final Pattern MILITARY_COOLDOWN = Pattern.compile(
@@ -99,9 +102,33 @@ final class TaskAutomation {
         inWildernessTraining = false;
         resetMilitaryQuestChoices();
         WorshipAlarmReceiver.scheduleMilitary(host.context());
-        host.showProgress("自动军务：停止自动攻击");
-        host.ensureAutoAttackDisabled(
-                () -> host.postDelayed(this::inspectOngoingBeforeAcceptance, 1_000));
+        host.showProgress("自动军务：停止自动攻击并确保回城");
+        host.closeAutoPathPanel(() -> host.returnHome(
+                () -> host.postDelayed(
+                        () -> waitForMilitaryHome(
+                                SystemClock.elapsedRealtime() + MILITARY_HOME_OCR_WINDOW_MS),
+                        MILITARY_HOME_WAIT_MS)));
+    }
+
+    private void waitForMilitaryHome(long deadline) {
+        host.recognizeMapName(mapName -> {
+            if (!host.isAutomationRunning()) {
+                return;
+            }
+            String normalized = CityTravelAutomation.normalize(mapName);
+            if (CityTeleportCatalog.isKnownCity(normalized)) {
+                DiagnosticLog.info("MILITARY", "home confirmed before task map=" + normalized);
+                inspectOngoingBeforeAcceptance();
+            } else if (SystemClock.elapsedRealtime() < deadline) {
+                DiagnosticLog.info("MILITARY", "home pending before task map=" + normalized
+                        + " remainingMs="
+                        + Math.max(0L, deadline - SystemClock.elapsedRealtime()));
+                host.postDelayed(
+                        () -> waitForMilitaryHome(deadline), ACTION_DELAY_MS);
+            } else {
+                host.failAutomation("军务启动前回城后未识别到城市：" + normalized);
+            }
+        });
     }
 
     private void inspectOngoingBeforeAcceptance() {
