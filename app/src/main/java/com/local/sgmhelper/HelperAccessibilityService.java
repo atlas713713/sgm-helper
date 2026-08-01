@@ -522,20 +522,59 @@ public final class HelperAccessibilityService extends AccessibilityService
         handler.postDelayed(start, 300);
     }
 
+    /** 手动开始练级时的前置步骤，按先后顺序排。 */
+    enum TrainingStartStep {
+        REVIVE,
+        MILITARY,
+        TRAINING
+    }
+
+    /**
+     * 复活要排在军务前面，而且不能因为军务开着就被跳过——以前这里是二选一，
+     * 军务默认开启，于是「开始练级前自动复活士兵」一次都没执行过。
+     */
+    static List<TrainingStartStep> trainingStartSteps(
+            boolean militaryScheduled, boolean revivalEnabled) {
+        List<TrainingStartStep> steps = new ArrayList<>();
+        if (revivalEnabled) {
+            steps.add(TrainingStartStep.REVIVE);
+        }
+        if (militaryScheduled) {
+            steps.add(TrainingStartStep.MILITARY);
+        }
+        steps.add(TrainingStartStep.TRAINING);
+        return steps;
+    }
+
     private void startTrainingAfterPreparation() {
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        if (WorshipAlarmReceiver.shouldScheduleMilitary(
-                preferences.getBoolean(PREF_MILITARY_ENABLED, true),
-                preferences.getBoolean(PREF_MILITARY_SUPPLY_ENABLED, true),
-                preferences.getBoolean(PREF_MILITARY_WILDERNESS_ENABLED, true))) {
-            // 练级是主线任务，先建立 PRIMARY 运行上下文才能让启动前背包检查
-            // 消费贩卖事件；军务随后作为中断插入，结束后由任务管理器恢复练级。
-            startTrainingPrimaryTask(this::checkInventoryBeforeMilitary);
-        } else {
-            startTrainingPrimaryTask(this::startTrainingWithOptionalRevival);
+        List<TrainingStartStep> steps = trainingStartSteps(
+                WorshipAlarmReceiver.shouldScheduleMilitary(
+                        preferences.getBoolean(PREF_MILITARY_ENABLED, true),
+                        preferences.getBoolean(PREF_MILITARY_SUPPLY_ENABLED, true),
+                        preferences.getBoolean(PREF_MILITARY_WILDERNESS_ENABLED, true)),
+                preferences.getBoolean(
+                        PREF_SOLDIER_REVIVAL_ENABLED, DEFAULT_SOLDIER_REVIVAL_ENABLED));
+        // 练级是主线任务，先建立 PRIMARY 运行上下文才能让启动前背包检查
+        // 消费贩卖事件；军务随后作为中断插入，结束后由任务管理器恢复练级。
+        startTrainingPrimaryTask(() -> runTrainingStartSteps(steps, 0));
+    }
+
+    private void runTrainingStartSteps(List<TrainingStartStep> steps, int index) {
+        if (index >= steps.size() || taskState != STATE_RUNNING) {
+            return;
+        }
+        Runnable next = () -> runTrainingStartSteps(steps, index + 1);
+        switch (steps.get(index)) {
+            case REVIVE -> soldierRevivalAutomation.run(next);
+            case MILITARY -> checkInventoryBeforeMilitary();
+            case TRAINING -> trainingAutomation.start();
         }
     }
 
+    /**
+     * 军务是插入任务，跑完由任务管理器恢复练级主线，所以这一步之后不再往下串。
+     */
     private void checkInventoryBeforeMilitary() {
         showProgress("自动练级：启动前检查背包");
         checkInventoryBeforePrimary(() -> {
@@ -545,15 +584,6 @@ public final class HelperAccessibilityService extends AccessibilityService
             showProgress("初始化：重新检测军务任务");
             startScheduledMilitary();
         });
-    }
-
-    private void startTrainingWithOptionalRevival() {
-        if (getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .getBoolean(PREF_SOLDIER_REVIVAL_ENABLED, DEFAULT_SOLDIER_REVIVAL_ENABLED)) {
-            soldierRevivalAutomation.run(trainingAutomation::start);
-        } else {
-            trainingAutomation.start();
-        }
     }
 
     private void updateStateView() {
@@ -2038,9 +2068,9 @@ public final class HelperAccessibilityService extends AccessibilityService
                 }
             } else if (screen == LoginAutomation.Screen.LOGGED_IN) {
                 DiagnosticLog.info("SCREEN_GUARD",
-                        "state=LOGGED_IN action=recheck_template");
-                retryGameHudGuard(next, remainingAttempts,
-                        "OCR 显示已登录但模板仍未确认 HUD");
+                        "state=CLEAN_HUD source=ocr_fallback action=continue");
+                DiagnosticLog.info("TEMPLATE_FALLBACK", "name=HUD source=ocr");
+                next.run();
             } else if (screen == LoginAutomation.Screen.UNKNOWN) {
                 DiagnosticLog.info("SCREEN_GUARD", "state=UNKNOWN action=back_3");
                 showProgress("准备游戏画面：连续返回三次");

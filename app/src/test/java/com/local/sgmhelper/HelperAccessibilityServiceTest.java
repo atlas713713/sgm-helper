@@ -110,6 +110,30 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void revivesSoldiersBeforeTrainingEvenWhenMilitaryIsEnabled() {
+        // 以前这里是二选一：军务默认开着，复活那条分支永远走不到。
+        assertEquals(List.of(HelperAccessibilityService.TrainingStartStep.REVIVE,
+                        HelperAccessibilityService.TrainingStartStep.MILITARY,
+                        HelperAccessibilityService.TrainingStartStep.TRAINING),
+                HelperAccessibilityService.trainingStartSteps(true, true));
+        assertEquals(List.of(HelperAccessibilityService.TrainingStartStep.REVIVE,
+                        HelperAccessibilityService.TrainingStartStep.TRAINING),
+                HelperAccessibilityService.trainingStartSteps(false, true));
+        assertEquals(List.of(HelperAccessibilityService.TrainingStartStep.MILITARY,
+                        HelperAccessibilityService.TrainingStartStep.TRAINING),
+                HelperAccessibilityService.trainingStartSteps(true, false));
+        assertEquals(List.of(HelperAccessibilityService.TrainingStartStep.TRAINING),
+                HelperAccessibilityService.trainingStartSteps(false, false));
+        // 军务的三个开关默认都开着，所以默认配置一定包含复活。
+        assertTrue(WorshipAlarmReceiver.shouldScheduleMilitary(true, true, true));
+        assertTrue(HelperAccessibilityService.DEFAULT_SOLDIER_REVIVAL_ENABLED);
+        assertTrue(HelperAccessibilityService.trainingStartSteps(
+                        WorshipAlarmReceiver.shouldScheduleMilitary(true, true, true),
+                        HelperAccessibilityService.DEFAULT_SOLDIER_REVIVAL_ENABLED)
+                .contains(HelperAccessibilityService.TrainingStartStep.REVIVE));
+    }
+
+    @Test
     public void mapsEveryMilitaryWildernessTaskToWudangZoneRange() {
         assertArrayEquals(new int[] {1, 3},
                 TaskAutomation.militaryWildernessZoneRange("一"));
