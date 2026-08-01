@@ -112,6 +112,14 @@ public final class HelperAccessibilityService extends AccessibilityService
     private static final String PREF_DUNGEON_ELITE_MODE = "dungeon_elite_mode";
     static final String PREF_SOLDIER_REVIVAL_ENABLED = "soldier_revival_before_training";
     static final boolean DEFAULT_SOLDIER_REVIVAL_ENABLED = true;
+    static final String PREF_GAME_RESTART_ENABLED = "game_restart_enabled";
+    static final String PREF_GAME_RESTART_INTERVAL_MINUTES = "game_restart_interval_minutes";
+    static final int DEFAULT_GAME_RESTART_INTERVAL_MINUTES = 120;
+    /** 可选的重启间隔，按分钟。跨度做大一点，短的用来验证，长的才是日常挂机用的。 */
+    static final List<Integer> GAME_RESTART_INTERVAL_MINUTES =
+            List.of(20, 30, 40, 50, 60, 90, 120, 180, 240, 360);
+    /** 到点后每分钟看一次有没有空闲窗口，别在主线任务干活的中途插进去。 */
+    private static final long GAME_RESTART_CHECK_INTERVAL_MS = 60_000;
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsBackupListener =
             (preferences, key) -> SettingsBackup.export(this);
     static final String PREF_BOSS_FOLLOW_LEADER = "boss_follow_leader";
@@ -134,6 +142,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String TRAINING_LOCATION_MARKER = "标记点";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Handler inventoryHandler = new Handler(Looper.getMainLooper());
+    private final Handler gameRestartHandler = new Handler(Looper.getMainLooper());
     private final AutomationTaskManager taskManager = new AutomationTaskManager(
             new AutomationTaskManager.Listener() {
                 @Override
@@ -171,6 +180,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private final HeavenfallAutomation heavenfallAutomation = new HeavenfallAutomation(this);
     private final SoldierRevivalAutomation soldierRevivalAutomation =
             new SoldierRevivalAutomation(this);
+    private final GameRestartAutomation gameRestartAutomation = new GameRestartAutomation(this);
 
     // ponytail: one in-process service reference keeps the self-test small; clear it on every teardown.
     @SuppressLint("StaticFieldLeak")
@@ -192,6 +202,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     private Runnable primaryTaskAction = trainingAutomation::start;
     private boolean inventoryCheckRunning;
     private boolean inventorySelling;
+    /** 下次定时重启的时间（{@link SystemClock#elapsedRealtime}）；0 表示还没开始计时。 */
+    private long gameRestartDueAt;
     private final GearHandleEvent gearHandleEvent = new GearHandleEvent();
     private PaddleDungeonTextRecognizer paddleDungeonTextRecognizer;
 
@@ -210,6 +222,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 .registerOnSharedPreferenceChangeListener(settingsBackupListener);
         restorePrimaryTask();
         showOverlay();
+        startGameRestartMonitoring();
         WorshipAlarmReceiver.scheduleAll(this);
         boolean startedPending = WorshipAlarmReceiver.startPendingAutomation(this);
         if (!startedPending && primaryTask != PrimaryTask.TRAINING) {
@@ -1193,6 +1206,36 @@ public final class HelperAccessibilityService extends AccessibilityService
                 .putBoolean(PREF_SOLDIER_REVIVAL_ENABLED, checked)
                 .apply());
 
+        boolean restartEnabled = preferences.getBoolean(PREF_GAME_RESTART_ENABLED, false);
+        CheckBox gameRestart = addSettingsCheckBox(
+                menu, R.string.game_restart_enabled, restartEnabled);
+
+        LinearLayout intervalWrap = new LinearLayout(this);
+        intervalWrap.setOrientation(LinearLayout.VERTICAL);
+        intervalWrap.setPadding(dp(40), 0, 0, 0);
+        List<String> intervals = new ArrayList<>();
+        for (int minutes : GAME_RESTART_INTERVAL_MINUTES) {
+            intervals.add(String.valueOf(minutes));
+        }
+        Spinner interval = addTextSpinnerRow(intervalWrap, R.string.game_restart_interval,
+                intervals, String.valueOf(gameRestartIntervalMinutes()),
+                value -> {
+                    preferences.edit().putInt(PREF_GAME_RESTART_INTERVAL_MINUTES,
+                            normalizeGameRestartInterval(Integer.parseInt(value))).apply();
+                    rescheduleGameRestart();
+                });
+        menu.addView(intervalWrap, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        intervalWrap.setAlpha(restartEnabled ? 1f : 0.4f);
+        interval.setEnabled(restartEnabled);
+
+        gameRestart.setOnCheckedChangeListener((button, checked) -> {
+            preferences.edit().putBoolean(PREF_GAME_RESTART_ENABLED, checked).apply();
+            intervalWrap.setAlpha(checked ? 1f : 0.4f);
+            interval.setEnabled(checked);
+            rescheduleGameRestart();
+        });
+
         String chooseCity = getString(R.string.travel_select_required);
         List<String> cityValues = new ArrayList<>();
         cityValues.add(chooseCity);
@@ -1215,6 +1258,9 @@ public final class HelperAccessibilityService extends AccessibilityService
                         view -> soldierRevivalAutomation.start()),
                 createSettingsButton(R.string.settings_login, false,
                         view -> showLoginSettings()));
+        addSettingsButtonRow(menu,
+                createSettingsButton(R.string.game_restart_now, false,
+                        view -> startGameRestartNow()));
         addSettingsButtonRow(menu,
                 createSettingsButton(R.string.settings_back, false, view -> showMainMenu()));
         updateMenuPosition();
@@ -3265,6 +3311,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         stopInventoryMonitoring();
         clearAutomationRecovery();
         resetPrimaryTaskToTraining();
+        gameRestartDueAt = 0;
         taskManager.stopAll();
         handler.removeCallbacksAndMessages(null);
         hideProgress();
@@ -3307,6 +3354,126 @@ public final class HelperAccessibilityService extends AccessibilityService
                 && !getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                         .getBoolean(PREF_MANUALLY_STOPPED, false)) {
             restartPrimaryTask(primaryTask);
+        }
+    }
+
+    /**
+     * 定时重启的心跳：一直跑着，每分钟看一次。不在各个任务的开始/结束点手动开关计时器，
+     * 是因为主线任务在挂机时并不产生事件，靠事件驱动反而会漏掉最该重启的那段时间。
+     */
+    private void startGameRestartMonitoring() {
+        gameRestartHandler.removeCallbacksAndMessages(null);
+        gameRestartHandler.postDelayed(
+                this::checkGameRestart, GAME_RESTART_CHECK_INTERVAL_MS);
+    }
+
+    private void checkGameRestart() {
+        try {
+            evaluateGameRestart();
+        } finally {
+            startGameRestartMonitoring();
+        }
+    }
+
+    private void evaluateGameRestart() {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (!preferences.getBoolean(PREF_GAME_RESTART_ENABLED, false)
+                || taskState != STATE_RUNNING) {
+            // 没开或者没在跑任务：清零，下次开始跑的时候重新计时。
+            gameRestartDueAt = 0;
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (gameRestartDueAt == 0) {
+            gameRestartDueAt = now + gameRestartIntervalMillis();
+            DiagnosticLog.info("RESTART", "next game restart in "
+                    + gameRestartIntervalMinutes() + " minutes");
+            return;
+        }
+        if (now < gameRestartDueAt) {
+            return;
+        }
+        if (!isGameRestartWindow()) {
+            DiagnosticLog.info("RESTART", "restart is due but the primary task is busy; waiting");
+            return;
+        }
+        startGameRestart();
+    }
+
+    private boolean isGameRestartWindow() {
+        return isGameRestartWindow(isPrimaryRunCurrent(), taskManager.pendingCount(),
+                inventorySelling, inventoryCheckRunning,
+                gearHandleEvent.state() != GearHandleEvent.State.IDLE);
+    }
+
+    /**
+     * 空闲窗口：当前跑的就是主线任务本身，没有插入任务在排队，也没有背包/装备处理挂着。
+     * 满足这些就说明助手正在挂机，这时候杀游戏不会打断任何一段做到一半的流程。
+     */
+    static boolean isGameRestartWindow(boolean primaryRunCurrent, int pendingCount,
+            boolean inventorySelling, boolean inventoryCheckRunning, boolean gearPending) {
+        return primaryRunCurrent && pendingCount == 0
+                && !inventorySelling && !inventoryCheckRunning && !gearPending;
+    }
+
+    static int normalizeGameRestartInterval(int minutes) {
+        return GAME_RESTART_INTERVAL_MINUTES.contains(minutes)
+                ? minutes : DEFAULT_GAME_RESTART_INTERVAL_MINUTES;
+    }
+
+    private boolean isPrimaryRunCurrent() {
+        AutomationTaskManager.Run run = taskManager.current();
+        return run != null && run.request.kind == AutomationTaskManager.Kind.PRIMARY;
+    }
+
+    private int gameRestartIntervalMinutes() {
+        return normalizeGameRestartInterval(getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getInt(PREF_GAME_RESTART_INTERVAL_MINUTES,
+                        DEFAULT_GAME_RESTART_INTERVAL_MINUTES));
+    }
+
+    private long gameRestartIntervalMillis() {
+        return gameRestartIntervalMinutes() * 60_000L;
+    }
+
+    /** 改了开关或间隔就重新计时，不然新设的间隔要等下一轮才生效。 */
+    private void rescheduleGameRestart() {
+        gameRestartDueAt = 0;
+        startGameRestartMonitoring();
+    }
+
+    /**
+     * 作为插入任务执行：任务管理器会先取消主线任务，跑完这一段再自动把主线任务重跑一遍，
+     * 而主线任务本来就从“打开游戏 → 登录”开始，游戏就这样被重新拉起来了。
+     */
+    private void startGameRestart() {
+        gameRestartDueAt = 0;
+        DiagnosticLog.info("RESTART", "restarting game during idle window, primary="
+                + primaryTaskLabel(primaryTask));
+        submitManagedTask(AutomationTaskManager.Kind.INTERRUPT,
+                "定时重启", "定时重启：关闭游戏", () -> {
+                    currentAutomationAction = null;
+                    gameRestartAutomation.run();
+                });
+    }
+
+    /** 设置页里的“立即重启游戏”，用来验证 su 能不能杀掉游戏，不用干等一个间隔。 */
+    private void startGameRestartNow() {
+        if (taskState != STATE_RUNNING || !isPrimaryRunCurrent()) {
+            showProgress("定时重启：请先开始主线任务");
+            return;
+        }
+        if (isGameRestartWindow()) {
+            startGameRestart();
+            return;
+        }
+        // 关着定时重启时心跳不看 gameRestartDueAt，别许一个不会兑现的承诺。
+        if (getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(PREF_GAME_RESTART_ENABLED, false)) {
+            gameRestartDueAt = SystemClock.elapsedRealtime();
+            showProgress("定时重启：主线任务忙，空闲后立即重启");
+        } else {
+            showProgress("定时重启：主线任务忙，请稍后重试");
         }
     }
 
@@ -3607,6 +3774,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         clearAutomationRecovery();
         taskManager.stopAll();
         handler.removeCallbacksAndMessages(null);
+        gameRestartHandler.removeCallbacksAndMessages(null);
+        gameRestartDueAt = 0;
         stopInventoryMonitoring();
         hideProgress();
         closeMenu();
