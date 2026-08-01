@@ -1,6 +1,7 @@
 package com.local.sgmhelper;
 
 import java.util.List;
+import java.util.Map;
 
 final class ScreenGuard {
     enum Blocker {
@@ -39,6 +40,19 @@ final class ScreenGuard {
             return Blocker.GAME_WINDOW;
         }
         return Blocker.NONE;
+    }
+
+    static boolean isCleanHud(
+            Map<WudangTemplateMatcher.Template, WudangTemplateMatcher.Match> matches) {
+        return templateHit(matches, WudangTemplateMatcher.Template.MAP_TAB)
+                && templateHit(matches, WudangTemplateMatcher.Template.DIALOG_TAB);
+    }
+
+    static boolean templateHit(
+            Map<WudangTemplateMatcher.Template, WudangTemplateMatcher.Match> matches,
+            WudangTemplateMatcher.Template template) {
+        WudangTemplateMatcher.Match match = matches == null ? null : matches.get(template);
+        return match != null && match.found();
     }
 
     private static boolean hasGameWindow(List<String> values, String all) {

@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 interface AutomationHost {
@@ -111,6 +112,87 @@ interface AutomationHost {
 
     void recognizeText(Bitmap bitmap, Consumer<OcrText> result,
             Consumer<Throwable> failure);
+
+    void matchTemplates(WudangTemplateMatcher.Template[] templates,
+            int left, int top, int right, int bottom,
+            Consumer<Map<WudangTemplateMatcher.Template, WudangTemplateMatcher.Match>> result,
+            Consumer<Throwable> failure);
+
+    default void clickTemplateOrText(WudangTemplateMatcher.Template template,
+            String fallbackText, boolean exact,
+            int left, int top, int right, int bottom,
+            Runnable next, int templateAttempts, int ocrAttempts,
+            Runnable ifMissing) {
+        if (!isAutomationRunning()) {
+            return;
+        }
+        matchTemplates(new WudangTemplateMatcher.Template[] {template},
+                left, top, right, bottom, matches -> {
+                    WudangTemplateMatcher.Match match = matches.get(template);
+                    if (match != null && match.found()) {
+                        tap(match.centerX(), match.centerY(), next);
+                    } else if (templateAttempts > 1) {
+                        postDelayed(() -> clickTemplateOrText(template, fallbackText, exact,
+                                left, top, right, bottom, next,
+                                templateAttempts - 1, ocrAttempts, ifMissing), 500);
+                    } else {
+                        DiagnosticLog.info("TEMPLATE_FALLBACK",
+                                "name=" + template.label + " source=ocr");
+                        clickTextRegion(fallbackText, exact, left, top, right, bottom,
+                                next, ocrAttempts, ifMissing);
+                    }
+                }, error -> {
+                    if (templateAttempts > 1) {
+                        postDelayed(() -> clickTemplateOrText(template, fallbackText, exact,
+                                left, top, right, bottom, next,
+                                templateAttempts - 1, ocrAttempts, ifMissing), 500);
+                    } else {
+                        DiagnosticLog.info("TEMPLATE_FALLBACK",
+                                "name=" + template.label + " source=ocr error="
+                                        + error.getClass().getSimpleName());
+                        clickTextRegion(fallbackText, exact, left, top, right, bottom,
+                                next, ocrAttempts, ifMissing);
+                    }
+                });
+    }
+
+    default void waitTemplateOrText(WudangTemplateMatcher.Template template,
+            String fallbackText, boolean exact,
+            int left, int top, int right, int bottom,
+            int templateAttempts, int ocrAttempts,
+            Runnable next, Runnable ifMissing) {
+        if (!isAutomationRunning()) {
+            return;
+        }
+        matchTemplates(new WudangTemplateMatcher.Template[] {template},
+                left, top, right, bottom, matches -> {
+                    WudangTemplateMatcher.Match match = matches.get(template);
+                    if (match != null && match.found()) {
+                        next.run();
+                    } else if (templateAttempts > 1) {
+                        postDelayed(() -> waitTemplateOrText(template, fallbackText, exact,
+                                left, top, right, bottom,
+                                templateAttempts - 1, ocrAttempts, next, ifMissing), 500);
+                    } else {
+                        DiagnosticLog.info("TEMPLATE_FALLBACK",
+                                "name=" + template.label + " source=ocr");
+                        waitForTextRegion(fallbackText, left, top, right, bottom,
+                                ocrAttempts, next, ifMissing);
+                    }
+                }, error -> {
+                    if (templateAttempts > 1) {
+                        postDelayed(() -> waitTemplateOrText(template, fallbackText, exact,
+                                left, top, right, bottom,
+                                templateAttempts - 1, ocrAttempts, next, ifMissing), 500);
+                    } else {
+                        DiagnosticLog.info("TEMPLATE_FALLBACK",
+                                "name=" + template.label + " source=ocr error="
+                                        + error.getClass().getSimpleName());
+                        waitForTextRegion(fallbackText, left, top, right, bottom,
+                                ocrAttempts, next, ifMissing);
+                    }
+                });
+    }
 
     default void recognizeTextRegion(
             int left, int top, int right, int bottom, Consumer<OcrText> result) {

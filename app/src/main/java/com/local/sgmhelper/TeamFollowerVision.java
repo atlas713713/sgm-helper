@@ -2,18 +2,14 @@ package com.local.sgmhelper;
 
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
 
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
-import org.opencv.core.Core;
 import org.opencv.core.Mat;
-import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
 import java.io.IOException;
-import java.io.InputStream;
 
 /** The same captain-location and portrait-state checks used by Wudang. */
 final class TeamFollowerVision {
@@ -110,53 +106,15 @@ final class TeamFollowerVision {
     }
 
     private Mat loadGrayTemplate(String assetName) throws IOException {
-        Bitmap bitmap;
-        try (InputStream stream = assets.open(assetName)) {
-            bitmap = BitmapFactory.decodeStream(stream);
-        }
-        if (bitmap == null) {
-            throw new IOException("无法读取队长模板: " + assetName);
-        }
-        Mat color = new Mat();
-        Mat gray = new Mat();
-        try {
-            Utils.bitmapToMat(bitmap, color);
-            Imgproc.cvtColor(color, gray, Imgproc.COLOR_RGBA2GRAY);
-            return gray;
-        } finally {
-            bitmap.recycle();
-            color.release();
-        }
+        return WudangTemplateMatcher.loadGrayTemplate(assets, assetName);
     }
 
     private static Match match(Mat source, Mat originalTemplate,
             int left, int top, int right, int bottom,
             double scaleX, double scaleY) {
-        int scaledLeft = clamp((int) Math.round(left * scaleX), 0, source.cols());
-        int scaledTop = clamp((int) Math.round(top * scaleY), 0, source.rows());
-        int scaledRight = clamp((int) Math.round(right * scaleX), scaledLeft, source.cols());
-        int scaledBottom = clamp((int) Math.round(bottom * scaleY), scaledTop, source.rows());
-        org.opencv.core.Rect bounds = new org.opencv.core.Rect(
-                scaledLeft, scaledTop, scaledRight - scaledLeft, scaledBottom - scaledTop);
-        Mat search = source.submat(bounds);
-        Mat template = new Mat();
-        Mat result = new Mat();
-        try {
-            Imgproc.resize(originalTemplate, template, new Size(
-                    Math.max(1, Math.round(originalTemplate.cols() * scaleX)),
-                    Math.max(1, Math.round(originalTemplate.rows() * scaleY))));
-            if (search.cols() < template.cols() || search.rows() < template.rows()) {
-                return new Match(-1.0, -1.0);
-            }
-            Imgproc.matchTemplate(search, template, result, Imgproc.TM_CCOEFF_NORMED);
-            Core.MinMaxLocResult best = Core.minMaxLoc(result);
-            double centerX = (scaledLeft + best.maxLoc.x + template.cols() / 2.0) / scaleX;
-            return new Match(best.maxVal, centerX);
-        } finally {
-            search.release();
-            template.release();
-            result.release();
-        }
+        WudangTemplateMatcher.GrayMatch match = WudangTemplateMatcher.matchGray(
+                source, originalTemplate, left, top, right, bottom, scaleX, scaleY);
+        return new Match(match.score, match.centerX);
     }
 
     private static double captainBrightRatio(Bitmap screenshot, int slot) {

@@ -52,6 +52,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -206,6 +207,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private long gameRestartDueAt;
     private final GearHandleEvent gearHandleEvent = new GearHandleEvent();
     private PaddleDungeonTextRecognizer paddleDungeonTextRecognizer;
+    private WudangTemplateMatcher wudangTemplateMatcher;
 
     static HelperAccessibilityService getInstance() {
         return instance;
@@ -1916,7 +1918,26 @@ public final class HelperAccessibilityService extends AccessibilityService
             retryGameHudGuard(next, remainingAttempts, "助手菜单未关闭");
             return;
         }
-        showProgress("准备游戏画面：快速关闭遮挡窗口");
+        showProgress("准备游戏画面：模板检查地图和对话");
+        matchTemplates(new WudangTemplateMatcher.Template[] {
+                        WudangTemplateMatcher.Template.MAP_TAB,
+                        WudangTemplateMatcher.Template.DIALOG_TAB
+                },
+                400, 535, 860, 635,
+                matches -> {
+                    if (ScreenGuard.isCleanHud(matches)) {
+                        DiagnosticLog.info("SCREEN_GUARD",
+                                "state=CLEAN_HUD source=template attempt=" + attempt);
+                        next.run();
+                        return;
+                    }
+                    backBeforeScreenGuard(next, remainingAttempts, attempt);
+                },
+                error -> backBeforeScreenGuard(next, remainingAttempts, attempt));
+    }
+
+    private void backBeforeScreenGuard(Runnable next, int remainingAttempts, int attempt) {
+        showProgress("准备游戏画面：模板未确认，连续返回三次");
         pressBackQuicklyThen(
                 () -> {
                     showProgress("准备游戏画面：检查遮挡窗口");
@@ -1947,7 +1968,10 @@ public final class HelperAccessibilityService extends AccessibilityService
             if (blocker == ScreenGuard.Blocker.GAME_WINDOW) {
                 DiagnosticLog.info("SCREEN_GUARD", "state=GAME_WINDOW action=back_3");
                 showProgress("准备游戏画面：连续返回三次");
-                pressBackThreeTimesThen(next, 3);
+                pressBackThreeTimesThen(
+                        () -> retryGameHudGuard(next, remainingAttempts,
+                                "普通窗口返回后 HUD 仍未确认"),
+                        3);
                 return;
             }
             if (remainingAttempts <= 1 && blocker != ScreenGuard.Blocker.NONE) {
@@ -2013,12 +2037,17 @@ public final class HelperAccessibilityService extends AccessibilityService
                     failGameHudGuard("未领取奖励窗口未关闭");
                 }
             } else if (screen == LoginAutomation.Screen.LOGGED_IN) {
-                DiagnosticLog.info("SCREEN_GUARD", "state=CLEAN_HUD action=continue");
-                next.run();
+                DiagnosticLog.info("SCREEN_GUARD",
+                        "state=LOGGED_IN action=recheck_template");
+                retryGameHudGuard(next, remainingAttempts,
+                        "OCR 显示已登录但模板仍未确认 HUD");
             } else if (screen == LoginAutomation.Screen.UNKNOWN) {
                 DiagnosticLog.info("SCREEN_GUARD", "state=UNKNOWN action=back_3");
                 showProgress("准备游戏画面：连续返回三次");
-                pressBackThreeTimesThen(next, 3);
+                pressBackThreeTimesThen(
+                        () -> retryGameHudGuard(next, remainingAttempts,
+                                "未知窗口返回后 HUD 仍未确认"),
+                        3);
             } else {
                 DiagnosticLog.info("SCREEN_GUARD", "state=" + screen
                         + " action=login");
@@ -2075,7 +2104,20 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void failGameHudGuard(String message) {
         currentAutomationAction = null;
-        failAutomation("游戏画面恢复失败：" + message);
+        terminateAfterScreenGuard("游戏画面恢复失败：" + message);
+    }
+
+    /** ScreenGuard failures must not enter the primary-task auto-recovery loop. */
+    private void terminateAfterScreenGuard(String message) {
+        DiagnosticLog.error("SCREEN_GUARD", message);
+        captureScreenshot(bitmap -> {
+            try {
+                DiagnosticLog.saveScreenshot(bitmap, "screen-guard-stop");
+            } finally {
+                recycleIfNeeded(bitmap);
+                stopAutomation(STATE_STOPPED);
+            }
+        });
     }
 
     private void ensureAutoAttackState(
@@ -2257,6 +2299,51 @@ public final class HelperAccessibilityService extends AccessibilityService
                         recycleIfNeeded(bitmap);
                     }
                 }));
+    }
+
+    @Override
+    public void matchTemplates(WudangTemplateMatcher.Template[] templates,
+            int left, int top, int right, int bottom,
+            Consumer<Map<WudangTemplateMatcher.Template, WudangTemplateMatcher.Match>> result,
+            Consumer<Throwable> failure) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null) {
+            return;
+        }
+        if (wudangTemplateMatcher == null) {
+            try {
+                wudangTemplateMatcher = new WudangTemplateMatcher(getAssets());
+            } catch (Throwable error) {
+                failure.accept(error);
+                return;
+            }
+        }
+        captureScreenshot(bitmap -> {
+            if (bitmap == null) {
+                failure.accept(new IllegalStateException("Unable to capture screenshot for template"));
+                return;
+            }
+            wudangTemplateMatcher.matchAsync(bitmap, templates, left, top, right, bottom,
+                    matches -> handler.post(() -> {
+                        if (!taskManager.isCurrent(run.id)) {
+                            return;
+                        }
+                        for (WudangTemplateMatcher.Match match : matches.values()) {
+                            DiagnosticLog.info("TEMPLATE_MATCH",
+                                    "name=" + match.template.label
+                                            + " score=" + match.score
+                                            + " hit=" + match.found()
+                                            + " roi=" + left + "," + top + "-" + right + "," + bottom
+                                            + " elapsedMs=" + match.elapsedMs);
+                        }
+                        result.accept(matches);
+                    }),
+                    error -> handler.post(() -> {
+                        if (taskManager.isCurrent(run.id)) {
+                            failure.accept(error);
+                        }
+                    }));
+        });
     }
 
     private static void recycleIfNeeded(Bitmap bitmap) {
@@ -3048,41 +3135,9 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void waitForMapReady(int attempts, Runnable next) {
-        captureScreenshot(bitmap -> {
-            if (bitmap == null || !automationRunning) {
-                if (bitmap != null) {
-                    bitmap.recycle();
-                }
-                return;
-            }
-            int left = 740 * bitmap.getWidth() / 1280;
-            int top = 555 * bitmap.getHeight() / 720;
-            int right = 860 * bitmap.getWidth() / 1280;
-            int bottom = 620 * bitmap.getHeight() / 720;
-            Bitmap cropped = Bitmap.createBitmap(
-                    bitmap, left, top, right - left, bottom - top);
-            bitmap.recycle();
-            Bitmap enlarged = Bitmap.createScaledBitmap(
-                    cropped, cropped.getWidth() * 6, cropped.getHeight() * 6, true);
-            cropped.recycle();
-            recognizeText(enlarged, text -> {
-                        enlarged.recycle();
-                        String value = text.getText();
-                        boolean ready = isMapButtonText(value);
-                        DiagnosticLog.info("BOSS", "map button Paddle OCR='"
-                                + normalizeText(value) + "' ready=" + ready);
-                        if (ready) {
-                            next.run();
-                        } else {
-                            retryMapReady(attempts, next);
-                        }
-                    }, error -> {
-                        enlarged.recycle();
-                        DiagnosticLog.warn("BOSS", "map button Paddle OCR failed: "
-                                + error.getMessage());
-                        retryMapReady(attempts, next);
-                    });
-        });
+        waitTemplateOrText(WudangTemplateMatcher.Template.MAP_TAB, "地图", false,
+                400, 535, 860, 635,
+                3, 3, next, () -> retryMapReady(attempts, next));
     }
 
     private void retryMapReady(int attempts, Runnable next) {
@@ -3839,6 +3894,10 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (paddleDungeonTextRecognizer != null) {
             paddleDungeonTextRecognizer.close();
             paddleDungeonTextRecognizer = null;
+        }
+        if (wudangTemplateMatcher != null) {
+            wudangTemplateMatcher.close();
+            wudangTemplateMatcher = null;
         }
     }
 

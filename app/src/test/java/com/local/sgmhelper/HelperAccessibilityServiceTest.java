@@ -1,5 +1,7 @@
 package com.local.sgmhelper;
 
+import android.graphics.Rect;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -10,6 +12,7 @@ import static org.junit.Assert.assertArrayEquals;
 
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
 
 import org.junit.Test;
@@ -1326,6 +1329,38 @@ public final class HelperAccessibilityServiceTest {
                 ScreenGuard.blockerFor(Arrays.asList("信件", "军团任务", "你获得布匹")));
         assertEquals(ScreenGuard.Blocker.NONE,
                 ScreenGuard.blockerFor(Arrays.asList("经验分配", "均分", "离开", "管理")));
+    }
+
+    @Test
+    public void cleanHudRequiresBothFixedTabsAboveTheTemplateThreshold() {
+        EnumMap<WudangTemplateMatcher.Template, WudangTemplateMatcher.Match> matches =
+                new EnumMap<>(WudangTemplateMatcher.Template.class);
+        matches.put(WudangTemplateMatcher.Template.MAP_TAB,
+                templateMatch(WudangTemplateMatcher.Template.MAP_TAB, 0.91));
+        matches.put(WudangTemplateMatcher.Template.DIALOG_TAB,
+                templateMatch(WudangTemplateMatcher.Template.DIALOG_TAB, 0.90));
+        assertTrue(ScreenGuard.isCleanHud(matches));
+
+        matches.put(WudangTemplateMatcher.Template.DIALOG_TAB,
+                templateMatch(WudangTemplateMatcher.Template.DIALOG_TAB, 0.84));
+        assertFalse(ScreenGuard.isCleanHud(matches));
+        matches.remove(WudangTemplateMatcher.Template.DIALOG_TAB);
+        assertFalse(ScreenGuard.isCleanHud(matches));
+    }
+
+    @Test
+    public void templateThresholdAndScaledBoundsAreRecordedWithoutOcrText() {
+        WudangTemplateMatcher.Match match = templateMatch(
+                WudangTemplateMatcher.Template.MAP_TAB, 0.95);
+        assertEquals(WudangTemplateMatcher.DEFAULT_THRESHOLD, 0.85, 0.000001);
+        assertTrue(match.found());
+        assertEquals("地图", match.template.label);
+    }
+
+    private static WudangTemplateMatcher.Match templateMatch(
+            WudangTemplateMatcher.Template template, double score) {
+        return new WudangTemplateMatcher.Match(template, template.assets[0], score,
+                new Rect(620, 570, 660, 600), 4);
     }
 
     @Test

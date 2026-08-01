@@ -125,10 +125,13 @@ final class AutoSellAutomation {
         host.showProgress("Auto sell: opening yuanbao recycle");
         host.ensureGameHudVisible(() -> host.tap(1215, 58,
                 () -> host.swipe(1120, 530, 1120, 145, 600,
-                        () -> host.clickText("元宝回收", true,
+                        () -> host.clickTemplateOrText(
+                                WudangTemplateMatcher.Template.YUANBAO_RECYCLE,
+                                "元宝回收", true,
+                                900, 100, 1270, 620,
                                 () -> waitForYuanbaoRecycle(
                                         next, quickSellRetryAvailable, 5),
-                                5, () -> host.failAutomation(
+                                2, 5, () -> host.failAutomation(
                                         "Screen text was not found: 元宝回收")))));
     }
 
@@ -149,8 +152,13 @@ final class AutoSellAutomation {
     private void sellGoldYuanbao(Runnable next, boolean quickSellRetryAvailable) {
         host.showProgress("Auto sell: recycling gold yuanbao equipment");
         host.tap(450, 105,
-                () -> quickSellYuanbao(() -> host.waitForText("元宝回收", 5,
-                        () -> sellSilverYuanbao(next, quickSellRetryAvailable)),
+                () -> quickSellYuanbao(() -> host.waitTemplateOrText(
+                        WudangTemplateMatcher.Template.YUANBAO_RECYCLE,
+                        "元宝回收", false,
+                        400, 0, 900, 150,
+                        3, 5,
+                        () -> sellSilverYuanbao(next, quickSellRetryAvailable),
+                        null),
                         next, quickSellRetryAvailable));
     }
 
@@ -209,11 +217,18 @@ final class AutoSellAutomation {
 
     private void selectInn(Runnable next) {
         host.showProgress("Auto sell: selecting Inn");
-        host.clickRightText("客栈", () -> waitForInn(next), 5,
+        host.clickTemplateOrText(WudangTemplateMatcher.Template.INN,
+                "客栈", true,
+                900, 100, 1270, 620,
+                () -> waitForInn(next), 2, 5,
                 () -> {
                     host.showProgress("Auto sell: scrolling to Inn");
                     host.swipe(1100, 390, 1100, 310, 600,
-                            () -> host.clickRightText("客栈", () -> waitForInn(next), 5,
+                            () -> host.clickTemplateOrText(
+                                    WudangTemplateMatcher.Template.INN,
+                                    "客栈", true,
+                                    900, 100, 1270, 620,
+                                    () -> waitForInn(next), 2, 5,
                                     () -> host.failAutomation(
                                             "Auto sell: Inn was not found after scrolling")));
                 });
@@ -225,16 +240,13 @@ final class AutoSellAutomation {
     }
 
     private void waitForInn(Runnable next, int remainingAttempts) {
-        host.recognizeTextRegion(
+        host.waitTemplateOrText(WudangTemplateMatcher.Template.INN,
+                "客栈", true,
                 INN_TITLE_LEFT, INN_TITLE_TOP, INN_TITLE_RIGHT, INN_TITLE_BOTTOM,
-                text -> {
-                    String recognized = text == null ? "" : text.getText();
-                    boolean arrived = isInnScreenText(recognized);
-                    DiagnosticLog.info("AUTO_SELL", "Inn title ROI Paddle OCR='"
-                            + recognized + "' matched=" + arrived);
-                    if (arrived) {
-                        sell(next);
-                    } else if (remainingAttempts > 1) {
+                3, 3,
+                () -> sell(next),
+                () -> {
+                    if (remainingAttempts > 1) {
                         host.postDelayed(
                                 () -> waitForInn(next, remainingAttempts - 1),
                                 500);
@@ -250,21 +262,37 @@ final class AutoSellAutomation {
 
     private void sell(Runnable next) {
         host.showProgress("Auto sell: opening Sell");
-        host.tap(718, 105, () -> {
-            host.showProgress("Auto sell: selling junk");
-            host.tap(1080, 621, () -> {
-                host.showProgress("Auto sell: quick-selling equipment");
-                host.tap(495, 621, () -> {
-                    host.showProgress("Auto sell: confirming sale");
-                    host.tap(547, 592, () -> {
-                        host.showProgress("Auto sell: closing window");
-                        host.tap(1233, 55, () -> {
-                            host.showProgress("Auto sell: completed");
-                            next.run();
-                        });
-                    });
-                });
-            });
+        host.clickTextRegion("贩卖", true, 640, 75, 790, 140,
+                () -> sellJunk(next), 5,
+                () -> host.tap(718, 105, () -> sellJunk(next)));
+    }
+
+    private void sellJunk(Runnable next) {
+        host.showProgress("Auto sell: selling junk");
+        host.clickTextRegion("贩卖杂物", true, 980, 580, 1200, 660,
+                () -> sellEquipment(next), 5,
+                () -> host.tap(1080, 621, () -> sellEquipment(next)));
+    }
+
+    private void sellEquipment(Runnable next) {
+        host.showProgress("Auto sell: quick-selling equipment");
+        host.clickTextRegion("快速贩卖装备", true, 390, 580, 610, 660,
+                () -> confirmEquipmentSale(next), 5,
+                () -> host.tap(495, 621, () -> confirmEquipmentSale(next)));
+    }
+
+    private void confirmEquipmentSale(Runnable next) {
+        host.showProgress("Auto sell: confirming sale");
+        host.clickTextRegion("确定贩卖", false, 440, 550, 650, 630,
+                () -> finishSale(next), 5,
+                () -> host.tap(547, 592, () -> finishSale(next)));
+    }
+
+    private void finishSale(Runnable next) {
+        host.showProgress("Auto sell: closing window");
+        host.tap(1233, 55, () -> {
+            host.showProgress("Auto sell: completed");
+            next.run();
         });
     }
 }

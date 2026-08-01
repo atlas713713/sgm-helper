@@ -65,8 +65,14 @@ final class DungeonSweepAutomation {
 
     private void swipeGameMenuToTop(int remaining) {
         if (remaining == 0) {
-            host.tap(900, 362,
-                    () -> host.tap(1105, 96, () -> findCurrentLevel(MAX_SCROLL_ATTEMPTS)));
+            host.clickTemplateOrText(
+                    WudangTemplateMatcher.Template.DUNGEON,
+                    "副本", false, 846, 101, 1238, 595,
+                    () -> host.tap(1105, 96, () -> findCurrentLevel(MAX_SCROLL_ATTEMPTS)),
+                    2, 5,
+                    () -> host.tap(900, 362,
+                            () -> host.tap(1105, 96,
+                                    () -> findCurrentLevel(MAX_SCROLL_ATTEMPTS))));
             return;
         }
         host.swipe(1120, 250, 1120, 350,

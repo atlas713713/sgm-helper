@@ -78,10 +78,12 @@ final class WildernessNavigator {
             progress("查找军团入口");
             // Wudang searches its MenuBox crop only; never OCR the whole HUD
             // while looking for the military entry.
-            host.clickTextRegion("军团", true,
+            host.clickTemplateOrText(WudangTemplateMatcher.Template.LEGION,
+                    "军团", true,
                     846, 101, 1238, 595,
                     this::openWildernessFromLegion,
-                    5, () -> host.tapUi(995, 270, this::openWildernessFromLegion));
+                    2, 5,
+                    () -> host.tapUi(995, 270, this::openWildernessFromLegion));
             return;
         }
         host.swipeUi(1000, 180, 1000, 550,

@@ -171,6 +171,45 @@ final class BossAutomation {
 
     private void clickAutoSettings(int remainingAttempts) {
         progress("识别自动设置");
+        clickAutoSettingsTemplate(remainingAttempts, 2);
+    }
+
+    private void clickAutoSettingsTemplate(int remainingAttempts, int templateAttempts) {
+        host.matchTemplates(new WudangTemplateMatcher.Template[] {
+                        WudangTemplateMatcher.Template.AUTO_FUNCTION
+                },
+                1100, 330, 1270, 405,
+                matches -> {
+                    WudangTemplateMatcher.Match match = matches.get(
+                            WudangTemplateMatcher.Template.AUTO_FUNCTION);
+                    if (match != null && match.found()) {
+                        host.tap(match.centerX(), match.centerY(), this::selectModeOne);
+                    } else if (templateAttempts > 1) {
+                        host.postDelayed(
+                                () -> clickAutoSettingsTemplate(
+                                        remainingAttempts, templateAttempts - 1),
+                                500);
+                    } else {
+                        DiagnosticLog.info("TEMPLATE_FALLBACK",
+                                "name=自动功能 source=ocr");
+                        clickAutoSettingsByOcr(remainingAttempts);
+                    }
+                }, error -> {
+                    if (templateAttempts > 1) {
+                        host.postDelayed(
+                                () -> clickAutoSettingsTemplate(
+                                        remainingAttempts, templateAttempts - 1),
+                                500);
+                    } else {
+                        DiagnosticLog.info("TEMPLATE_FALLBACK",
+                                "name=自动功能 source=ocr error="
+                                        + error.getClass().getSimpleName());
+                        clickAutoSettingsByOcr(remainingAttempts);
+                    }
+                });
+    }
+
+    private void clickAutoSettingsByOcr(int remainingAttempts) {
         host.recognizeTextRegion(1100, 330, 1270, 405, text -> {
             DiagnosticLog.info("BOSS", "auto settings ROI Paddle OCR='"
                     + text.getText().replace('\n', ' ') + "'");

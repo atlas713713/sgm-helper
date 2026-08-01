@@ -63,7 +63,7 @@ final class WelfareAutomation {
             return;
         }
         host.showProgress("领取福利：检查有红点的类目");
-        host.recognizeText(text -> {
+        host.recognizeTextRegion(0, 100, 300, 700, text -> {
             List<VisibleCategory> visible = visibleCategories(text);
             boolean lastPage = visible.stream()
                     .anyMatch(item -> "每日应援".equals(item.category.name()));
@@ -198,13 +198,26 @@ abstract class WelfareCategory {
             next.run();
             return;
         }
-        host.clickText("领取", true,
-                () -> claimVisible(host, remaining - 1, next), 2, next);
+        host.clickTemplateOrText(WudangTemplateMatcher.Template.CLAIM,
+                "领取", true,
+                280, 100, 1240, 700,
+                () -> claimVisible(host, remaining - 1, next),
+                2, 2, next);
     }
 }
 
 final class HeroesStoreCategory extends WelfareCategory {
     @Override String name() { return "群英商店"; }
+
+    @Override
+    void claim(AutomationHost host, Runnable next) {
+        host.clickTemplateOrText(WudangTemplateMatcher.Template.ONE_CLICK_CLAIM,
+                "一键领取", true,
+                280, 100, 1240, 700,
+                () -> claimVisible(host, next),
+                2, 2,
+                () -> claimVisible(host, next));
+    }
 }
 
 final class OnlineRewardCategory extends WelfareCategory {
