@@ -25,6 +25,48 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void restartsGameOnlyWhileThePrimaryTaskIsIdling() {
+        assertTrue(HelperAccessibilityService.isGameRestartWindow(
+                true, 0, false, false, false));
+        // 正在跑定时军务/副本这类插入任务，主线任务不是当前任务。
+        assertFalse(HelperAccessibilityService.isGameRestartWindow(
+                false, 0, false, false, false));
+        // 插入任务已经排上队，等它们跑完再说。
+        assertFalse(HelperAccessibilityService.isGameRestartWindow(
+                true, 1, false, false, false));
+        assertFalse(HelperAccessibilityService.isGameRestartWindow(
+                true, 0, true, false, false));
+        assertFalse(HelperAccessibilityService.isGameRestartWindow(
+                true, 0, false, true, false));
+        assertFalse(HelperAccessibilityService.isGameRestartWindow(
+                true, 0, false, false, true));
+    }
+
+    @Test
+    public void fallsBackToTheDefaultRestartIntervalWhenUnknown() {
+        assertEquals(30, HelperAccessibilityService.normalizeGameRestartInterval(30));
+        assertEquals(360, HelperAccessibilityService.normalizeGameRestartInterval(360));
+        assertEquals(HelperAccessibilityService.DEFAULT_GAME_RESTART_INTERVAL_MINUTES,
+                HelperAccessibilityService.normalizeGameRestartInterval(7));
+        assertEquals(HelperAccessibilityService.DEFAULT_GAME_RESTART_INTERVAL_MINUTES,
+                HelperAccessibilityService.normalizeGameRestartInterval(0));
+        assertTrue(HelperAccessibilityService.GAME_RESTART_INTERVAL_MINUTES.contains(
+                HelperAccessibilityService.DEFAULT_GAME_RESTART_INTERVAL_MINUTES));
+    }
+
+    @Test
+    public void triesBothSuFlavoursWhenForceStoppingTheGame() {
+        List<String[]> commands = GameRestartAutomation.forceStopCommands(
+                GameRestartAutomation.GAME_PACKAGE);
+        assertEquals(2, commands.size());
+        assertArrayEquals(
+                new String[] {"su", "-c", "am force-stop hk.phx.khm.cs"}, commands.get(0));
+        assertArrayEquals(
+                new String[] {"su", "0", "am", "force-stop", "hk.phx.khm.cs"},
+                commands.get(1));
+    }
+
+    @Test
     public void prependsCurrentPrimaryTaskToProgress() {
         assertEquals("【练级】 自动军务：检查任务",
                 HelperAccessibilityService.formatProgress(
