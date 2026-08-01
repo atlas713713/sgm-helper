@@ -32,6 +32,8 @@ interface AutomationHost {
 
     void startHighPriorityAutomation(String progress, Runnable firstAction);
 
+    void startHighPriorityInGameAutomation(String progress, Runnable firstAction);
+
     void startInGameAutomation(String progress, Runnable firstAction);
 
     void startIdleAutomation(String progress, Runnable firstAction);

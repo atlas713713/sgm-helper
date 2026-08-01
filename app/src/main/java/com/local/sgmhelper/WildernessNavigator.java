@@ -1,13 +1,11 @@
 package com.local.sgmhelper;
 
-import java.util.concurrent.ThreadLocalRandom;
 
 final class WildernessNavigator {
     private static final int MAX_ZONE = 24;
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
     private static final int MAP_LOADING_RETRY_COUNT = 30;
     private static final int MONSTER_ROUTE_RETRY_COUNT = 90;
-    private static final int MONSTER_EDGE_INSET = 10;
     private static final int TELEPORTER_X = 1095;
     private static final int TELEPORTER_Y = 228;
     private static final int DIALOG_X = 250;
@@ -24,8 +22,7 @@ final class WildernessNavigator {
     private final String progressPrefix;
     private int targetZone;
     private String targetMonster;
-    private int targetMonsterMinX;
-    private int targetMonsterMaxX;
+    private WildernessCatalog.Enemy targetEnemy;
     private Runnable completed;
 
     WildernessNavigator(AutomationHost host, String progressPrefix) {
@@ -42,18 +39,17 @@ final class WildernessNavigator {
     }
 
     void navigateToMonster(String monster, Runnable next) {
-        int[] xRange = monsterXRange(monster);
+        WildernessCatalog.Enemy enemy = WildernessCatalog.enemyByName(monster);
+        if (enemy == null) {
+            host.failAutomation("荒野没有这种怪：" + monster);
+            return;
+        }
+        targetEnemy = enemy;
         targetMonster = monster;
-        targetMonsterMinX = xRange[0];
-        targetMonsterMaxX = xRange[1];
         completed = next;
-        int targetX = ThreadLocalRandom.current().nextInt(
-                targetMonsterMinX + MONSTER_EDGE_INSET,
-                targetMonsterMaxX - MONSTER_EDGE_INSET + 1);
-        int targetY = ThreadLocalRandom.current().nextInt(
-                AutomationHost.MAP_GAME_MAX_Y + 1);
-        progress("前往" + monster + "区域 " + targetX + "," + targetY);
-        host.tapMapCoordinate(targetX, targetY,
+        int targetX = enemy.randomX();
+        progress("前往" + monster + "区域 " + targetX + "," + WildernessCatalog.ENEMY_Y);
+        host.tapMapCoordinate(targetX, WildernessCatalog.ENEMY_Y,
                 () -> waitForMonsterArea(MONSTER_ROUTE_RETRY_COUNT));
     }
 
@@ -63,8 +59,7 @@ final class WildernessNavigator {
                 return;
             }
             Integer currentX = BossAutomation.parseMapX(value);
-            if (currentX != null
-                    && currentX >= targetMonsterMinX && currentX <= targetMonsterMaxX) {
+            if (currentX != null && targetEnemy.containsX(currentX)) {
                 progress("已到达" + targetMonster + "区域");
                 host.closeAutoPathPanel(completed);
                 return;
@@ -196,17 +191,12 @@ final class WildernessNavigator {
         return normalized.contains("荒野修炼") && normalized.contains("区");
     }
 
+    /** 怪物的 x 区间，取自武当 {@code arrays.xml} 的 {@code wild} 表。 */
     static int[] monsterXRange(String monster) {
-        return switch (monster) {
-            case "食人花" -> new int[] {320, 410};
-            case "金甲龙" -> new int[] {410, 510};
-            case "圣武士" -> new int[] {520, 600};
-            case "魔斗士" -> new int[] {10, 150};
-            case "海妖" -> new int[] {180, 260};
-            case "螳螂巨妖" -> new int[] {470, 600};
-            case "九尾狐", "人面鸟", "式神童子" -> new int[] {0, 280};
-            case "石狮精", "战鬼", "剑齿虎" -> new int[] {350, 600};
-            default -> throw new IllegalArgumentException("unknown monster: " + monster);
-        };
+        WildernessCatalog.Enemy enemy = WildernessCatalog.enemyByName(monster);
+        if (enemy == null) {
+            throw new IllegalArgumentException("unknown monster: " + monster);
+        }
+        return new int[] {enemy.xRanges[0][0], enemy.xRanges[enemy.xRanges.length - 1][1]};
     }
 }

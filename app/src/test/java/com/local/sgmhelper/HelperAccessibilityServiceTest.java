@@ -217,9 +217,9 @@ public final class HelperAccessibilityServiceTest {
         assertFalse(TaskAutomation.isCooldownText("承接等级：61"));
         assertEquals(Integer.valueOf(120),
                 TaskAutomation.extractCooldownMinutes("冷却时间：2小时"));
-        assertEquals(Integer.valueOf(150),
+        assertEquals(Integer.valueOf(120),
                 TaskAutomation.extractCooldownMinutes("冷却时间:2小时30分钟"));
-        assertEquals(Integer.valueOf(30),
+        assertEquals(Integer.valueOf(31),
                 TaskAutomation.extractCooldownMinutes("冷却时间：30分钟"));
         assertEquals(Integer.valueOf(32),
                 TaskAutomation.extractCooldownMinutes("冷却时间:31分49秒"));
@@ -268,12 +268,12 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void checksTheBackpackBeforeTrainingAndBoss() {
+    public void checksTheBackpackBeforeEveryLongRunningPrimaryTask() {
         assertTrue(HelperAccessibilityService.shouldCheckInventoryBeforePrimary(
                 true, AutomationHost.PrimaryTask.TRAINING));
         assertTrue(HelperAccessibilityService.shouldCheckInventoryBeforePrimary(
                 true, AutomationHost.PrimaryTask.BOSS));
-        assertFalse(HelperAccessibilityService.shouldCheckInventoryBeforePrimary(
+        assertTrue(HelperAccessibilityService.shouldCheckInventoryBeforePrimary(
                 true, AutomationHost.PrimaryTask.DUNGEON));
         assertFalse(HelperAccessibilityService.shouldCheckInventoryBeforePrimary(
                 false, AutomationHost.PrimaryTask.TRAINING));
@@ -1083,10 +1083,12 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(WorshipAlarmReceiver.hasConfiguredMilitaryTime(true, true));
         assertFalse(WorshipAlarmReceiver.hasConfiguredMilitaryTime(true, false));
         assertFalse(WorshipAlarmReceiver.hasConfiguredMilitaryTime(false, true));
-        assertEquals(3 * 60 * 60 * 1_000L + 1_000,
+        assertEquals(2 * 60 * 60 * 1_000L + 1_000,
                 WorshipAlarmReceiver.nextRollingMilitaryAt(1_000));
         assertEquals(2_000, WorshipAlarmReceiver.nextMilitaryAt(
                 1_000, 2_000, 5_000, 10_000));
+        assertEquals(5_000, WorshipAlarmReceiver.nextMilitaryAt(
+                1_000, 5_000, 0, 2_000));
         assertEquals(5_000, WorshipAlarmReceiver.nextMilitaryAt(
                 1_000, 900, 5_000, 10_000));
         assertEquals(61_000, WorshipAlarmReceiver.nextMilitaryAt(
@@ -1119,6 +1121,17 @@ public final class HelperAccessibilityServiceTest {
                 "补充军团物资", "补充 军团物资 冷却时间2小时"));
         assertFalse(TaskAutomation.isMilitaryQuestDetail(
                 "补充军团物资", "巡狩军团荒野 冷却时间3小时"));
+    }
+
+    @Test
+    public void parsesMilitaryCooldownLikeWudang() {
+        assertEquals(Integer.valueOf(120),
+                TaskAutomation.extractCooldownMinutes("冷却时间2小时"));
+        assertEquals(Integer.valueOf(31),
+                TaskAutomation.extractCooldownMinutes("冷却时间30分"));
+        assertEquals(Integer.valueOf(120),
+                TaskAutomation.extractCooldownMinutes("冷却时间2小时30分"));
+        assertNull(TaskAutomation.extractCooldownMinutes("冷却时间45秒"));
     }
 
     @Test
@@ -1163,16 +1176,21 @@ public final class HelperAccessibilityServiceTest {
 
     @Test
     public void mapsWildernessZonesToMonstersAndFixedDialogueRows() {
-        assertEquals(Arrays.asList("60 食人花", "70 金甲龙", "75 圣武士"),
+        // 名单取自武当 arrays.xml 的 wild 表：1–3 区连低级怪一起有六种，
+        // 100 级是“螳蝎妖”、175 级是“式神童”，之前这里写的是错名。
+        assertEquals(Arrays.asList("30 蛇魔女", "40 火妖", "50 土霸王",
+                        "60 食人花", "70 金甲龙", "75 圣武士"),
                 TrainingAutomation.monstersForZone(1));
-        assertEquals(Arrays.asList("80 魔斗士", "90 海妖", "100 螳螂巨妖"),
+        assertEquals(Arrays.asList("80 魔斗士", "90 海妖", "100 螳蝎妖"),
                 TrainingAutomation.monstersForZone(6));
         assertEquals(Arrays.asList("115 九尾狐", "130 石狮精"),
                 TrainingAutomation.monstersForZone(7));
         assertEquals(Arrays.asList("145 人面鸟", "160 战鬼"),
                 TrainingAutomation.monstersForZone(12));
-        assertEquals(Arrays.asList("175 式神童子", "190 剑齿虎"),
+        assertEquals(Arrays.asList("175 式神童", "190 剑齿虎"),
                 TrainingAutomation.monstersForZone(15));
+        assertEquals(Arrays.asList("265 史前猿", "280 死魂刀兵"),
+                TrainingAutomation.monstersForZone(24));
         assertEquals("金甲龙", TrainingAutomation.monsterName("70 金甲龙"));
         assertEquals(0, WildernessNavigator.page(3));
         assertEquals(1, WildernessNavigator.page(4));

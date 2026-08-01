@@ -222,6 +222,19 @@ public final class AutomationTaskManagerTest {
                 "resume"), events);
     }
 
+    @Test
+    public void welfareHighPriorityRunsBeforeMilitary() {
+        AutomationTaskManager manager = recordingManager(new ArrayList<>());
+        manager.submit(request("primary", AutomationTaskManager.Kind.PRIMARY));
+        manager.submit(request("领取福利", AutomationTaskManager.Kind.HIGH_PRIORITY_INTERRUPT));
+        manager.submit(request("自动军务", AutomationTaskManager.Kind.INTERRUPT));
+
+        assertEquals("领取福利", manager.current().request.key);
+        assertEquals(1, manager.pendingCount());
+        assertTrue(manager.finish(manager.current().id));
+        assertEquals("自动军务", manager.current().request.key);
+    }
+
     private static AutomationTaskManager recordingManager(List<String> events) {
         return new AutomationTaskManager(new AutomationTaskManager.Listener() {
             @Override

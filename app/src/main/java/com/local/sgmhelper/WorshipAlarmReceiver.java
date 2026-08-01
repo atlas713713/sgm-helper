@@ -10,7 +10,8 @@ import android.content.SharedPreferences;
 import java.util.Calendar;
 
 public final class WorshipAlarmReceiver extends BroadcastReceiver {
-    private static final long MILITARY_INTERVAL_MS = 3 * 60 * 60 * 1_000L;
+    /** 武当在没有读到任何有效冷却时使用的兜底间隔。 */
+    private static final long MILITARY_INTERVAL_MS = 2 * 60 * 60 * 1_000L;
     private static final long MILITARY_OVERDUE_RETRY_MS = 60_000L;
     private static final long PENDING_AUTOMATION_MAX_AGE_MS = 15 * 60 * 1_000L;
     private static final String PREF_PENDING_ACTION = "pending_scheduled_action";
@@ -243,23 +244,27 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
 
     static long nextMilitaryAt(
             long now, long supplyRetryAt, long wildernessRetryAt, long regularAt) {
-        long next = regularAt;
+        long next = Long.MAX_VALUE;
+        boolean hasQuestRetry = false;
         long overdueRetryAt = now + MILITARY_OVERDUE_RETRY_MS;
         if (supplyRetryAt > 0) {
+            hasQuestRetry = true;
             next = Math.min(next,
                     supplyRetryAt <= now ? overdueRetryAt : supplyRetryAt);
         }
         if (wildernessRetryAt > 0) {
+            hasQuestRetry = true;
             next = Math.min(next,
                     wildernessRetryAt <= now ? overdueRetryAt : wildernessRetryAt);
         }
-        return next;
+        // 武当只在没有任何任务冷却记录时才使用默认/配置的下一轮时间。
+        return hasQuestRetry ? next : regularAt;
     }
 
     static long scheduleMilitaryAfterCooldown(
             Context context, String questName, int cooldownMinutes) {
         return scheduleMilitaryRetry(context, questName,
-                System.currentTimeMillis() + (cooldownMinutes + 1L) * 60_000L);
+                System.currentTimeMillis() + Math.max(0L, cooldownMinutes) * 60_000L);
     }
 
     static long scheduleMilitaryQuestCheck(
@@ -291,7 +296,7 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
             return scheduleMilitary(context);
         }
         preferences.edit()
-                .putLong(retryKey, nextRegularMilitaryAt(preferences))
+                .putLong(retryKey, nextRollingMilitaryAt(System.currentTimeMillis()))
                 .apply();
         return scheduleMilitary(context);
     }

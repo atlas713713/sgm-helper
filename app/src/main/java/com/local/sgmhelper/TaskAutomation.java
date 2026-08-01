@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,9 +36,9 @@ final class TaskAutomation {
     private static final int MILITARY_TASK_DETAIL_TOP = 120;
     private static final int MILITARY_TASK_DETAIL_RIGHT = 950;
     private static final int MILITARY_TASK_DETAIL_BOTTOM = 435;
-    private static final int MILITARY_RIGHT_TASK_LEFT = 800;
+    private static final int MILITARY_RIGHT_TASK_LEFT = 900;
     private static final int MILITARY_RIGHT_TASK_TOP = 120;
-    private static final int MILITARY_RIGHT_TASK_RIGHT = 1150;
+    private static final int MILITARY_RIGHT_TASK_RIGHT = 1245;
     private static final int MILITARY_RIGHT_TASK_BOTTOM = 470;
     private static final int NPC_NAME_LEFT = 120;
     private static final int NPC_NAME_TOP = 195;
@@ -378,6 +377,21 @@ final class TaskAutomation {
             host.captureScreenshot(bitmap -> {
                 try {
                     DiagnosticLog.saveScreenshot(bitmap, "supply-task-ocr-miss");
+                    if (bitmap != null) {
+                        int left = MILITARY_RIGHT_TASK_LEFT * bitmap.getWidth() / 1280;
+                        int top = MILITARY_RIGHT_TASK_TOP * bitmap.getHeight() / 720;
+                        int right = MILITARY_RIGHT_TASK_RIGHT * bitmap.getWidth() / 1280;
+                        int bottom = MILITARY_RIGHT_TASK_BOTTOM * bitmap.getHeight() / 720;
+                        Bitmap crop = Bitmap.createBitmap(
+                                bitmap, left, top, right - left, bottom - top);
+                        DiagnosticLog.saveScreenshot(crop, "supply-task-ocr-crop");
+                        crop.recycle();
+                        DiagnosticLog.info("OCR", "right task OCR crop=("
+                                + MILITARY_RIGHT_TASK_LEFT + ","
+                                + MILITARY_RIGHT_TASK_TOP + ")-("
+                                + MILITARY_RIGHT_TASK_RIGHT + ","
+                                + MILITARY_RIGHT_TASK_BOTTOM + ")");
+                    }
                 } finally {
                     if (bitmap != null) {
                         bitmap.recycle();
@@ -685,10 +699,15 @@ final class TaskAutomation {
                 && matcher.group(2) == null && matcher.group(3) == null) {
             return null;
         }
-        int hours = matcher.group(1) == null ? 0 : Integer.parseInt(matcher.group(1));
-        int minutes = matcher.group(2) == null ? 0 : Integer.parseInt(matcher.group(2));
-        int seconds = matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3));
-        return hours * 60 + minutes + (seconds > 0 ? 1 : 0);
+        // 武当的 findLegionInfoInterval 只按一个单位换算：小时直接换算，
+        // 分钟额外加 1 分钟防止 OCR/闹钟提前，只有秒数时不安排下一轮。
+        if (matcher.group(1) != null) {
+            return Integer.parseInt(matcher.group(1)) * 60;
+        }
+        if (matcher.group(2) != null) {
+            return Integer.parseInt(matcher.group(2)) + 1;
+        }
+        return null;
     }
 
     static boolean allExecutableMilitaryQuestsCooling(
@@ -730,38 +749,26 @@ final class TaskAutomation {
             host.failAutomation("无法识别巡狩军团荒野区号：" + militaryZone);
             return;
         }
+        WildernessCatalog.Enemy enemy =
+                WildernessCatalog.enemyForTier(militaryZone, targetZone);
         host.showProgress("自动军务：巡狩荒野（" + militaryZone
-                + "）对应荒野修炼" + targetZone + "区");
-        wildernessNavigator.navigateToZone(targetZone, this::clickMilitaryQuest);
+                + "）对应荒野修炼" + targetZone + "区"
+                + (enemy == null ? "" : "·" + enemy.level + " " + enemy.name));
+        // 武当除了挑区，还会算出该打哪一级怪并先走到它的刷新段。
+        Runnable afterZone = enemy == null
+                ? this::clickMilitaryQuest
+                : () -> wildernessNavigator.navigateToMonster(
+                        enemy.name, this::clickMilitaryQuest);
+        wildernessNavigator.navigateToZone(targetZone, afterZone);
     }
 
     static int militaryWildernessZone(String taskLevel, int preferredZone) {
-        int[] range = militaryWildernessZoneRange(taskLevel);
-        if (range == null) {
-            return 0;
-        }
-        if (preferredZone >= range[0] && preferredZone <= range[1]) {
-            return preferredZone;
-        }
-        return ThreadLocalRandom.current().nextInt(range[0], range[1] + 1);
+        return WildernessCatalog.zoneForTier(taskLevel, preferredZone);
     }
 
     static int[] militaryWildernessZoneRange(String taskLevel) {
-        if (taskLevel == null) {
-            return null;
-        }
-        return switch (taskLevel) {
-            case "一", "二", "三", "四", "五", "六",
-                    "1", "2", "3", "4", "5", "6" -> new int[] {1, 3};
-            case "七", "八", "7", "8" -> new int[] {4, 6};
-            case "九", "十", "9", "10" -> new int[] {7, 9};
-            case "十一", "十二", "11", "12" -> new int[] {10, 12};
-            case "十三", "十四", "13", "14" -> new int[] {13, 15};
-            case "十五", "十六", "15", "16" -> new int[] {16, 18};
-            case "十七", "十八", "17", "18" -> new int[] {19, 21};
-            case "十九", "19" -> new int[] {22, 24};
-            default -> null;
-        };
+        WildernessCatalog.Tier tier = WildernessCatalog.tier(taskLevel);
+        return tier == null ? null : new int[] {tier.zoneLow, tier.zoneHigh};
     }
 
     private void clickMilitaryQuest() {
@@ -1103,7 +1110,7 @@ final class TaskAutomation {
         long nextMilitaryAt = WorshipAlarmReceiver.markMilitaryQuestHandled(
                 host.context(), questName);
         host.showProgress("自动军务：未读取到" + questName
-                + "冷却，3小时后复查 " + host.formatTime(nextMilitaryAt));
+                + "冷却，2小时后复查 " + host.formatTime(nextMilitaryAt));
         completed.run();
     }
 

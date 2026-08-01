@@ -133,6 +133,10 @@ final class DungeonBattleAutomation {
     }
 
     private void begin() {
+        host.checkInventoryBeforePrimary(this::beginAfterInventoryCheck);
+    }
+
+    private void beginAfterInventoryCheck() {
         currentIndex = 0;
         noCountAttempts = 0;
         returnHomeForDungeon();
@@ -604,6 +608,15 @@ final class DungeonBattleAutomation {
     }
 
     private void finishCurrent() {
+        // 和武当的 needGearHandle 一样，副本中只挂起背包事件；离开副本、领完奖励后
+        // 才消费它，避免打到一半回城破坏当前副本。
+        if (host.handlePendingGear(this::finishCurrentAfterGearHandle)) {
+            return;
+        }
+        finishCurrentAfterGearHandle();
+    }
+
+    private void finishCurrentAfterGearHandle() {
         currentIndex++;
         noCountAttempts = 0;
         if (currentIndex < selectedDungeons.size()) {

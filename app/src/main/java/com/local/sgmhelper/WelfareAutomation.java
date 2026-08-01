@@ -33,7 +33,7 @@ final class WelfareAutomation {
 
     void start() {
         completion = host::resumePrimaryTask;
-        host.startAutomation("领取福利：打开游戏", this::begin);
+        host.startHighPriorityAutomation("领取福利：打开游戏", this::begin);
     }
 
     void startInGame(Runnable next) {

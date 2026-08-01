@@ -162,23 +162,18 @@ final class TrainingAutomation {
         start();
     }
 
+    /** 荒野每三个区共用一套怪，数据取自武当 {@code arrays.xml} 的 {@code wild} 表。 */
     static List<String> monstersForZone(int zone) {
-        if (zone < 1 || zone > 15) {
-            throw new IllegalArgumentException("zone must be between 1 and 15");
+        List<WildernessCatalog.Enemy> enemies = WildernessCatalog.enemies(zone);
+        if (enemies.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "zone must be between 1 and " + WildernessCatalog.MAX_ZONE);
         }
-        if (zone <= 3) {
-            return List.of("60 食人花", "70 金甲龙", "75 圣武士");
+        List<String> values = new ArrayList<>();
+        for (WildernessCatalog.Enemy enemy : enemies) {
+            values.add(enemy.level + " " + enemy.name);
         }
-        if (zone <= 6) {
-            return List.of("80 魔斗士", "90 海妖", "100 螳螂巨妖");
-        }
-        if (zone <= 9) {
-            return List.of("115 九尾狐", "130 石狮精");
-        }
-        if (zone <= 12) {
-            return List.of("145 人面鸟", "160 战鬼");
-        }
-        return List.of("175 式神童子", "190 剑齿虎");
+        return values;
     }
 
     static String defaultMonsterForZone(int zone) {

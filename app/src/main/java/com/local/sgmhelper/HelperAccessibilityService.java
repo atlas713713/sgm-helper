@@ -526,11 +526,23 @@ public final class HelperAccessibilityService extends AccessibilityService
                 preferences.getBoolean(PREF_MILITARY_ENABLED, true),
                 preferences.getBoolean(PREF_MILITARY_SUPPLY_ENABLED, true),
                 preferences.getBoolean(PREF_MILITARY_WILDERNESS_ENABLED, true))) {
-            showProgress("初始化：重新检测军务任务");
-            startScheduledMilitary();
+            // 练级是主线任务，先建立 PRIMARY 运行上下文才能让启动前背包检查
+            // 消费贩卖事件；军务随后作为中断插入，结束后由任务管理器恢复练级。
+            startTrainingPrimaryTask(this::checkInventoryBeforeMilitary);
         } else {
             startTrainingPrimaryTask(this::startTrainingWithOptionalRevival);
         }
+    }
+
+    private void checkInventoryBeforeMilitary() {
+        showProgress("自动练级：启动前检查背包");
+        checkInventoryBeforePrimary(() -> {
+            if (taskState != STATE_RUNNING) {
+                return;
+            }
+            showProgress("初始化：重新检测军务任务");
+            startScheduledMilitary();
+        });
     }
 
     private void startTrainingWithOptionalRevival() {
@@ -717,7 +729,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         wildernessFields.setOrientation(LinearLayout.VERTICAL);
         int savedZone = preferences.getInt(PREF_TRAINING_WILDERNESS_ZONE, 1);
         Spinner zone = addSpinnerRow(wildernessFields, R.string.training_wilderness_zone,
-                15, savedZone,
+                WildernessCatalog.MAX_ZONE, savedZone,
                 value -> preferences.edit().putInt(PREF_TRAINING_WILDERNESS_ZONE, value).apply());
         Spinner monster = addTextSpinnerRow(wildernessFields, R.string.training_monster,
                 TrainingAutomation.monstersForZone(savedZone),
@@ -1407,6 +1419,12 @@ public final class HelperAccessibilityService extends AccessibilityService
                     "skipped; primary task=" + primaryTaskLabel(primaryTask));
             return;
         }
+        if (inventorySelling) {
+            // 自动贩卖包含元宝回收、回城和客栈贩卖，不能被军务抢占。
+            DiagnosticLog.info("MILITARY", "deferred; auto sell in progress");
+            WorshipAlarmReceiver.scheduleMilitary(this);
+            return;
+        }
         taskAutomation.start();
     }
 
@@ -1481,6 +1499,16 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     @Override
+    public void startHighPriorityInGameAutomation(String progress, Runnable firstAction) {
+        submitManagedTask(AutomationTaskManager.Kind.HIGH_PRIORITY_INTERRUPT,
+                taskKey(progress), progress, () -> {
+                    showProgress(progress);
+                    currentAutomationAction = firstAction;
+                    firstAction.run();
+                });
+    }
+
+    @Override
     public void startInGameAutomation(String progress, Runnable firstAction) {
         submitManagedTask(AutomationTaskManager.Kind.INTERRUPT,
                 taskKey(progress), progress, () -> {
@@ -1503,7 +1531,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 "primary:" + task.name(), progress, () -> {
                     setPrimaryTask(task, firstAction);
                     beginGameAutomation(progress, firstAction, firstAction);
-                    if (task == PrimaryTask.BOSS) {
+                    if (task == PrimaryTask.BOSS || task == PrimaryTask.DUNGEON) {
                         startInventoryMonitoring();
                     }
                 });
@@ -1614,6 +1642,12 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void checkInventoryBeforePrimary(Runnable next) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null || run.request.kind != AutomationTaskManager.Kind.PRIMARY) {
+            // 军务等中断任务不能消费主线的出售事件，留给真正的练级/BOSS/副本入口。
+            next.run();
+            return;
+        }
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         boolean enabled = preferences.getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED);
         if (!shouldCheckInventoryBeforePrimary(enabled, primaryTask)) {
@@ -1665,7 +1699,13 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     static boolean shouldCheckInventoryBeforePrimary(boolean enabled, PrimaryTask task) {
-        return enabled && (task == PrimaryTask.TRAINING || task == PrimaryTask.BOSS);
+        return enabled && supportsInventoryMonitoring(task);
+    }
+
+    private static boolean supportsInventoryMonitoring(PrimaryTask task) {
+        return task == PrimaryTask.TRAINING
+                || task == PrimaryTask.BOSS
+                || task == PrimaryTask.DUNGEON;
     }
 
     @Override
@@ -1853,7 +1893,14 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void claimWelfare(Runnable next) {
-        welfareAutomation.startInGame(next);
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run != null && "领取福利".equals(run.request.key)) {
+            welfareAutomation.startInGame(next);
+            return;
+        }
+        // 登录时的自动补领也必须独立于当前主线/军务，完成后由任务管理器恢复原任务。
+        startHighPriorityInGameAutomation("领取福利：自动补领",
+                () -> welfareAutomation.startInGame(this::resumePrimaryTask));
     }
 
     private void ensureGameHudVisible(Runnable next, int remainingAttempts) {
@@ -3482,7 +3529,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         if (!inventorySelling && taskState == STATE_RUNNING
                 && preferences.getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED)
-                && (primaryTask == PrimaryTask.TRAINING || primaryTask == PrimaryTask.BOSS)) {
+                && supportsInventoryMonitoring(primaryTask)) {
             inventoryHandler.postDelayed(this::checkInventory, INVENTORY_CHECK_INTERVAL_MS);
         }
     }
@@ -3524,7 +3571,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         }
         AutomationTaskManager.Run run = taskManager.current();
         return run != null && run.request.kind == AutomationTaskManager.Kind.PRIMARY
-                && (primaryTask == PrimaryTask.TRAINING || primaryTask == PrimaryTask.BOSS);
+                && supportsInventoryMonitoring(primaryTask);
     }
 
     private boolean isTrainingPullActive() {
