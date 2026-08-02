@@ -33,35 +33,33 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
 export ANDROID_SDK_ROOT=/opt/homebrew/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 
-./gradlew testDebugUnitTest lintRelease assembleRelease
+./gradlew testDebugUnitTest assembleDebug
 ```
 
 生成的 APK：
 
 ```text
-app/build/outputs/apk/release/app-release.apk
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-只修改文档时不需要重新构建 APK。发布应用更新时，先在 `app/build.gradle` 同时递增 `versionCode` 和 `versionName`，再构建并安装到三台模拟器。
+只修改文档时不需要重新构建 APK。Debug 更新只安装到 `127.0.0.1:5745`；正式发布时才安装到三台部署目标。
 
 ## 安装
 
-可以从 BlueStacks 的 **Install APK** 手动安装，也可以使用自带的 ADB：
+Debug 默认只使用新 simulator `127.0.0.1:5745`：
 
 ```sh
 ADB="/Applications/BlueStacks.app/Contents/MacOS/hd-adb"
-APK="$PWD/app/build/outputs/apk/release/app-release.apk"
+APK="$PWD/app/build/outputs/apk/debug/app-debug.apk"
 
-"$ADB" devices
-"$ADB" -s 127.0.0.1:5705 install -r "$APK"
-"$ADB" -s 127.0.0.1:5725 install -r "$APK"
-"$ADB" -s 127.0.0.1:5735 install -r "$APK"
+"$ADB" connect 127.0.0.1:5745
+"$ADB" -s 127.0.0.1:5745 install -r "$APK"
 ```
 
-安装后可核对版本：
+安装后可核对 Debug 版本：
 
 ```sh
-"$ADB" -s 127.0.0.1:5705 shell dumpsys package com.local.sgmhelper \
+"$ADB" -s 127.0.0.1:5745 shell dumpsys package com.local.sgmhelper \
   | grep -E 'versionCode|versionName'
 ```
 
@@ -103,6 +101,12 @@ Release 下载最新版 APK 并打开系统安装界面。首次使用时需允�
 ```
 
 只重启一台：
+
+```sh
+./restart_bluestacks_instance.sh Tiramisu64_19 127.0.0.1:5745
+```
+
+正式部署目标中的一台：
 
 ```sh
 ./restart_bluestacks_instance.sh Tiramisu64_17 127.0.0.1:5725
