@@ -410,7 +410,6 @@ public final class HelperAccessibilityService extends AccessibilityService
         addMenuButton(menu, R.string.menu_boss, this::startBossFromMenu);
         addMenuButton(menu, R.string.menu_dungeon_sweep,
                 view -> startDungeonBattle());
-        addMenuButton(menu, R.string.menu_channel_test, view -> channelSwitchTest.start());
         addMenuButton(menu, R.string.menu_stop, view -> stopAutomation(STATE_STOPPED));
         addMenuButton(menu, R.string.menu_settings, view -> showTrainingSettings());
         addMenuButton(menu, R.string.menu_update, view -> openUpdater());
@@ -1927,12 +1926,19 @@ public final class HelperAccessibilityService extends AccessibilityService
     public void claimWelfare(Runnable next) {
         AutomationTaskManager.Run run = taskManager.current();
         if (run != null && "领取福利".equals(run.request.key)) {
-            welfareAutomation.startInGame(next);
+            startWelfareClaimAfterBack(next);
             return;
         }
         // 登录时的自动补领也必须独立于当前主线/军务，完成后由任务管理器恢复原任务。
         startHighPriorityInGameAutomation("领取福利：自动补领",
-                () -> welfareAutomation.startInGame(this::resumePrimaryTask));
+                () -> startWelfareClaimAfterBack(this::resumePrimaryTask));
+    }
+
+    private void startWelfareClaimAfterBack(Runnable next) {
+        DiagnosticLog.info("WELFARE", "action=close_blockers back_3");
+        showProgress("领取福利：关闭遮挡窗口");
+        pressBackThreeTimesThen(
+                () -> welfareAutomation.startInGame(next), 3);
     }
 
     private void ensureGameHudVisible(Runnable next, int remainingAttempts) {
@@ -1948,26 +1954,11 @@ public final class HelperAccessibilityService extends AccessibilityService
             retryGameHudGuard(next, remainingAttempts, "助手菜单未关闭");
             return;
         }
-        showProgress("准备游戏画面：模板检查地图和对话");
-        matchTemplates(new WudangTemplateMatcher.Template[] {
-                        WudangTemplateMatcher.Template.MAP_TAB,
-                        WudangTemplateMatcher.Template.DIALOG_TAB
-                },
-                400, 535, 860, 635,
-                matches -> {
-                    if (ScreenGuard.isCleanHud(matches)) {
-                        DiagnosticLog.info("SCREEN_GUARD",
-                                "state=CLEAN_HUD source=template attempt=" + attempt);
-                        next.run();
-                        return;
-                    }
-                    backBeforeScreenGuard(next, remainingAttempts, attempt);
-                },
-                error -> backBeforeScreenGuard(next, remainingAttempts, attempt));
+        backBeforeScreenGuard(next, remainingAttempts, attempt);
     }
 
     private void backBeforeScreenGuard(Runnable next, int remainingAttempts, int attempt) {
-        showProgress("准备游戏画面：模板未确认，连续返回三次");
+        showProgress("准备游戏画面：快速关闭遮挡窗口");
         pressBackQuicklyThen(
                 () -> {
                     showProgress("准备游戏画面：检查遮挡窗口");
@@ -3165,9 +3156,10 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void waitForMapReady(int attempts, Runnable next) {
-        waitTemplateOrText(WudangTemplateMatcher.Template.MAP_TAB, "地图", false,
-                400, 535, 860, 635,
-                3, 3, next, () -> retryMapReady(attempts, next));
+        // 地图/对话按钮一律走 OCR：武当的 m/n 模板是整套素材里仅有的两张按 ~2.7 倍
+        // 画面裁的，1280×720 下永远匹配不上，套模板只会白等三轮再退回 OCR。
+        waitForTextRegion("地图", 400, 535, 860, 635,
+                3, next, () -> retryMapReady(attempts, next));
     }
 
     private void retryMapReady(int attempts, Runnable next) {

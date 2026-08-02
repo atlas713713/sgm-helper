@@ -14,6 +14,7 @@
 
 ## Release discipline
 
+- Debug-only simulator: use `127.0.0.1:5745` for manual installs and device tests.
 - Every project update must increment both `versionCode` and `versionName` in `app/build.gradle` before building the APK.
 - Install every APK update to all three simulator targets by default:
   - BlueStacks Air instance `米饭` (`Tiramisu64_15`, `127.0.0.1:5705`)

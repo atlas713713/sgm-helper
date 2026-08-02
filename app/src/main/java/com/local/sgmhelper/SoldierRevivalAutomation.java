@@ -6,7 +6,19 @@ import java.util.List;
 
 final class SoldierRevivalAutomation {
     private static final int CAMP_SCROLL_ATTEMPTS = 4;
-    private static final int ARRIVAL_ATTEMPTS = 30;
+    private static final int ARRIVAL_ATTEMPTS = 16;
+    private static final long RETURN_HOME_SETTLE_MS = 2_000L;
+    private static final long ARRIVAL_POLL_DELAY_MS = 500L;
+
+    // Wudang's MilitaryCamp uses two adjacent layouts. The two revive-all
+    // centers are x=992 and x=1018; the midpoint stays inside the button in
+    // both layouts. The confirmation centers are x=540 and x=533 likewise.
+    private static final int REVIVE_TAB_X = 574;
+    private static final int REVIVE_TAB_Y = 109;
+    private static final int REVIVE_ALL_X = 1_005;
+    private static final int REVIVE_ALL_Y = 588;
+    private static final int CONFIRM_X = 536;
+    private static final int CONFIRM_Y = 377;
 
     private final AutomationHost host;
 
@@ -27,7 +39,8 @@ final class SoldierRevivalAutomation {
         host.ensureGameHudVisible(() -> {
             host.showProgress("复活士兵：停止自动攻击后先回城");
             host.closeAutoPathPanel(() -> host.returnHome(
-                    () -> host.postDelayed(() -> openCampSearch(next), 5_000)));
+                    () -> host.postDelayed(() -> openCampSearch(next),
+                            RETURN_HOME_SETTLE_MS)));
         });
     }
 
@@ -39,7 +52,7 @@ final class SoldierRevivalAutomation {
 
     private void findCamp(int remainingScrolls, Runnable next) {
         host.showProgress("复活士兵：查找军营");
-        host.clickRightText("军营", () -> waitForCamp(ARRIVAL_ATTEMPTS, next), 2, () -> {
+        host.clickRightTextFast("军营", () -> waitForCamp(ARRIVAL_ATTEMPTS, next), 2, () -> {
             if (remainingScrolls > 0) {
                 host.swipe(1120, 450, 1120, 230,
                         () -> findCamp(remainingScrolls - 1, next));
@@ -58,7 +71,8 @@ final class SoldierRevivalAutomation {
             if (hasCampArrival(screenLines(text))) {
                 revive(next);
             } else if (remainingAttempts > 1) {
-                host.postDelayed(() -> waitForCamp(remainingAttempts - 1, next), 1_000);
+                host.postDelayed(() -> waitForCamp(remainingAttempts - 1, next),
+                        ARRIVAL_POLL_DELAY_MS);
             } else {
                 skip("等待到达军营超时", next);
             }
@@ -67,17 +81,22 @@ final class SoldierRevivalAutomation {
 
     private void revive(Runnable next) {
         host.showProgress("复活士兵：打开复活页");
-        host.tap(573, 107, () -> host.clickText("复活全部", false,
-                () -> confirmIfNeeded(next), 10,
-                () -> close("未找到复活全部士兵", next)));
-    }
-
-    private void confirmIfNeeded(Runnable next) {
-        host.showProgress("复活士兵：检查确认框");
-        host.clickText("确认", true, () -> close("已复活全部士兵", next), 3,
-                () -> host.clickText("确定", true,
-                        () -> close("已复活全部士兵", next), 1,
-                        () -> close("未出现确认框", next)));
+        DiagnosticLog.info("SOLDIER_REVIVAL", "action=tab_revive x="
+                + REVIVE_TAB_X + " y=" + REVIVE_TAB_Y);
+        host.tapUi(REVIVE_TAB_X, REVIVE_TAB_Y, () -> host.postDelayed(() -> {
+            // Do not use full-screen OCR here. Chat/system text can contain
+            // similar words and cause the old implementation to tap the wrong
+            // location. These coordinates mirror Wudang's MilitaryCamp.
+            DiagnosticLog.info("SOLDIER_REVIVAL", "action=revive_all x="
+                    + REVIVE_ALL_X + " y=" + REVIVE_ALL_Y);
+            host.tapFast(REVIVE_ALL_X, REVIVE_ALL_Y, () -> host.postDelayed(() -> {
+                DiagnosticLog.info("SOLDIER_REVIVAL", "action=confirm x="
+                        + CONFIRM_X + " y=" + CONFIRM_Y);
+                host.tapFast(CONFIRM_X, CONFIRM_Y,
+                        () -> host.postDelayed(
+                                () -> close("已复活全部士兵", next), 1_000));
+            }, 1_000));
+        }, 1_000));
     }
 
     private void skip(String reason, Runnable next) {
@@ -89,7 +108,7 @@ final class SoldierRevivalAutomation {
 
     private void close(String result, Runnable next) {
         host.showProgress("复活士兵：" + result + "，关闭军营");
-        host.tap(1235, 54, next);
+        host.tapUi(1235, 54, next);
     }
 
     private static List<String> screenLines(OcrText text) {
