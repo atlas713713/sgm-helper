@@ -30,8 +30,10 @@ final class WudangTemplateMatcher {
     static final double DEFAULT_THRESHOLD = 0.85;
 
     enum Template {
-        MAP_TAB("地图", "data/m.wd"),
-        DIALOG_TAB("对话", "data/n.wd"),
+        // 武当原图的 m/n 是整套素材里仅有的两张按 ~2.7 倍画面裁的，1280×720 下永远
+        // 匹配不上；这两张改成从本机截图重裁。_a 是同一按钮的细体无描边字形。
+        MAP_TAB("地图", "data/m.wd", "data/m_a.wd"),
+        DIALOG_TAB("对话", "data/n.wd", "data/n_a.wd"),
         AUTO_PATH("自动寻路", "data/g04.wd"),
         YUANBAO_RECYCLE("元宝回收", "data/t1.wd"),
         SHOP("商店", "data/t3.wd", "data/t3_a.wd"),
