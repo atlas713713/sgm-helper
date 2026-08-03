@@ -69,6 +69,11 @@ public final class HelperAccessibilityService extends AccessibilityService
     private static final int FAST_BACK_DELAY_MS = 150;
     private static final int TEXT_RETRY_COUNT = 5;
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
+    // 队伍管理第一行的“分流”数字，避开表头和等级/所在地等其它数字。
+    private static final int LEADER_CHANNEL_LEFT = 885;
+    private static final int LEADER_CHANNEL_TOP = 208;
+    private static final int LEADER_CHANNEL_RIGHT = 925;
+    private static final int LEADER_CHANNEL_BOTTOM = 250;
     private static final int MAX_AUTOMATION_RECOVERY_ATTEMPTS = 3;
     private static final int RECOVERY_START_DELAY_MS = 5_000;
     private static final int RECOVERY_LONG_DELAY_MS = 60_000;
@@ -2493,10 +2498,10 @@ public final class HelperAccessibilityService extends AccessibilityService
                 result.accept(null);
                 return;
             }
-            int left = 850 * screenshot.getWidth() / 1280;
-            int top = 195 * screenshot.getHeight() / 720;
-            int right = 950 * screenshot.getWidth() / 1280;
-            int bottom = 260 * screenshot.getHeight() / 720;
+            int left = LEADER_CHANNEL_LEFT * screenshot.getWidth() / 1280;
+            int top = LEADER_CHANNEL_TOP * screenshot.getHeight() / 720;
+            int right = LEADER_CHANNEL_RIGHT * screenshot.getWidth() / 1280;
+            int bottom = LEADER_CHANNEL_BOTTOM * screenshot.getHeight() / 720;
             Bitmap context = Bitmap.createBitmap(
                     screenshot, left, top, right - left, bottom - top);
             screenshot.recycle();

@@ -13,8 +13,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class WelfareAutomation {
-    private static final int MAX_PAGES = 4;
+    private static final int MAX_PAGES = 6;
     private static final int TOP_SWIPES = 4;
+    private static final int WELFARE_OPEN_ATTEMPTS = 2;
+    private static final int WELFARE_PAGE_ATTEMPTS = 8;
     private final AutomationHost host;
     private final List<WelfareCategory> categories = List.of(
             new HeroesStoreCategory(),
@@ -43,8 +45,40 @@ final class WelfareAutomation {
 
     private void begin() {
         processed.clear();
-        host.tap(945, 60,
-                () -> host.postDelayed(() -> scrollToTop(TOP_SWIPES), 2_000));
+        openWelfarePage(WELFARE_OPEN_ATTEMPTS);
+    }
+
+    private void openWelfarePage(int remainingOpenAttempts) {
+        host.showProgress("领取福利：打开福利页面");
+        // 固定点 945,60 位于“福利”文字上方，远程实例偶尔点不到；先在顶部小区域 OCR，
+        // 只在 OCR 没找到时才使用居中的固定坐标。
+        host.clickTextRegion("福利", false, 820, 0, 1_000, 130,
+                () -> waitForWelfarePage(WELFARE_PAGE_ATTEMPTS, remainingOpenAttempts),
+                2,
+                () -> host.tap(950, 85,
+                        () -> waitForWelfarePage(WELFARE_PAGE_ATTEMPTS,
+                                remainingOpenAttempts)));
+    }
+
+    private void waitForWelfarePage(int remainingChecks, int remainingOpenAttempts) {
+        host.showProgress("领取福利：确认群英助手页面");
+        host.recognizeTextRegion(0, 100, 300, 700, text -> {
+            if (isWelfarePage(text)) {
+                DiagnosticLog.info("WELFARE", "page=opened");
+                host.postDelayed(() -> scrollToTop(TOP_SWIPES), 500);
+                return;
+            }
+            if (remainingChecks > 1) {
+                host.postDelayed(
+                        () -> waitForWelfarePage(remainingChecks - 1, remainingOpenAttempts),
+                        800);
+            } else if (remainingOpenAttempts > 1) {
+                DiagnosticLog.warn("WELFARE", "page_not_opened retry_open");
+                openWelfarePage(remainingOpenAttempts - 1);
+            } else {
+                host.failAutomation("领取福利：福利页面未打开");
+            }
+        });
     }
 
     private void scrollToTop(int remaining) {
@@ -149,6 +183,27 @@ final class WelfareAutomation {
             }
         }
         return null;
+    }
+
+    static boolean isWelfarePage(OcrText text) {
+        StringBuilder all = new StringBuilder();
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
+                all.append(normalize(line.getText()));
+            }
+        }
+        String value = all.toString();
+        if (value.contains("群英助手") || value.contains("群英商店")) {
+            return true;
+        }
+        int categoryCount = 0;
+        for (String category : List.of("在线奖励", "每日签到", "每日挑战", "每周挑战",
+                "群英荣耀无限", "每日应援")) {
+            if (value.contains(category)) {
+                categoryCount++;
+            }
+        }
+        return categoryCount >= 2;
     }
 
     static boolean isRedDotPixel(int red, int green, int blue) {

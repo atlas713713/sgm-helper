@@ -675,14 +675,39 @@ final class BossAutomation {
         progress("跟随队长：读取队长分流");
         host.recognizeLeaderChannel(leader -> {
             if (leader != null) {
-                DiagnosticLog.info("BOSS", "leader follow channels current=" + current
-                        + " leader=" + leader + " same=" + (current == leader));
-                closePartyDialog(() -> handleLeaderChannel(current, leader, next));
+                confirmLeaderChannel(remainingAttempts, current, next, blockerChecked, leader);
             } else {
                 host.recognizeText(text -> retryLeaderChannelAfterMiss(
                         remainingAttempts, current, next, blockerChecked, text));
             }
         });
+    }
+
+    private void confirmLeaderChannel(int remainingAttempts, int current, Runnable next,
+            boolean blockerChecked, int candidate) {
+        // 一次 OCR 结果不能直接触发换线；第二次截图独立复核，过滤 4/5 这类单字误识别。
+        host.postDelayed(() -> host.recognizeLeaderChannel(confirmed -> {
+            boolean stable = isStableLeaderChannel(candidate, confirmed);
+            DiagnosticLog.info("BOSS", "leader channel confirmation first=" + candidate
+                    + " second=" + confirmed + " stable=" + stable);
+            if (stable) {
+                DiagnosticLog.info("BOSS", "leader follow channels current=" + current
+                        + " leader=" + candidate + " same=" + (current == candidate));
+                closePartyDialog(() -> handleLeaderChannel(current, candidate, next));
+            } else if (remainingAttempts > 1) {
+                DiagnosticLog.warn("BOSS", "leader channel OCR unstable; reread in dialog");
+                host.postDelayed(() -> readLeaderChannel(
+                        remainingAttempts - 1, current, next, blockerChecked), 300);
+            } else {
+                // 最后一轮仍不一致时沿用原有整屏 OCR 回退，不把不确定结果当成目标分流。
+                host.recognizeText(text -> retryLeaderChannelAfterMiss(
+                        1, current, next, blockerChecked, text));
+            }
+        }), 250);
+    }
+
+    static boolean isStableLeaderChannel(Integer first, Integer second) {
+        return first != null && first.equals(second);
     }
 
     private void retryLeaderChannelAfterMiss(int remainingAttempts, int current,

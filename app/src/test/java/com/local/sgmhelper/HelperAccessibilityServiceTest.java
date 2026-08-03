@@ -1491,6 +1491,9 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(Integer.valueOf(3), BossAutomation.parseLeaderChannel("3"));
         assertEquals(Integer.valueOf(7), BossAutomation.parseLeaderChannel("分流7"));
         assertNull(BossAutomation.parseLeaderChannel("63/72"));
+        assertTrue(BossAutomation.isStableLeaderChannel(4, 4));
+        assertFalse(BossAutomation.isStableLeaderChannel(4, 5));
+        assertFalse(BossAutomation.isStableLeaderChannel(4, null));
         assertTrue(BossAutomation.isMenuAutoCandidate("自 动", 1150, 320));
         assertFalse(BossAutomation.isMenuAutoCandidate("自动", 530, 320));
         assertFalse(BossAutomation.isMenuAutoCandidate("打开自动设置", 1170, 320));
@@ -1651,6 +1654,23 @@ public final class HelperAccessibilityServiceTest {
                 DailyChallengeCategory.rewardSlotsForCount(4));
         assertEquals(Arrays.asList(565, 755, 945, 1135),
                 DailyChallengeCategory.rewardSlotsForCount(7));
+    }
+
+    @Test
+    public void recognizesWelfarePageByBothKnownTitlesOrCategoryList() {
+        assertTrue(WelfareAutomation.isWelfarePage(new OcrText(Arrays.asList(
+                new OcrLine("群英助手", new Rect(0, 0, 100, 30), 1f)))));
+        assertTrue(WelfareAutomation.isWelfarePage(new OcrText(Arrays.asList(
+                new OcrLine("在线奖励", new Rect(0, 0, 100, 30), 1f),
+                new OcrLine("每日挑战", new Rect(0, 40, 100, 70), 1f)))));
+        assertFalse(WelfareAutomation.isWelfarePage(new OcrText(Arrays.asList(
+                new OcrLine("商城 福利 竞技场 菜单", new Rect(0, 0, 200, 30), 1f)))));
+    }
+
+    @Test
+    public void legionRewardOnlyStartsWhenNoTaskIsRunning() {
+        assertTrue(RewardAutomation.shouldStartLegionReward(false));
+        assertFalse(RewardAutomation.shouldStartLegionReward(true));
     }
 
     @Test

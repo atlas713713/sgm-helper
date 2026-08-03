@@ -64,19 +64,24 @@ final class SoldierRevivalAutomation {
 
     private void waitForCamp(int remainingAttempts, Runnable next) {
         host.showProgress("复活士兵：等待到达军营");
-        host.recognizeText(text -> {
-            if (!host.isAutomationRunning()) {
-                return;
-            }
-            if (hasCampArrival(screenLines(text))) {
-                revive(next);
-            } else if (remainingAttempts > 1) {
-                host.postDelayed(() -> waitForCamp(remainingAttempts - 1, next),
-                        ARRIVAL_POLL_DELAY_MS);
-            } else {
-                skip("等待到达军营超时", next);
-            }
-        });
+        host.waitTemplateOrText(WudangTemplateMatcher.Template.MILITARY_CAMP,
+                "军营", true,
+                WudangTemplateMatcher.MILITARY_CAMP_TITLE_LEFT,
+                WudangTemplateMatcher.MILITARY_CAMP_TITLE_TOP,
+                WudangTemplateMatcher.MILITARY_CAMP_TITLE_LEFT
+                        + WudangTemplateMatcher.MILITARY_CAMP_TITLE_WIDTH,
+                WudangTemplateMatcher.MILITARY_CAMP_TITLE_TOP
+                        + WudangTemplateMatcher.MILITARY_CAMP_TITLE_HEIGHT,
+                1, 1,
+                () -> revive(next),
+                () -> {
+                    if (remainingAttempts > 1) {
+                        host.postDelayed(() -> waitForCamp(remainingAttempts - 1, next),
+                                ARRIVAL_POLL_DELAY_MS);
+                    } else {
+                        skip("等待到达军营超时", next);
+                    }
+                });
     }
 
     private void revive(Runnable next) {

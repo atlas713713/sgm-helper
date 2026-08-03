@@ -126,8 +126,19 @@ interface AutomationHost {
         if (!isAutomationRunning()) {
             return;
         }
+        int templateLeft = left;
+        int templateTop = top;
+        int templateRight = right;
+        int templateBottom = bottom;
+        WudangTemplateMatcher.FixedRegion fixedRegion = template.fixedRegion;
+        if (fixedRegion != null) {
+            templateLeft = fixedRegion.left;
+            templateTop = fixedRegion.top;
+            templateRight = templateLeft + fixedRegion.width;
+            templateBottom = templateTop + fixedRegion.height;
+        }
         matchTemplates(new WudangTemplateMatcher.Template[] {template},
-                left, top, right, bottom, matches -> {
+                templateLeft, templateTop, templateRight, templateBottom, matches -> {
                     WudangTemplateMatcher.Match match = matches.get(template);
                     if (match != null && match.found()) {
                         tap(match.centerX(), match.centerY(), next);
@@ -164,8 +175,19 @@ interface AutomationHost {
         if (!isAutomationRunning()) {
             return;
         }
+        int templateLeft = left;
+        int templateTop = top;
+        int templateRight = right;
+        int templateBottom = bottom;
+        WudangTemplateMatcher.FixedRegion fixedRegion = template.fixedRegion;
+        if (fixedRegion != null) {
+            templateLeft = fixedRegion.left;
+            templateTop = fixedRegion.top;
+            templateRight = templateLeft + fixedRegion.width;
+            templateBottom = templateTop + fixedRegion.height;
+        }
         matchTemplates(new WudangTemplateMatcher.Template[] {template},
-                left, top, right, bottom, matches -> {
+                templateLeft, templateTop, templateRight, templateBottom, matches -> {
                     WudangTemplateMatcher.Match match = matches.get(template);
                     if (match != null && match.found()) {
                         next.run();

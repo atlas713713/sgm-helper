@@ -28,20 +28,94 @@ final class WudangTemplateMatcher {
     static final int REFERENCE_WIDTH = 1280;
     static final int REFERENCE_HEIGHT = 720;
     static final double DEFAULT_THRESHOLD = 0.85;
+    static final int LEGION_TITLE_LEFT = 570;
+    static final int LEGION_TITLE_TOP = 27;
+    static final int LEGION_TITLE_WIDTH = 150;
+    static final int LEGION_TITLE_HEIGHT = 34;
+    // RecycleDialog.titleItem from Wudang ScreenAdapterHelper (screenSize == 1).
+    static final int YUANBAO_RECYCLE_TITLE_LEFT = 540;
+    static final int YUANBAO_RECYCLE_TITLE_TOP = 27;
+    static final int YUANBAO_RECYCLE_TITLE_WIDTH = 200;
+    static final int YUANBAO_RECYCLE_TITLE_HEIGHT = 38;
+    // Soldier.titleItem from Wudang Soldier (screenSize != 1).
+    static final int SOLDIER_TITLE_LEFT = 540;
+    static final int SOLDIER_TITLE_TOP = 32;
+    static final int SOLDIER_TITLE_WIDTH = 200;
+    static final int SOLDIER_TITLE_HEIGHT = 35;
+    // Store.titleItem from Wudang Store (both layout branches use this box).
+    static final int SHOP_TITLE_LEFT = 580;
+    static final int SHOP_TITLE_TOP = 27;
+    static final int SHOP_TITLE_WIDTH = 120;
+    static final int SHOP_TITLE_HEIGHT = 38;
+    // MilitaryCamp.titleItem from Wudang MilitaryCamp (screenSize != 1).
+    static final int MILITARY_CAMP_TITLE_LEFT = 580;
+    static final int MILITARY_CAMP_TITLE_TOP = 25;
+    static final int MILITARY_CAMP_TITLE_WIDTH = 120;
+    static final int MILITARY_CAMP_TITLE_HEIGHT = 40;
+    // SkillDialog.titleItem from Wudang SkillDialog (screenSize != 1).
+    static final int SKILL_TITLE_LEFT = 560;
+    static final int SKILL_TITLE_TOP = 30;
+    static final int SKILL_TITLE_WIDTH = 160;
+    static final int SKILL_TITLE_HEIGHT = 33;
+    static final int AUTO_PATH_LEFT = 1114;
+    static final int AUTO_PATH_TOP = 479;
+    static final int AUTO_PATH_WIDTH = 32;
+    static final int AUTO_PATH_HEIGHT = 32;
+    static final int LEGION_MENU_LEFT = 944;
+    static final int LEGION_MENU_TOP = 194;
+    static final int LEGION_MENU_WIDTH = 98;
+    static final int LEGION_MENU_HEIGHT = 93;
+
+    static final class FixedRegion {
+        final int left;
+        final int top;
+        final int width;
+        final int height;
+
+        FixedRegion(int left, int top, int width, int height) {
+            this.left = left;
+            this.top = top;
+            this.width = width;
+            this.height = height;
+        }
+    }
 
     enum Template {
         MAP_TAB("地图", "data/m.wd"),
         DIALOG_TAB("对话", "data/n.wd"),
-        AUTO_PATH("自动寻路", "data/g04.wd"),
-        YUANBAO_RECYCLE("元宝回收", "data/t1.wd"),
-        SHOP("商店", "data/t3.wd", "data/t3_a.wd"),
-        SKILL("技能", "data/t5.wd", "data/t5_a.wd"),
-        INN("客栈", "data/t6.wd", "data/t6_a.wd"),
-        LEGION("军团", "data/t8.wd", "data/t8_a.wd"),
-        PALACE("宫殿", "data/t10.wd", "data/t10_a.wd"),
-        DUNGEON("副本", "data/t11.wd", "data/t11_a.wd"),
-        AUTO_FUNCTION("自动功能", "data/t14.wd", "data/t14_a.wd"),
-        REWARD_RECOVERY("奖励找回", "data/t15.wd", "data/t15_a.wd"),
+        AUTO_PATH("自动寻路", new FixedRegion(AUTO_PATH_LEFT, AUTO_PATH_TOP,
+                AUTO_PATH_WIDTH, AUTO_PATH_HEIGHT), "data/g04.wd"),
+        YUANBAO_RECYCLE("元宝回收", new FixedRegion(YUANBAO_RECYCLE_TITLE_LEFT,
+                YUANBAO_RECYCLE_TITLE_TOP, YUANBAO_RECYCLE_TITLE_WIDTH,
+                YUANBAO_RECYCLE_TITLE_HEIGHT), "data/t1.wd"),
+        SOLDIER("士兵和阵形", new FixedRegion(SOLDIER_TITLE_LEFT, SOLDIER_TITLE_TOP,
+                SOLDIER_TITLE_WIDTH, SOLDIER_TITLE_HEIGHT), "data/t2.wd", "data/t2_a.wd"),
+        SHOP("商店", new FixedRegion(SHOP_TITLE_LEFT, SHOP_TITLE_TOP,
+                SHOP_TITLE_WIDTH, SHOP_TITLE_HEIGHT), "data/t3.wd", "data/t3_a.wd"),
+        MILITARY_CAMP("军营", new FixedRegion(MILITARY_CAMP_TITLE_LEFT,
+                MILITARY_CAMP_TITLE_TOP, MILITARY_CAMP_TITLE_WIDTH,
+                MILITARY_CAMP_TITLE_HEIGHT), "data/t4.wd", "data/t4_a.wd"),
+        SKILL("技能", new FixedRegion(SKILL_TITLE_LEFT, SKILL_TITLE_TOP,
+                SKILL_TITLE_WIDTH, SKILL_TITLE_HEIGHT), "data/t5.wd", "data/t5_a.wd"),
+        INN("客栈", new FixedRegion(580, 28, 120, 35), "data/t6.wd", "data/t6_a.wd"),
+        LINE_INFO("分流信息", new FixedRegion(590, 67, 100, 23), "data/t7.wd", "data/t7_a.wd"),
+        LEGION("军团", new FixedRegion(LEGION_TITLE_LEFT, LEGION_TITLE_TOP,
+                LEGION_TITLE_WIDTH, LEGION_TITLE_HEIGHT), "data/t8.wd"),
+        FRIEND("好友", new FixedRegion(601, 19, 120, 33), "data/t9.wd", "data/t9_a.wd"),
+        LEGION_MENU("军团入口", new FixedRegion(LEGION_MENU_LEFT, LEGION_MENU_TOP,
+                LEGION_MENU_WIDTH, LEGION_MENU_HEIGHT), "data/mjt.wd"),
+        PALACE("宫殿", new FixedRegion(590, 30, 100, 33), "data/t10.wd", "data/t10_a.wd"),
+        DUNGEON("副本", new FixedRegion(600, 27, 80, 38), "data/t11.wd", "data/t11_a.wd"),
+        REFINE("炼造", new FixedRegion(600, 28, 80, 36), "data/t12.wd", "data/t12_a.wd"),
+        WAR_SOUL("武魂擂台", new FixedRegion(570, 16, 140, 34), "data/t13.wd", "data/t13_a.wd"),
+        AUTO_FUNCTION("自动功能", new FixedRegion(570, 6, 710, 38), "data/t14.wd", "data/t14_a.wd"),
+        REWARD_RECOVERY("奖励找回", new FixedRegion(540, 27, 200, 36), "data/t15.wd", "data/t15_a.wd"),
+        BANK("钱庄", new FixedRegion(580, 16, 120, 40), "data/t16.wd", "data/t16_a.wd"),
+        LOOT("战利品", new FixedRegion(600, 114, 80, 20), "data/t17.wd", "data/t17_a.wd"),
+        WAR("战役", new FixedRegion(560, 27, 160, 40), "data/t18.wd", "data/t18_a.wd"),
+        JIANG_YUAN("名将挑战", new FixedRegion(570, 27, 140, 34), "data/t19.wd", "data/t19_a.wd"),
+        HISTORIC_WAR("历史战场", new FixedRegion(560, 27, 160, 40), "data/t20.wd", "data/t20_a.wd"),
+        QIANLI("千里单骑", new FixedRegion(560, 26, 160, 40), "data/t21.wd", "data/t21_a.wd"),
         ONE_CLICK_CLAIM("一键领取", "data/bf2.wd", "data/bf2_a.wd"),
         CLAIM("领取", "data/bf3.wd", "data/bf3_a.wd",
                 "data/bf4.wd", "data/bf4_a.wd",
@@ -50,9 +124,17 @@ final class WudangTemplateMatcher {
 
         final String label;
         final String[] assets;
+        final FixedRegion fixedRegion;
 
         Template(String label, String... assets) {
             this.label = label;
+            this.fixedRegion = null;
+            this.assets = assets;
+        }
+
+        Template(String label, FixedRegion fixedRegion, String... assets) {
+            this.label = label;
+            this.fixedRegion = fixedRegion;
             this.assets = assets;
         }
     }
@@ -73,7 +155,10 @@ final class WudangTemplateMatcher {
         }
 
         boolean found() {
-            return bounds != null && score >= DEFAULT_THRESHOLD;
+            return bounds != null
+                    && (template.fixedRegion != null
+                            ? score > DEFAULT_THRESHOLD
+                            : score >= DEFAULT_THRESHOLD);
         }
 
         int centerX() {
@@ -98,6 +183,7 @@ final class WudangTemplateMatcher {
     private final AssetManager assets;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Map<String, Mat> cache = new HashMap<>();
+    private final Map<String, Mat> colorCache = new HashMap<>();
     private volatile boolean closed;
 
     WudangTemplateMatcher(AssetManager assets) {
@@ -153,8 +239,17 @@ final class WudangTemplateMatcher {
             Utils.bitmapToMat(screenshot, color);
             Imgproc.cvtColor(color, gray, Imgproc.COLOR_RGBA2GRAY);
             for (Template template : templates) {
-                result.put(template, matchOne(gray, screenshot, template,
-                        left, top, right, bottom, started));
+                Match match;
+                if (template.fixedRegion != null) {
+                    FixedRegion region = template.fixedRegion;
+                    match = matchFixedColorTemplate(color, screenshot, template,
+                            left, top, right, bottom, started,
+                            region.left, region.top, region.width, region.height);
+                } else {
+                    match = matchOne(gray, screenshot, template,
+                            left, top, right, bottom, started);
+                }
+                result.put(template, match);
             }
             return result;
         } finally {
@@ -215,6 +310,54 @@ final class WudangTemplateMatcher {
         }
     }
 
+    private Match matchFixedColorTemplate(Mat source, Bitmap screenshot, Template template,
+            int left, int top, int right, int bottom, long started,
+            int fixedLeft, int fixedTop, int fixedWidth, int fixedHeight) throws IOException {
+        if (screenshot.getWidth() != REFERENCE_WIDTH
+                || screenshot.getHeight() != REFERENCE_HEIGHT
+                || left != fixedLeft
+                || top != fixedTop
+                || right != fixedLeft + fixedWidth
+                || bottom != fixedTop + fixedHeight) {
+            return new Match(template, "", -1.0, null, elapsedMs(started));
+        }
+        Mat search = source.submat(new org.opencv.core.Rect(
+                fixedLeft, fixedTop, fixedWidth, fixedHeight));
+        double bestScore = -1.0;
+        Rect bestBounds = null;
+        String bestAsset = "";
+        try {
+            for (String asset : template.assets) {
+                Mat original = colorTemplate(asset);
+                Mat match = new Mat();
+                try {
+                    if (search.cols() < original.cols() || search.rows() < original.rows()) {
+                        continue;
+                    }
+                    Imgproc.matchTemplate(search, original, match, Imgproc.TM_CCOEFF_NORMED);
+                    Core.MinMaxLocResult best = Core.minMaxLoc(match);
+                    if (best.maxVal > bestScore) {
+                        bestScore = best.maxVal;
+                        int matchLeft = fixedLeft + (int) Math.round(best.maxLoc.x);
+                        int matchTop = fixedTop + (int) Math.round(best.maxLoc.y);
+                        bestBounds = new Rect(
+                                matchLeft,
+                                matchTop,
+                                matchLeft + original.cols(),
+                                matchTop + original.rows());
+                        bestAsset = asset;
+                    }
+                } finally {
+                    match.release();
+                }
+            }
+            return new Match(template, bestAsset, bestScore,
+                    bestBounds, elapsedMs(started));
+        } finally {
+            search.release();
+        }
+    }
+
     private Mat template(String asset) throws IOException {
         synchronized (cache) {
             Mat cached = cache.get(asset);
@@ -238,6 +381,30 @@ final class WudangTemplateMatcher {
             } finally {
                 bitmap.recycle();
                 color.release();
+            }
+        }
+    }
+
+    private Mat colorTemplate(String asset) throws IOException {
+        synchronized (colorCache) {
+            Mat cached = colorCache.get(asset);
+            if (cached != null) {
+                return cached;
+            }
+            Bitmap bitmap;
+            try (InputStream stream = assets.open(asset)) {
+                bitmap = BitmapFactory.decodeStream(stream);
+            }
+            if (bitmap == null) {
+                throw new IOException("无法读取 Wudang 彩色模板: " + asset);
+            }
+            Mat color = new Mat();
+            try {
+                Utils.bitmapToMat(bitmap, color);
+                colorCache.put(asset, color);
+                return color;
+            } finally {
+                bitmap.recycle();
             }
         }
     }
@@ -305,6 +472,12 @@ final class WudangTemplateMatcher {
                 value.release();
             }
             cache.clear();
+        }
+        synchronized (colorCache) {
+            for (Mat value : colorCache.values()) {
+                value.release();
+            }
+            colorCache.clear();
         }
     }
 

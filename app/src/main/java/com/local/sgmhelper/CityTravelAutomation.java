@@ -201,6 +201,16 @@ final class CityTravelAutomation {
     }
 
     private void checkPanel() {
+        if (useStore) {
+            host.waitTemplateOrText(WudangTemplateMatcher.Template.SHOP,
+                    "商店", true,
+                    CityTeleportCatalog.PANEL_TITLE_LEFT,
+                    CityTeleportCatalog.PANEL_TITLE_TOP,
+                    CityTeleportCatalog.PANEL_TITLE_RIGHT,
+                    CityTeleportCatalog.PANEL_TITLE_BOTTOM,
+                    2, 1, this::openTeleportTab, this::handlePanelMissing);
+            return;
+        }
         host.recognizeTextRegion(CityTeleportCatalog.PANEL_TITLE_LEFT,
                 CityTeleportCatalog.PANEL_TITLE_TOP, CityTeleportCatalog.PANEL_TITLE_RIGHT,
                 CityTeleportCatalog.PANEL_TITLE_BOTTOM, text -> {
@@ -214,26 +224,30 @@ final class CityTravelAutomation {
                         return;
                     }
                     DiagnosticLog.info("TRAVEL", "panel title=" + title);
-                    if (panelRetries < PANEL_RETRIES) {
-                        panelRetries++;
-                        host.postDelayed(this::checkPanel, ACTION_WAIT_MS);
-                        return;
-                    }
-                    panelRetries = 0;
-                    panelRounds++;
-                    if (panelRounds > PANEL_ROUNDS) {
-                        host.failAutomation("传送" + teleportCity + "：没能打开"
-                                + (useStore ? "商店" : "客栈"));
-                        return;
-                    }
-                    // 退开一步再重新走进去，和武当一样。
-                    approachStuck = 0;
-                    lastX = Integer.MIN_VALUE;
-                    lastY = Integer.MIN_VALUE;
-                    host.tapMapCoordinate(entranceX, CityTeleportCatalog.RETRY_Y,
-                            CityTeleportCatalog.CITY_MAP_MAX_X,
-                            () -> host.postDelayed(this::approachEntrance, MOVE_WAIT_MS));
+                    handlePanelMissing();
                 });
+    }
+
+    private void handlePanelMissing() {
+        if (panelRetries < PANEL_RETRIES) {
+            panelRetries++;
+            host.postDelayed(this::checkPanel, ACTION_WAIT_MS);
+            return;
+        }
+        panelRetries = 0;
+        panelRounds++;
+        if (panelRounds > PANEL_ROUNDS) {
+            host.failAutomation("传送" + teleportCity + "：没能打开"
+                    + (useStore ? "商店" : "客栈"));
+            return;
+        }
+        // 退开一步再重新走进去，和武当一样。
+        approachStuck = 0;
+        lastX = Integer.MIN_VALUE;
+        lastY = Integer.MIN_VALUE;
+        host.tapMapCoordinate(entranceX, CityTeleportCatalog.RETRY_Y,
+                CityTeleportCatalog.CITY_MAP_MAX_X,
+                () -> host.postDelayed(this::approachEntrance, MOVE_WAIT_MS));
     }
 
     private void openTeleportTab() {

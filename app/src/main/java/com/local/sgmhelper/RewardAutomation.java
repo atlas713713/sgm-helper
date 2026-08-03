@@ -16,8 +16,16 @@ final class RewardAutomation {
     }
 
     void startLegionReward() {
-        host.startAutomation("军团奖励：打开游戏",
-                () -> host.tap(1215, 58, this::openLegionReward));
+        if (!shouldStartLegionReward(host.isAutomationRunning())) {
+            DiagnosticLog.info("LEGION_REWARD", "skipped; active task is running");
+            return;
+        }
+        // 定时军团奖励只处理已经打开的游戏，不启动游戏，也不抢占主线任务。
+        host.startInGameAutomation("军团奖励：领取俸禄", this::openLegionReward);
+    }
+
+    static boolean shouldStartLegionReward(boolean automationRunning) {
+        return !automationRunning;
     }
 
     private void openRanking() {
