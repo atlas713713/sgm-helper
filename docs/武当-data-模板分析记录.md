@@ -963,3 +963,51 @@ RGB 通道、使用 `TM_CCOEFF_NORMED`；不做灰度化、不做缩放。模板
 
 下一次若要继续降低 OCR 时间，优先在 5745 上采集 t6、t9、t10、t11、t14、t15、t18、
 t19、t20、t21 的真实正负截图；其中 t14 的宽 ROI 和 t17 的语义最值得优先复核。
+
+## 二十六、t6–t21 实机验收（2026-08-03）
+
+### 26.1 设备和前置状态
+
+- 目标严格限定为 `127.0.0.1:5745` / `Tiramisu64_19`，没有使用其他模拟器。
+- 重启实例后 `sys.boot_completed=1`，`service check package` 返回 `found`；重启前后已安装
+  的辅助程序仍为 `versionCode=292`、`versionName=0.1.292`。
+- 本轮待验收 APK 是 `versionCode=307`、`versionName=0.1.307`。使用 `adb install -r`
+  保留数据，不执行卸载、清数据或重建实例。
+
+### 26.2 安装通道故障证据
+
+以下三条路径均按顺序单独执行，结果相同：
+
+1. `adb install -r app-debug.apk`：`Failure calling service package: Broken pipe (32)`；
+2. `adb install --no-streaming -r app-debug.apk`：先 push 成功，随后仍为同一错误；
+3. 先 `adb push` 到 `/data/local/tmp`，再执行设备内 `pm install -r`：仍为同一错误。
+
+每次失败后 5745 会变为 `offline/closed`，需要 `adb reconnect offline`；日志中可见
+`system_server` 重启和 package service 重建。空间充足（`/data` 仍有约 114G 可用），新旧 APK
+签名证书 SHA-256 相同，因此当前证据指向 BlueStacks package-manager 安装通道，不指向模板
+资源、版本号或签名不兼容。安装失败后版本核验仍为 `0.1.292`。
+
+### 26.3 游戏前置也未形成可验收 HUD
+
+- 游戏包为 `hk.phx.khm.cs`（`0.3.3`）。实例恢复后可启动到登录页，截图保存为
+  `/tmp/game-login-final.png`。
+- 点击“开始游戏”后停留在“请稍候”，日志出现 `LOGIN_DISCONNECT`；没有进入主 HUD 或
+  任一 t6–t21 对应功能页。因此不能把登录页、黑屏或网络断线误记为模板负样本/正样本。
+
+### 26.4 t6–t21 逐项结论
+
+本轮 16 项全部为“未验收（前置阻塞）”，不是“匹配失败”：
+
+`t6 客栈`、`t7 分流信息`、`t8 军团`、`t9 好友`、`t10 宫殿`、`t11 副本`、
+`t12 炼造`、`t13 武魂擂台`、`t14 自动功能`、`t15 奖励找回`、`t16 钱庄`、
+`t17 战利品`、`t18 战役`、`t19 名将挑战`、`t20 历史战场`、`t21 千里单骑`。
+
+没有生成任何一项“真实目标页正样本命中”结论；因此 25.1 中 t17、t19 的推断标记仍然
+保留，其他条目的 ROI 也只能算原实现/代码证据，不能升级为实机准确率。
+
+### 26.5 下次 pickup
+
+先恢复 5745 的 package-manager 安装能力并把辅助程序核验到 `0.1.307`，再让游戏成功进入
+HUD；之后按 t6 → t21 顺序，每项保存一张目标页正样本和一张 HUD/相邻页面负样本，使用
+1280×720、彩色、原尺寸、精确 ROI 的 `TM_CCOEFF_NORMED` 记录分数。安装或登录前置没有恢复
+前，不再修改任何 t6–t21 ROI。
