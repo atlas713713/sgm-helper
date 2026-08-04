@@ -253,7 +253,10 @@ abstract class WelfareCategory {
             next.run();
             return;
         }
-        host.clickTemplateOrText(WudangTemplateMatcher.Template.CLAIM,
+        // A normal tap waits 2s after every click. Welfare buttons already have
+        // a template hit and can use the existing 200ms fast tap; OCR fallback
+        // remains unchanged for screens where the template is unavailable.
+        host.clickTemplateOrTextFast(WudangTemplateMatcher.Template.CLAIM,
                 "领取", true,
                 280, 100, 1240, 700,
                 () -> claimVisible(host, remaining - 1, next),
@@ -266,7 +269,7 @@ final class HeroesStoreCategory extends WelfareCategory {
 
     @Override
     void claim(AutomationHost host, Runnable next) {
-        host.clickTemplateOrText(WudangTemplateMatcher.Template.ONE_CLICK_CLAIM,
+        host.clickTemplateOrTextFast(WudangTemplateMatcher.Template.ONE_CLICK_CLAIM,
                 "一键领取", true,
                 280, 100, 1240, 700,
                 () -> claimVisible(host, next),
@@ -300,7 +303,7 @@ final class OnlineRewardCategory extends WelfareCategory {
             next.run();
             return;
         }
-        host.tap(slots[index], 600,
+        host.tapFast(slots[index], 600,
                 () -> tapRewardSlots(host, index + 1, next));
     }
 }
@@ -346,7 +349,7 @@ final class DailyChallengeCategory extends WelfareCategory {
             next.run();
             return;
         }
-        host.tap(slots.get(index), 550,
+        host.tapFast(slots.get(index), 550,
                 () -> tapCompletionRewards(host, slots, index + 1, next));
     }
 

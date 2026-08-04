@@ -61,6 +61,17 @@ final class WudangTemplateMatcher {
     static final int SKILL_TITLE_TOP = 30;
     static final int SKILL_TITLE_WIDTH = 160;
     static final int SKILL_TITLE_HEIGHT = 33;
+    // WildVipDialog.titleItem from Wudang (5745/gameServerType=2, non-Asia).
+    static final int WILD_VIP_TITLE_LEFT = 580;
+    static final int WILD_VIP_TITLE_TOP = 28;
+    static final int WILD_VIP_TITLE_WIDTH = 120;
+    static final int WILD_VIP_TITLE_HEIGHT = 38;
+    // MallPage.Czbj.itemLqBtnArea from Wudang (5745/gameServerType=2, non-Asia).
+    // p.wd is the monthly-card/mall "领取" glyph, not the generic welfare button.
+    static final int MONTH_CARD_CLAIM_LEFT = 320;
+    static final int MONTH_CARD_CLAIM_TOP = 592;
+    static final int MONTH_CARD_CLAIM_WIDTH = 880;
+    static final int MONTH_CARD_CLAIM_HEIGHT = 45;
     static final int AUTO_PATH_LEFT = 1114;
     static final int AUTO_PATH_TOP = 479;
     static final int AUTO_PATH_WIDTH = 32;
@@ -157,6 +168,8 @@ final class WudangTemplateMatcher {
                 LOGIN_SWITCH_WIDTH, LOGIN_SWITCH_HEIGHT), "data/l2.wd"),
         PALACE("宫殿", new FixedRegion(590, 30, 100, 33), "data/t10.wd", "data/t10_a.wd"),
         DUNGEON("副本", new FixedRegion(600, 27, 80, 38), "data/t11.wd", "data/t11_a.wd"),
+        WILD_VIP("秘境", new FixedRegion(WILD_VIP_TITLE_LEFT, WILD_VIP_TITLE_TOP,
+                WILD_VIP_TITLE_WIDTH, WILD_VIP_TITLE_HEIGHT), "data/v2.wd", "data/v2_a.wd"),
         REFINE("炼造", new FixedRegion(600, 28, 80, 36), "data/t12.wd", "data/t12_a.wd"),
         WAR_SOUL("武魂擂台", new FixedRegion(570, 16, 140, 34), "data/t13.wd", "data/t13_a.wd"),
         AUTO_FUNCTION("自动功能", new FixedRegion(570, 6, 710, 38), "data/t14.wd", "data/t14_a.wd"),
@@ -168,6 +181,9 @@ final class WudangTemplateMatcher {
         JIANG_YUAN("名将挑战", new FixedRegion(570, 25, 160, 37), "data/t19.wd", "data/t19_a.wd"),
         HISTORIC_WAR("历史战场", new FixedRegion(560, 27, 160, 40), "data/t20.wd", "data/t20_a.wd"),
         QIANLI("千里单骑", new FixedRegion(560, 26, 160, 40), "data/t21.wd", "data/t21_a.wd"),
+        MONTH_CARD_CLAIM("月卡领取", new FixedRegion(MONTH_CARD_CLAIM_LEFT,
+                MONTH_CARD_CLAIM_TOP, MONTH_CARD_CLAIM_WIDTH, MONTH_CARD_CLAIM_HEIGHT),
+                "data/p.wd", "data/p_a.wd"),
         ONE_CLICK_CLAIM("一键领取", "data/bf2.wd", "data/bf2_a.wd"),
         CLAIM("领取", "data/bf3.wd", "data/bf3_a.wd",
                 "data/bf4.wd", "data/bf4_a.wd",
