@@ -522,7 +522,7 @@ final class BossAutomation {
 
     private void switchChannel() {
         progress("打开分流信息");
-        host.tap(1215, 705,
+        host.openChannelDropdown(
                 () -> host.postDelayed(
                         () -> waitForChannelDialog(CHANNEL_OCR_ATTEMPTS, false),
                         CHANNEL_DIALOG_MS));

@@ -69,6 +69,28 @@ final class WudangTemplateMatcher {
     static final int LEGION_MENU_TOP = 194;
     static final int LEGION_MENU_WIDTH = 98;
     static final int LEGION_MENU_HEIGHT = 93;
+    // Line.lineSpinnerAreaItem from Wudang Line (5745/gameServerType=2).
+    static final int LINE_SPINNER_LEFT = 1249;
+    static final int LINE_SPINNER_TOP = 698;
+    static final int LINE_SPINNER_WIDTH = 14;
+    static final int LINE_SPINNER_HEIGHT = 13;
+    // StartPage web-view close hit areas from the original Wudang implementation.
+    static final int WEB_CLOSE_CN_LEFT = 1140;
+    static final int WEB_CLOSE_CN_TOP = 92;
+    static final int WEB_CLOSE_CN_WIDTH = 40;
+    static final int WEB_CLOSE_CN_HEIGHT = 40;
+    static final int WEB_CLOSE_ASIA1_LEFT = 1048;
+    static final int WEB_CLOSE_ASIA1_TOP = 45;
+    static final int WEB_CLOSE_ASIA1_WIDTH = 30;
+    static final int WEB_CLOSE_ASIA1_HEIGHT = 30;
+    static final int WEB_CLOSE_ASIA2_LEFT = 970;
+    static final int WEB_CLOSE_ASIA2_TOP = 60;
+    static final int WEB_CLOSE_ASIA2_WIDTH = 40;
+    static final int WEB_CLOSE_ASIA2_HEIGHT = 40;
+    static final int WEB_CLOSE_ASIA3_LEFT = 1017;
+    static final int WEB_CLOSE_ASIA3_TOP = 51;
+    static final int WEB_CLOSE_ASIA3_WIDTH = 34;
+    static final int WEB_CLOSE_ASIA3_HEIGHT = 34;
 
     static final class FixedRegion {
         final int left;
@@ -109,6 +131,19 @@ final class WudangTemplateMatcher {
         FRIEND("好友", new FixedRegion(601, 19, 120, 33), "data/t9.wd", "data/t9_a.wd"),
         LEGION_MENU("军团入口", new FixedRegion(LEGION_MENU_LEFT, LEGION_MENU_TOP,
                 LEGION_MENU_WIDTH, LEGION_MENU_HEIGHT), "data/mjt.wd"),
+        LINE_SPINNER("线路下拉", new FixedRegion(LINE_SPINNER_LEFT, LINE_SPINNER_TOP,
+                LINE_SPINNER_WIDTH, LINE_SPINNER_HEIGHT), "data/ls.wd"),
+        WEB_VIEW_CLOSE_CN("网页关闭", new FixedRegion(WEB_CLOSE_CN_LEFT, WEB_CLOSE_CN_TOP,
+                WEB_CLOSE_CN_WIDTH, WEB_CLOSE_CN_HEIGHT), "data/gg1.wd"),
+        WEB_VIEW_CLOSE_ASIA1("网页关闭样式1", new FixedRegion(WEB_CLOSE_ASIA1_LEFT,
+                WEB_CLOSE_ASIA1_TOP, WEB_CLOSE_ASIA1_WIDTH, WEB_CLOSE_ASIA1_HEIGHT),
+                "data/gg2.wd"),
+        WEB_VIEW_CLOSE_ASIA2("网页关闭样式2", new FixedRegion(WEB_CLOSE_ASIA2_LEFT,
+                WEB_CLOSE_ASIA2_TOP, WEB_CLOSE_ASIA2_WIDTH, WEB_CLOSE_ASIA2_HEIGHT),
+                "data/gg3.wd"),
+        WEB_VIEW_CLOSE_ASIA3("网页关闭样式3", new FixedRegion(WEB_CLOSE_ASIA3_LEFT,
+                WEB_CLOSE_ASIA3_TOP, WEB_CLOSE_ASIA3_WIDTH, WEB_CLOSE_ASIA3_HEIGHT),
+                "data/gg4.wd"),
         PALACE("宫殿", new FixedRegion(590, 30, 100, 33), "data/t10.wd", "data/t10_a.wd"),
         DUNGEON("副本", new FixedRegion(600, 27, 80, 38), "data/t11.wd", "data/t11_a.wd"),
         REFINE("炼造", new FixedRegion(600, 28, 80, 36), "data/t12.wd", "data/t12_a.wd"),

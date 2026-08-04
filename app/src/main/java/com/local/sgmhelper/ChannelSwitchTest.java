@@ -1,8 +1,6 @@
 package com.local.sgmhelper;
 
 final class ChannelSwitchTest {
-    private static final int CHANNEL_X = 1215;
-    private static final int CHANNEL_Y = 705;
     private static final long DIALOG_WAIT_MS = 1_000;
     private static final long FIRST_CHECK_WAIT_MS = 1_500;
     private static final long CHECK_INTERVAL_MS = 600;
@@ -35,7 +33,7 @@ final class ChannelSwitchTest {
         int channel = targetChannel;
         targetChannel = ChannelSwitcher.nextChannel(targetChannel);
         host.showProgress("换线测试：切换到第 " + channel + " 分流");
-        host.tap(CHANNEL_X, CHANNEL_Y,
+        host.openChannelDropdown(
                 () -> host.postDelayed(
                         () -> waitForChannelDialog(channel),
                         DIALOG_WAIT_MS));

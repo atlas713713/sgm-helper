@@ -71,6 +71,18 @@ interface AutomationHost {
 
     void setTextAt(int x, int y, String value, Runnable next);
 
+    default void openChannelDropdown(Runnable next) {
+        clickTemplateOrText(WudangTemplateMatcher.Template.LINE_SPINNER,
+                "分流", true,
+                WudangTemplateMatcher.LINE_SPINNER_LEFT,
+                WudangTemplateMatcher.LINE_SPINNER_TOP,
+                WudangTemplateMatcher.LINE_SPINNER_LEFT
+                        + WudangTemplateMatcher.LINE_SPINNER_WIDTH,
+                WudangTemplateMatcher.LINE_SPINNER_TOP
+                        + WudangTemplateMatcher.LINE_SPINNER_HEIGHT,
+                next, 1, 1, () -> tap(1215, 705, next));
+    }
+
     default void tapMapCoordinate(int mapX, int mapY, Runnable next) {
         tap(mapScreenX(mapX), mapScreenY(mapY), next);
     }
