@@ -37,11 +37,26 @@ final class ChannelSwitchTest {
         host.showProgress("换线测试：切换到第 " + channel + " 分流");
         host.tap(CHANNEL_X, CHANNEL_Y,
                 () -> host.postDelayed(
-                        () -> channelSwitcher.switchOpenTo(channel,
-                                () -> host.postDelayed(
-                                        () -> checkChallenge(channel, CHECKS_PER_CHANNEL),
-                                        FIRST_CHECK_WAIT_MS)),
+                        () -> waitForChannelDialog(channel),
                         DIALOG_WAIT_MS));
+    }
+
+    private void waitForChannelDialog(int channel) {
+        host.waitTemplateOrText(
+                WudangTemplateMatcher.Template.LINE_INFO,
+                "分流信息", true,
+                WudangTemplateMatcher.LINE_INFO_LEFT,
+                WudangTemplateMatcher.LINE_INFO_TOP,
+                WudangTemplateMatcher.LINE_INFO_LEFT
+                        + WudangTemplateMatcher.LINE_INFO_WIDTH,
+                WudangTemplateMatcher.LINE_INFO_TOP
+                        + WudangTemplateMatcher.LINE_INFO_HEIGHT,
+                2, 1,
+                () -> channelSwitcher.switchOpenTo(channel,
+                        () -> host.postDelayed(
+                                () -> checkChallenge(channel, CHECKS_PER_CHANNEL),
+                                FIRST_CHECK_WAIT_MS)),
+                () -> host.failAutomation("换线测试：分流窗口未打开"));
     }
 
     private void checkChallenge(int channel, int remainingChecks) {

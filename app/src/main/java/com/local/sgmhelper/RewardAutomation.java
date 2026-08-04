@@ -66,11 +66,30 @@ final class RewardAutomation {
     private void openLegionReward() {
         host.showProgress("军团奖励：领取俸禄");
         host.tap(994, 245,
-                () -> host.tap(409, 101,
-                        () -> host.tap(978, 178,
-                                () -> host.tap(531, 406,
-                                        () -> host.tap(950, 612,
-                                                this::makeGeneralContributions)))));
+                this::waitForLegionWindow);
+    }
+
+    private void waitForLegionWindow() {
+        host.waitTemplateOrText(
+                WudangTemplateMatcher.Template.LEGION,
+                "军团", true,
+                WudangTemplateMatcher.LEGION_TITLE_LEFT,
+                WudangTemplateMatcher.LEGION_TITLE_TOP,
+                WudangTemplateMatcher.LEGION_TITLE_LEFT
+                        + WudangTemplateMatcher.LEGION_TITLE_WIDTH,
+                WudangTemplateMatcher.LEGION_TITLE_TOP
+                        + WudangTemplateMatcher.LEGION_TITLE_HEIGHT,
+                3, 1,
+                this::openLegionRewardTabs,
+                () -> host.failAutomation("军团奖励：军团窗口未打开"));
+    }
+
+    private void openLegionRewardTabs() {
+        host.tap(409, 101,
+                () -> host.tap(978, 178,
+                        () -> host.tap(531, 406,
+                                () -> host.tap(950, 612,
+                                        this::makeGeneralContributions))));
     }
 
     private void makeGeneralContributions() {

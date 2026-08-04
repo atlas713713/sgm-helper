@@ -91,6 +91,22 @@ final class WildernessNavigator {
     }
 
     private void openWildernessFromLegion() {
+        progress("确认军团窗口");
+        host.waitTemplateOrText(
+                WudangTemplateMatcher.Template.LEGION,
+                "军团", true,
+                WudangTemplateMatcher.LEGION_TITLE_LEFT,
+                WudangTemplateMatcher.LEGION_TITLE_TOP,
+                WudangTemplateMatcher.LEGION_TITLE_LEFT
+                        + WudangTemplateMatcher.LEGION_TITLE_WIDTH,
+                WudangTemplateMatcher.LEGION_TITLE_TOP
+                        + WudangTemplateMatcher.LEGION_TITLE_HEIGHT,
+                3, 1,
+                this::openWildernessFromLegionWindow,
+                () -> host.failAutomation("军团窗口未打开"));
+    }
+
+    private void openWildernessFromLegionWindow() {
         progress("进入荒野营地");
         host.tapUi(780, 613,
                         () -> host.tapUi(640, 478,

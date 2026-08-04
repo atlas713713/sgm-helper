@@ -524,8 +524,23 @@ final class BossAutomation {
         progress("打开分流信息");
         host.tap(1215, 705,
                 () -> host.postDelayed(
-                        () -> readCurrentChannel(CHANNEL_OCR_ATTEMPTS, false),
+                        () -> waitForChannelDialog(CHANNEL_OCR_ATTEMPTS, false),
                         CHANNEL_DIALOG_MS));
+    }
+
+    private void waitForChannelDialog(int remainingAttempts, boolean blockerChecked) {
+        host.waitTemplateOrText(
+                WudangTemplateMatcher.Template.LINE_INFO,
+                "分流信息", true,
+                WudangTemplateMatcher.LINE_INFO_LEFT,
+                WudangTemplateMatcher.LINE_INFO_TOP,
+                WudangTemplateMatcher.LINE_INFO_LEFT
+                        + WudangTemplateMatcher.LINE_INFO_WIDTH,
+                WudangTemplateMatcher.LINE_INFO_TOP
+                        + WudangTemplateMatcher.LINE_INFO_HEIGHT,
+                2, 1,
+                () -> readCurrentChannel(remainingAttempts, blockerChecked),
+                () -> readCurrentChannel(remainingAttempts, blockerChecked));
     }
 
     private void readCurrentChannel(int remainingAttempts, boolean blockerChecked) {
@@ -540,12 +555,12 @@ final class BossAutomation {
                     progress("分流读取失败，检查遮挡窗口");
                     host.ensureGameHudVisible(() -> host.tap(1215, 705,
                             () -> host.postDelayed(
-                                    () -> readCurrentChannel(
+                                    () -> waitForChannelDialog(
                                             remainingAttempts - 1, true),
                                     CHANNEL_DIALOG_MS)));
                 } else {
                     progress("未读取到当前分流，重新检测");
-                    host.postDelayed(() -> readCurrentChannel(
+                    host.postDelayed(() -> waitForChannelDialog(
                             remainingAttempts - 1, true), 1_000);
                 }
                 return;

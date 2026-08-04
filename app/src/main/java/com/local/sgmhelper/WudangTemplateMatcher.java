@@ -32,6 +32,10 @@ final class WudangTemplateMatcher {
     static final int LEGION_TITLE_TOP = 27;
     static final int LEGION_TITLE_WIDTH = 150;
     static final int LEGION_TITLE_HEIGHT = 34;
+    static final int LINE_INFO_LEFT = 590;
+    static final int LINE_INFO_TOP = 67;
+    static final int LINE_INFO_WIDTH = 100;
+    static final int LINE_INFO_HEIGHT = 23;
     // RecycleDialog.titleItem from Wudang ScreenAdapterHelper (screenSize == 1).
     static final int YUANBAO_RECYCLE_TITLE_LEFT = 540;
     static final int YUANBAO_RECYCLE_TITLE_TOP = 27;
@@ -98,7 +102,8 @@ final class WudangTemplateMatcher {
         SKILL("技能", new FixedRegion(SKILL_TITLE_LEFT, SKILL_TITLE_TOP,
                 SKILL_TITLE_WIDTH, SKILL_TITLE_HEIGHT), "data/t5.wd", "data/t5_a.wd"),
         INN("客栈", new FixedRegion(580, 28, 120, 35), "data/t6.wd", "data/t6_a.wd"),
-        LINE_INFO("分流信息", new FixedRegion(590, 67, 100, 23), "data/t7.wd", "data/t7_a.wd"),
+        LINE_INFO("分流信息", new FixedRegion(LINE_INFO_LEFT, LINE_INFO_TOP,
+                LINE_INFO_WIDTH, LINE_INFO_HEIGHT), "data/t7.wd", "data/t7_a.wd"),
         LEGION("军团", new FixedRegion(LEGION_TITLE_LEFT, LEGION_TITLE_TOP,
                 LEGION_TITLE_WIDTH, LEGION_TITLE_HEIGHT), "data/t8.wd"),
         FRIEND("好友", new FixedRegion(601, 19, 120, 33), "data/t9.wd", "data/t9_a.wd"),

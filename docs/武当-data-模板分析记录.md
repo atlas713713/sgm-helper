@@ -3,7 +3,7 @@
 本文用于持续记录武当 APK `assets/data` 目录的模板知识，方便后续继续分析、选择 OCR
 替代目标和复查历史结论。本文不表示所有模板都已验证可用于当前游戏画面。
 
-最后更新：2026-08-03。
+最后更新：2026-08-04。
 
 ## 一、证据标记
 
@@ -574,7 +574,8 @@ rg 'TEMPLATE_MATCH.*hit=true' "$LOG_DIR"/*.log
 - `app/src/main/java/com/local/sgmhelper/WudangTemplateMatcher.java`：为 `LEGION` 增加固定 1280×720 title ROI；走彩色 Mat、原尺寸模板和 `TM_CCOEFF_NORMED`；保留其他模板原有灰度/缩放逻辑；`LEGION` 采用严格阈值。
 - `app/src/androidTest/java/com/local/sgmhelper/WudangTemplateMatcherInstrumentedTest.java`：增加原尺寸彩色正/负样本测试，并验证严格阈值。
 - `app/build.gradle`：版本从 `292/0.1.292` 递增到 `299/0.1.299`。
-- `WildernessNavigator` 的正常业务流程尚未切换到新的军团标题 matcher；当前仍保留 OCR/固定流程，因此本次只是受控识别能力验证。
+- `WildernessNavigator` 的正常业务流程已在进入军团菜单后使用 `t8.wd` 确认军团窗口；模板失败
+  时保留 OCR fallback，确认失败则停止后续固定点击，避免误操作其他页面。
 
 ### 17.6 构建和安装结果
 
@@ -1060,3 +1061,24 @@ HUD 误判成主菜单文字。t10 使用的是城内宫殿页面，不是副本
 
 - `t17 战利品`：用户尚未定位到真实页面，继续保留“语义待确认”。
 - `t20 历史战场`：按用户要求暂跳过，不把未测试写成失败。
+
+## 二十八、t7/t8 窗口状态接入（2026-08-04）
+
+### 28.1 t7 分流信息
+
+`BossAutomation` 点击 HUD 分流按钮后，先使用 `Template.LINE_INFO` 在武当原实现的固定 ROI
+`(590,67)-(690,90)` 检查“分流信息”标题；命中后才继续 OCR 大分流窗口中的当前分流数字。
+这样 t7 负责窗口状态，OCR 只负责动态数字，不把标题模板当作分流号识别。
+
+`ChannelSwitchTest` 也使用相同的 t7 检查；如果模板和标题 OCR fallback 都失败，则停止换线测试，
+不再盲点分流列表。
+
+### 28.2 t8 军团
+
+`WildernessNavigator` 点击 `mjt.wd` 军团入口后，先用 `Template.LEGION` 在
+`(570,27)-(720,61)` 检查军团窗口标题；命中后才点击荒野相关按钮。定时军团奖励流程在打开
+军团入口后也使用同一个 t8 检查。
+
+`mjt.wd` 仍然只代表菜单里的军团入口，`t8.wd` 代表已经打开的军团窗口，两者不能互相替代。
+模板失败时允许一次标题 OCR fallback；仍失败就停止该子流程，避免在 HUD 或其他窗口上继续执行
+固定坐标点击。
