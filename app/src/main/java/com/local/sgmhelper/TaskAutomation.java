@@ -1004,12 +1004,12 @@ final class TaskAutomation {
         host.showProgress("自动军务：" + questName + "材料已满，快速抵达");
         Runnable afterArrival = () -> {
             host.showProgress("自动军务：点击自动寻路");
-            host.clickTemplateOrText(WudangTemplateMatcher.Template.AUTO_PATH,
+            host.clickTemplateOrTextFast(WudangTemplateMatcher.Template.AUTO_PATH,
                     "自动寻路", false,
                     AUTO_PATH_LEFT, AUTO_PATH_TOP,
                     AUTO_PATH_RIGHT, AUTO_PATH_BOTTOM,
                     leaveCompletedQuest(questName, completed),
-                    2, SCREEN_WAIT_RETRY_COUNT, null);
+                    1, SCREEN_WAIT_RETRY_COUNT, null);
         };
         host.postDelayed(
                 () -> host.clickQuickArrival(afterArrival),
@@ -1081,7 +1081,7 @@ final class TaskAutomation {
     private void finishWildernessArrival(String questName, Runnable completed) {
         Runnable waitForDialogue = leaveCompletedQuest(questName, completed);
         host.showProgress("自动军务：检测是否出现自动寻路");
-        host.clickTemplateOrText(WudangTemplateMatcher.Template.AUTO_PATH,
+        host.clickTemplateOrTextFast(WudangTemplateMatcher.Template.AUTO_PATH,
                 "自动寻路", false,
                 AUTO_PATH_LEFT, AUTO_PATH_TOP,
                 AUTO_PATH_RIGHT, AUTO_PATH_BOTTOM,
@@ -1089,7 +1089,7 @@ final class TaskAutomation {
                     host.showProgress("自动军务：已点击自动寻路，等待对话");
                     waitForDialogue.run();
                 },
-                2, TEXT_RETRY_COUNT,
+                1, TEXT_RETRY_COUNT,
                 () -> {
                     host.showProgress("自动军务：未出现自动寻路，直接等待对话");
                     waitForDialogue.run();

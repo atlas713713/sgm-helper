@@ -2184,7 +2184,13 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private void closeAutoPathPanelIfNeeded(Runnable next) {
-        closeAutoPathPanelIfNeeded(next, TEXT_RETRY_COUNT);
+        matchAutoPathAnchor(match -> {
+            if (match != null && match.found()) {
+                next.run();
+            } else {
+                closeAutoPathPanelIfNeeded(next, TEXT_RETRY_COUNT);
+            }
+        }, () -> closeAutoPathPanelIfNeeded(next, TEXT_RETRY_COUNT));
     }
 
     private void closeAutoPathPanelIfNeeded(Runnable next, int remainingAttempts) {
@@ -2213,12 +2219,54 @@ public final class HelperAccessibilityService extends AccessibilityService
         closeAutoPathPanelIfNeeded(next);
     }
 
+    private void matchAutoPathAnchor(
+            Consumer<WudangTemplateMatcher.Match> result, Runnable onError) {
+        matchTemplates(new WudangTemplateMatcher.Template[] {
+                        WudangTemplateMatcher.Template.AUTO_PATH
+                },
+                WudangTemplateMatcher.AUTO_PATH_LEFT,
+                WudangTemplateMatcher.AUTO_PATH_TOP,
+                WudangTemplateMatcher.AUTO_PATH_LEFT
+                        + WudangTemplateMatcher.AUTO_PATH_WIDTH,
+                WudangTemplateMatcher.AUTO_PATH_TOP
+                        + WudangTemplateMatcher.AUTO_PATH_HEIGHT,
+                matches -> {
+                    result.accept(matches.get(WudangTemplateMatcher.Template.AUTO_PATH));
+                },
+                error -> onError.run());
+    }
+
     @Override
     public void openAutoPathPanel(Runnable next) {
         showProgress("打开自动寻路栏");
-        performTap(1150, 500,
+        matchAutoPathAnchor(match -> {
+            if (match != null && match.found()) {
+                performTap(match.centerX(), match.centerY(),
+                        () -> waitForAutoPathPanelTemplate(next, 3),
+                        200);
+            } else {
+                performTap(1150, 500,
+                        () -> waitForAutoPathPanel(next, TEXT_RETRY_COUNT),
+                        UI_DELAY_MS);
+            }
+        }, () -> performTap(1150, 500,
                 () -> waitForAutoPathPanel(next, TEXT_RETRY_COUNT),
-                UI_DELAY_MS);
+                UI_DELAY_MS));
+    }
+
+    private void waitForAutoPathPanelTemplate(Runnable next, int remainingAttempts) {
+        matchAutoPathAnchor(match -> {
+                    if (match == null || !match.found()) {
+                        DiagnosticLog.info("AUTO_PATH",
+                                "panel_open source=g04_absent");
+                        next.run();
+                    } else if (remainingAttempts > 1) {
+                        postDelayed(() -> waitForAutoPathPanelTemplate(
+                                next, remainingAttempts - 1), 200);
+                    } else {
+                        waitForAutoPathPanel(next, TEXT_RETRY_COUNT);
+                    }
+                }, () -> waitForAutoPathPanel(next, TEXT_RETRY_COUNT));
     }
 
     private void waitForAutoPathPanel(Runnable next, int remainingAttempts) {

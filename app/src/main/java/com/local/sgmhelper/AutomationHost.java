@@ -135,6 +135,26 @@ interface AutomationHost {
             int left, int top, int right, int bottom,
             Runnable next, int templateAttempts, int ocrAttempts,
             Runnable ifMissing) {
+        clickTemplateOrText(template, fallbackText, exact,
+                left, top, right, bottom, next,
+                templateAttempts, ocrAttempts, ifMissing, false);
+    }
+
+    default void clickTemplateOrTextFast(WudangTemplateMatcher.Template template,
+            String fallbackText, boolean exact,
+            int left, int top, int right, int bottom,
+            Runnable next, int templateAttempts, int ocrAttempts,
+            Runnable ifMissing) {
+        clickTemplateOrText(template, fallbackText, exact,
+                left, top, right, bottom, next,
+                templateAttempts, ocrAttempts, ifMissing, true);
+    }
+
+    default void clickTemplateOrText(WudangTemplateMatcher.Template template,
+            String fallbackText, boolean exact,
+            int left, int top, int right, int bottom,
+            Runnable next, int templateAttempts, int ocrAttempts,
+            Runnable ifMissing, boolean fastTap) {
         if (!isAutomationRunning()) {
             return;
         }
@@ -153,11 +173,15 @@ interface AutomationHost {
                 templateLeft, templateTop, templateRight, templateBottom, matches -> {
                     WudangTemplateMatcher.Match match = matches.get(template);
                     if (match != null && match.found()) {
-                        tap(match.centerX(), match.centerY(), next);
+                        if (fastTap) {
+                            tapFast(match.centerX(), match.centerY(), next);
+                        } else {
+                            tap(match.centerX(), match.centerY(), next);
+                        }
                     } else if (templateAttempts > 1) {
                         postDelayed(() -> clickTemplateOrText(template, fallbackText, exact,
                                 left, top, right, bottom, next,
-                                templateAttempts - 1, ocrAttempts, ifMissing), 500);
+                                templateAttempts - 1, ocrAttempts, ifMissing, fastTap), 500);
                     } else {
                         DiagnosticLog.info("TEMPLATE_FALLBACK",
                                 "name=" + template.label + " source=ocr");
@@ -168,7 +192,7 @@ interface AutomationHost {
                     if (templateAttempts > 1) {
                         postDelayed(() -> clickTemplateOrText(template, fallbackText, exact,
                                 left, top, right, bottom, next,
-                                templateAttempts - 1, ocrAttempts, ifMissing), 500);
+                                templateAttempts - 1, ocrAttempts, ifMissing, fastTap), 500);
                     } else {
                         DiagnosticLog.info("TEMPLATE_FALLBACK",
                                 "name=" + template.label + " source=ocr error="

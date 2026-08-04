@@ -657,6 +657,14 @@ rg 'TEMPLATE_MATCH.*hit=true' "$LOG_DIR"/*.log
 3. 在主 HUD 和打开寻路面板两种状态各采集一次 `TEMPLATE_MATCH`，核对 ROI、score、hit、elapsedMs。
 4. 只有设备端通过后，才继续检查 `g04` 是否能替代自动寻路相关 OCR；不要先删除 OCR fallback。
 
+### 18.7 g04 快速路径优化
+
+- `HelperAccessibilityService.openAutoPathPanel()` 现在先在固定 `(1114,479)-(1146,511)` ROI 查找 `g04.wd`，命中后点击模板中心；匹配失败才回退旧的 `(1150,500)` 点击和 OCR 确认。
+- 打开后的确认先检查 `g04` 是否从 ROI 消失；通常一次彩色模板截图即可继续，连续未消失才回退原来的自动寻路面板 OCR。
+- `closeAutoPathPanel()` 在面板已关闭时也先用 `g04` 命中直接通过，避免每次先做整块 OCR。
+- `TaskAutomation` 的两个可选自动寻路点击改用快速点击回调（约 200ms），普通模板路径和 OCR fallback 不变。
+- 本次只修改识别/等待路径，未 build、未 bump、未安装；设备端耗时和误判仍需在 5745 上补测。
+
 ## 十九、`mjt.wd` 军团菜单入口记录
 
 ### 19.1 原始语义和布局
