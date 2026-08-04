@@ -91,6 +91,13 @@ final class WudangTemplateMatcher {
     static final int WEB_CLOSE_ASIA3_TOP = 51;
     static final int WEB_CLOSE_ASIA3_WIDTH = 34;
     static final int WEB_CLOSE_ASIA3_HEIGHT = 34;
+    // AsiaLoginPage.switchLogin from the original Wudang 1280x720 layout.
+    // The l1/l2 glyphs are smaller than this ItemView; matching searches the
+    // original-size glyph inside this exact, fixed color ROI.
+    static final int LOGIN_SWITCH_LEFT = 550;
+    static final int LOGIN_SWITCH_TOP = 482;
+    static final int LOGIN_SWITCH_WIDTH = 180;
+    static final int LOGIN_SWITCH_HEIGHT = 50;
 
     static final class FixedRegion {
         final int left;
@@ -144,6 +151,10 @@ final class WudangTemplateMatcher {
         WEB_VIEW_CLOSE_ASIA3("网页关闭样式3", new FixedRegion(WEB_CLOSE_ASIA3_LEFT,
                 WEB_CLOSE_ASIA3_TOP, WEB_CLOSE_ASIA3_WIDTH, WEB_CLOSE_ASIA3_HEIGHT),
                 "data/gg4.wd"),
+        LOGIN_QUICK("快捷登录", new FixedRegion(LOGIN_SWITCH_LEFT, LOGIN_SWITCH_TOP,
+                LOGIN_SWITCH_WIDTH, LOGIN_SWITCH_HEIGHT), "data/l1.wd"),
+        LOGIN_ACCOUNT("账号登录", new FixedRegion(LOGIN_SWITCH_LEFT, LOGIN_SWITCH_TOP,
+                LOGIN_SWITCH_WIDTH, LOGIN_SWITCH_HEIGHT), "data/l2.wd"),
         PALACE("宫殿", new FixedRegion(590, 30, 100, 33), "data/t10.wd", "data/t10_a.wd"),
         DUNGEON("副本", new FixedRegion(600, 27, 80, 38), "data/t11.wd", "data/t11_a.wd"),
         REFINE("炼造", new FixedRegion(600, 28, 80, 36), "data/t12.wd", "data/t12_a.wd"),

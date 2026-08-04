@@ -25,6 +25,42 @@ final class LoginAutomation {
 
     private void inspectScreen(Runnable next, int attempts) {
         host.showProgress("登录：检查游戏画面");
+        detectLoginMode(next, attempts);
+    }
+
+    /**
+     * The original Wudang implementation identifies the two login-mode labels
+     * in AsiaLoginPage.switchLogin before doing any wider screen analysis.
+     * Keep OCR as the fallback for announcements, start-game and post-login
+     * dialogs, but avoid Paddle OCR for the common login-mode transition.
+     */
+    private void detectLoginMode(Runnable next, int attempts) {
+        host.matchTemplates(new WudangTemplateMatcher.Template[] {
+                        WudangTemplateMatcher.Template.LOGIN_QUICK,
+                        WudangTemplateMatcher.Template.LOGIN_ACCOUNT
+                },
+                WudangTemplateMatcher.LOGIN_SWITCH_LEFT,
+                WudangTemplateMatcher.LOGIN_SWITCH_TOP,
+                WudangTemplateMatcher.LOGIN_SWITCH_LEFT
+                        + WudangTemplateMatcher.LOGIN_SWITCH_WIDTH,
+                WudangTemplateMatcher.LOGIN_SWITCH_TOP
+                        + WudangTemplateMatcher.LOGIN_SWITCH_HEIGHT,
+                matches -> {
+                    WudangTemplateMatcher.Match quick = matches.get(
+                            WudangTemplateMatcher.Template.LOGIN_QUICK);
+                    WudangTemplateMatcher.Match account = matches.get(
+                            WudangTemplateMatcher.Template.LOGIN_ACCOUNT);
+                    if (quick != null && quick.found()) {
+                        openAccountLogin(next);
+                    } else if (account != null && account.found()) {
+                        enterCredentials(next);
+                    } else {
+                        inspectScreenWithOcr(next, attempts);
+                    }
+                }, error -> inspectScreenWithOcr(next, attempts));
+    }
+
+    private void inspectScreenWithOcr(Runnable next, int attempts) {
         host.recognizeText(text -> {
             List<String> values = lines(text);
             if (ScreenGuard.blockerFor(values) != ScreenGuard.Blocker.NONE) {
