@@ -113,7 +113,8 @@ final class WudangTemplateMatcher {
         BANK("钱庄", new FixedRegion(580, 16, 120, 40), "data/t16.wd", "data/t16_a.wd"),
         LOOT("战利品", new FixedRegion(600, 114, 80, 20), "data/t17.wd", "data/t17_a.wd"),
         WAR("战役", new FixedRegion(560, 27, 160, 40), "data/t18.wd", "data/t18_a.wd"),
-        JIANG_YUAN("名将挑战", new FixedRegion(570, 27, 140, 34), "data/t19.wd", "data/t19_a.wd"),
+        // LegionDialog.challengeDialogTitleArea, non-Asia branch (5745/gameServerType=2).
+        JIANG_YUAN("名将挑战", new FixedRegion(570, 25, 160, 37), "data/t19.wd", "data/t19_a.wd"),
         HISTORIC_WAR("历史战场", new FixedRegion(560, 27, 160, 40), "data/t20.wd", "data/t20_a.wd"),
         QIANLI("千里单骑", new FixedRegion(560, 26, 160, 40), "data/t21.wd", "data/t21_a.wd"),
         ONE_CLICK_CLAIM("一键领取", "data/bf2.wd", "data/bf2_a.wd"),
