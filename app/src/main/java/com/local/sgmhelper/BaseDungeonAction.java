@@ -69,6 +69,32 @@ abstract class BaseDungeonAction {
         return 599;
     }
 
+    /**
+     * 武当 DungeonUtil.m15120v：副本营地里的行脚商队坐标（mapType=199）。
+     * 副本清理应直接在营地找这个 NPC，不应再绕回主城客栈。
+     */
+    static int[] gearMerchantPoint(int level, int dungeonType) {
+        switch (level) {
+            case 60:
+                return new int[] {109, 26};
+            case 70:
+                return new int[] {110, 26};
+            case 75:
+                return dungeonType == 2
+                        ? new int[] {115, 21}
+                        : new int[] {106, 24};
+            case 80:
+            case 90:
+                return new int[] {110, 21};
+            case 105:
+            case 120:
+            case 135:
+                return new int[] {106, 24};
+            default:
+                return new int[] {107, 26};
+        }
+    }
+
     /** 副本内交互 NPC 的名字；返回 null 表示按按钮文字点行。 */
     String interactionNpcName() {
         if (level() >= 80) {

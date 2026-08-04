@@ -92,6 +92,11 @@
     <string name="dungeon_start_sweep">开始扫荡</string>
     <string name="dungeon_start_battle">开始一般副本</string>
     <string name="dungeon_start_elite">开始精英副本</string>
+    <string name="dungeon_gear_handle_section">副本完成后的背包处理（武当逻辑）</string>
+    <string name="dungeon_gear_handle_count">普通副本完成几次后处理：</string>
+    <string name="dungeon_pro_gear_handle_count">精英副本完成几次后处理：</string>
+    <string name="dungeon_run_count_section">每个已选副本的执行次数（武当逻辑，默认3次）</string>
+    <string name="dungeon_run_count_suffix">次</string>
     <string name="timer_task_time">%1$s %2$02d:%3$02d</string>
     <string name="timer_task_unset">%1$s 未设置</string>
     <string name="timer_run_now">立即执行</string>

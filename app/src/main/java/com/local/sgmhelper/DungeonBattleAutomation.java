@@ -62,6 +62,10 @@ final class DungeonBattleAutomation {
     /** 一次寻路移动预算，到点还没找到目标就重新读坐标推进下一段。 */
     private static final long MOVE_DURATION_MS = 4_000;
 
+    /** 武当每个已选副本的默认执行次数；次数保存在每个副本条目上。 */
+    static final int DEFAULT_DUNGEON_RUN_COUNT = 3;
+    static final int MAX_DUNGEON_RUN_COUNT = 20;
+
     private final AutomationHost host;
     private List<BaseDungeonAction> selectedDungeons = Collections.emptyList();
     private int currentIndex;
@@ -69,6 +73,11 @@ final class DungeonBattleAutomation {
     private int samePositionCount;
     private int routeChecks;
     private int noCountAttempts;
+    private int completedSinceGearHandle;
+    private int dungeonGearHandleCount = 1;
+    private int completedRunsForCurrentDungeon;
+    private int dungeonRunCount = DEFAULT_DUNGEON_RUN_COUNT;
+    private boolean eliteMode;
     private boolean resumePrimaryTask;
 
     DungeonBattleAutomation(AutomationHost host) {
@@ -106,6 +115,7 @@ final class DungeonBattleAutomation {
             }
         }
         selectedDungeons = dungeons;
+        eliteMode = elite;
         resumePrimaryTask = false;
         host.startPrimaryAutomation(
                 AutomationHost.PrimaryTask.DUNGEON, "实战副本：打开游戏", this::begin);
@@ -128,6 +138,7 @@ final class DungeonBattleAutomation {
             return;
         }
         selectedDungeons = dungeons;
+        eliteMode = false;
         resumePrimaryTask = true;
         host.startAutomation("定时一般副本：打开游戏", this::begin);
     }
@@ -138,6 +149,30 @@ final class DungeonBattleAutomation {
 
     private void beginAfterInventoryCheck() {
         currentIndex = 0;
+        noCountAttempts = 0;
+        completedSinceGearHandle = 0;
+        completedRunsForCurrentDungeon = 0;
+        dungeonGearHandleCount = normalizeDungeonGearHandleCount(
+                host.dungeonGearHandleCount(eliteMode));
+        beginCurrentDungeonRun();
+    }
+
+    /**
+     * Wudang creates a fresh dungeon action for each selected item execution. Do
+     * the same here so route flags (for example 30/60/120 level part flags) do
+     * not survive into the next run of the same level.
+     */
+    private void beginCurrentDungeonRun() {
+        BaseDungeonAction previous = currentDungeon();
+        int level = previous.level();
+        selectedDungeons.set(currentIndex, eliteMode
+                ? BaseDungeonAction.forElite(level)
+                : BaseDungeonAction.forLevel(level));
+        dungeonRunCount = normalizeDungeonRunCount(
+                host.dungeonRunCount(eliteMode, level));
+        lastX = -1;
+        samePositionCount = 0;
+        routeChecks = 0;
         noCountAttempts = 0;
         returnHomeForDungeon();
     }
@@ -330,7 +365,8 @@ final class DungeonBattleAutomation {
                     host.showProgress(dungeonTitle() + "：没有副本次数"
                             + (noCountAttempts == 1 ? "，重新确认一次" : "，跳过"));
                     host.tap(npcOptionX(4), npcOptionY(4), () -> host.postDelayed(
-                            noCountAttempts == 1 ? this::gotoEntryNpc : this::finishCurrent,
+                            noCountAttempts == 1
+                                    ? this::gotoEntryNpc : () -> finishCurrent(false),
                             1_000));
                 });
     }
@@ -462,6 +498,10 @@ final class DungeonBattleAutomation {
     }
 
     private void findEnemy(RouteDecision decision) {
+        if (decision.isBossOnly()) {
+            findDungeonBoss(decision);
+            return;
+        }
         if (usesRedBoss()) {
             findRedBoss(decision);
             return;
@@ -484,6 +524,18 @@ final class DungeonBattleAutomation {
             host.tap(enemy.bounds.centerX(), enemy.bounds.centerY(),
                     () -> host.ensureAutoAttackEnabled(
                             () -> host.postDelayed(this::inspectPosition, FIGHT_CHECK_MS)));
+        });
+    }
+
+    /** 武当 FindDungeonBossAction：只点引路列表里的红名目标，不把普通敌人当王。 */
+    private void findDungeonBoss(RouteDecision decision) {
+        host.showProgress(dungeonTitle() + "：搜索副本 BOSS");
+        host.recognizeRedBoss(boss -> {
+            if (boss == null) {
+                move(decision);
+            } else {
+                attackRedBoss(boss);
+            }
         });
     }
 
@@ -576,7 +628,7 @@ final class DungeonBattleAutomation {
     private void claimReward() {
         host.showProgress(dungeonTitle() + "：离开并领取奖励");
         talkToNpc(currentDungeon().exitNpcName(), currentDungeon().exitNpcButtons(),
-                currentDungeon().exitNpcRows(), this::finishCurrent);
+                currentDungeon().exitNpcRows(), () -> finishCurrent(true));
     }
 
     /** 复刻武当按按钮文字点行：OCR 四个选项框，命中哪一行就点哪一行。 */
@@ -607,20 +659,61 @@ final class DungeonBattleAutomation {
                 });
     }
 
-    private void finishCurrent() {
+    private void finishCurrent(boolean completed) {
         // 和武当的 needGearHandle 一样，副本中只挂起背包事件；离开副本、领完奖励后
-        // 才消费它，避免打到一半回城破坏当前副本。
-        if (host.handlePendingGear(this::finishCurrentAfterGearHandle)) {
+        // 才消费它，避免打到一半回城破坏当前副本。最后一场也做一次收尾，避免
+        // 选中的副本数量小于间隔时把刚领到的装备留在背包里。
+        if (completed) {
+            completedSinceGearHandle++;
+            completedRunsForCurrentDungeon++;
+        }
+        final boolean repeatCurrent = completed && shouldRepeatDungeon(
+                completedRunsForCurrentDungeon, dungeonRunCount);
+        // A selected level is not the final item until all of its configured
+        // runs are complete. This keeps the Wudang gear cleanup from firing at
+        // the end of every repeat of the last selected level.
+        boolean finalDungeon = !repeatCurrent
+                && currentIndex + 1 >= selectedDungeons.size();
+        boolean due = completed && (finalDungeon
+                || shouldHandleDungeonGear(completedSinceGearHandle, dungeonGearHandleCount));
+        if (host.handleDungeonGear(due, currentDungeon().level(),
+                currentDungeon().dungeonType(), () -> {
+            completedSinceGearHandle = 0;
+            finishCurrentAfterGearHandle(repeatCurrent);
+        })) {
             return;
         }
-        finishCurrentAfterGearHandle();
+        finishCurrentAfterGearHandle(repeatCurrent);
     }
 
-    private void finishCurrentAfterGearHandle() {
+    static int normalizeDungeonRunCount(int count) {
+        return count >= 1 && count <= MAX_DUNGEON_RUN_COUNT
+                ? count : DEFAULT_DUNGEON_RUN_COUNT;
+    }
+
+    static boolean shouldRepeatDungeon(int completedRuns, int targetRuns) {
+        return completedRuns < normalizeDungeonRunCount(targetRuns);
+    }
+
+    static int normalizeDungeonGearHandleCount(int count) {
+        return count >= 1 && count <= 20 ? count : 1;
+    }
+
+    static boolean shouldHandleDungeonGear(int completedCount, int interval) {
+        return completedCount >= normalizeDungeonGearHandleCount(interval);
+    }
+
+    private void finishCurrentAfterGearHandle(boolean repeatCurrent) {
+        if (repeatCurrent) {
+            host.showProgress(dungeonTitle() + "：第 " + completedRunsForCurrentDungeon
+                    + "/" + dungeonRunCount + " 次完成，继续当前副本");
+            host.postDelayed(this::beginCurrentDungeonRun, MAP_WAIT_MS);
+            return;
+        }
         currentIndex++;
-        noCountAttempts = 0;
+        completedRunsForCurrentDungeon = 0;
         if (currentIndex < selectedDungeons.size()) {
-            host.postDelayed(this::returnHomeForDungeon, MAP_WAIT_MS);
+            host.postDelayed(this::beginCurrentDungeonRun, MAP_WAIT_MS);
         } else if (resumePrimaryTask) {
             host.showProgress("定时一般副本已完成");
             host.postDelayed(host::resumePrimaryTask, MAP_WAIT_MS);
@@ -935,6 +1028,18 @@ final class DungeonBattleAutomation {
                     List.of(levels), Collections.emptyList(), null, false, 0, points);
         }
 
+        static RouteDecision searchBoss(int x, int y, int unstuckX) {
+            return new RouteDecision(x, y, unstuckX, true, false, false, null, false,
+                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
+                    new int[0][]);
+        }
+
+        static RouteDecision searchBossRoute(int[][] points) {
+            int[] first = points[0];
+            return new RouteDecision(first[0], first[1], 0, true, false, false, null, false,
+                    Collections.emptyList(), Collections.emptyList(), null, false, 0, points);
+        }
+
         static RouteDecision searchNamed(int x, int y, int unstuckX,
                 List<String> priorityNames, String protectName) {
             return new RouteDecision(x, y, unstuckX, true, false, false, null, false,
@@ -991,7 +1096,14 @@ final class DungeonBattleAutomation {
                     new int[0][]);
         }
 
+        boolean isBossOnly() {
+            return searchEnemies && enemyLevels.isEmpty() && priorityEnemyNames.isEmpty();
+        }
+
         String enemyDescription() {
+            if (isBossOnly()) {
+                return "副本 BOSS";
+            }
             if (!priorityEnemyNames.isEmpty()) {
                 return priorityEnemyNames.toString();
             }

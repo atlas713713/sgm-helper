@@ -59,6 +59,46 @@ interface AutomationHost {
 
     boolean handlePendingGear(Runnable afterHandled);
 
+    /**
+     * Returns the Wudang-compatible post-dungeon cleanup interval. Normal and elite
+     * dungeons keep separate counters in the original settings.
+     */
+    default int dungeonGearHandleCount(boolean elite) {
+        return 1;
+    }
+
+    /**
+     * Returns the Wudang-compatible number of battle runs for one selected level.
+     * The original stores this as the value of each selected dungeon item rather
+     * than as one global counter.
+     */
+    default int dungeonRunCount(boolean elite, int level) {
+        return DungeonBattleAutomation.DEFAULT_DUNGEON_RUN_COUNT;
+    }
+
+    /** Returns the Wudang-compatible number of sweep runs for one selected level. */
+    default int dungeonSweepRunCount(int level) {
+        return DungeonBattleAutomation.DEFAULT_DUNGEON_RUN_COUNT;
+    }
+
+    /**
+     * Handles a pending or scheduled dungeon inventory cleanup. When {@code force}
+     * is false, only an already-pending inventory event is consumed.
+     */
+    default boolean handleDungeonGear(boolean force, Runnable afterHandled) {
+        return false;
+    }
+
+    /**
+     * Handles dungeon gear while keeping the player at the dungeon camp merchant.
+     * Implementations that do not support the local merchant may fall back to the
+     * legacy overload, but must not infer a town route from this call.
+     */
+    default boolean handleDungeonGear(boolean force, int dungeonLevel, int dungeonType,
+            Runnable afterHandled) {
+        return handleDungeonGear(force, afterHandled);
+    }
+
     void postDelayed(Runnable action, long delayMillis);
 
     String formatTime(long value);

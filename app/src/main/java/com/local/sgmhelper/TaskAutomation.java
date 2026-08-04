@@ -21,7 +21,6 @@ final class TaskAutomation {
     private static final int SUPPLY_PROGRESS_CHECK_MS = 3 * 60 * 1000;
     private static final int TEXT_RETRY_COUNT = 5;
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
-    private static final int TASK_START_CONFIRM_RETRY_COUNT = 4;
     private static final int SUPPLY_CLICK_RETRY_COUNT = 3;
     private static final int MILITARY_TEXT_LEFT = 80;
     private static final int MILITARY_TEXT_TOP = 70;
@@ -49,10 +48,6 @@ final class TaskAutomation {
     private static final int NPC_DIALOG_TOP = 235;
     private static final int NPC_DIALOG_RIGHT = 415;
     private static final int NPC_DIALOG_BOTTOM = 680;
-    private static final int TASK_CONFIRM_LEFT = 560;
-    private static final int TASK_CONFIRM_TOP = 430;
-    private static final int TASK_CONFIRM_RIGHT = 760;
-    private static final int TASK_CONFIRM_BOTTOM = 535;
     private static final int AUTO_PATH_LEFT = 400;
     private static final int AUTO_PATH_TOP = 150;
     private static final int AUTO_PATH_RIGHT = 800;
@@ -799,59 +794,29 @@ final class TaskAutomation {
     }
 
     private void clickMilitaryQuest() {
-        clickMilitaryQuest(2);
-    }
-
-    private void clickMilitaryQuest(int remainingClickAttempts) {
         host.showProgress("自动军务：点击右侧任务");
         if (militaryZone == null) {
             host.failAutomation("未读取到巡狩军团荒野区号");
             return;
         }
         clickMilitaryRightTaskText("巡狩军团荒野",
-                () -> confirmMilitaryQuestStarted(
-                        remainingClickAttempts, TASK_START_CONFIRM_RETRY_COUNT),
+                this::continueAfterMilitaryQuestTap,
                 SCREEN_WAIT_RETRY_COUNT,
                 () -> host.failAutomation("荒野加载完成后未找到右侧巡狩任务"));
     }
 
-    private void confirmMilitaryQuestStarted(
-            int remainingClickAttempts, int remainingConfirmAttempts) {
-        host.recognizeTextRegion(
-                TASK_CONFIRM_LEFT, TASK_CONFIRM_TOP,
-                TASK_CONFIRM_RIGHT, TASK_CONFIRM_BOTTOM, text -> {
-            if (!host.isAutomationRunning()) {
-                return;
-            }
-            if (hasTaskExecutionSignal(screenLines(text))) {
-                host.showProgress("自动军务：已确认巡狩任务开始");
-                host.closeAutoPathPanel(() -> scheduleMilitaryQuestCheck(
-                        "巡狩军团荒野", this::recheckAvailableMilitaryQuests));
-            } else if (remainingConfirmAttempts > 1) {
-                host.postDelayed(
-                        () -> confirmMilitaryQuestStarted(
-                                remainingClickAttempts, remainingConfirmAttempts - 1),
-                        300);
-            } else if (remainingClickAttempts > 1) {
-                host.showProgress("自动军务：未确认任务开始，重新点击");
-                clickMilitaryQuest(remainingClickAttempts - 1);
-            } else {
-                host.failAutomation("点击巡狩任务后未出现“执行任务”");
-            }
-        });
+    /**
+     * 武当点中右侧军务后不 OCR “执行任务”。战斗可能直接开始，下一次
+     * 固定 ROI 的任务进度检查才负责判断进行中/完成，避免把活动任务误判成失败。
+     */
+    private void continueAfterMilitaryQuestTap() {
+        host.showProgress("自动军务：已点击巡狩任务，按固定状态继续");
+        host.closeAutoPathPanel(() -> scheduleMilitaryQuestCheck(
+                "巡狩军团荒野", this::recheckAvailableMilitaryQuests));
     }
 
     static boolean isWildernessTrainingMapName(String value) {
         return WildernessNavigator.isWildernessMapName(value);
-    }
-
-    static boolean hasTaskExecutionSignal(List<String> values) {
-        for (String value : values) {
-            if (normalizeText(value).contains("执行任务")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void finishMilitaryAndStartTraining() {

@@ -20,6 +20,8 @@ final class DungeonSweepAutomation {
     private final AutomationHost host;
     private List<Integer> selectedLevels = new ArrayList<>();
     private int currentIndex;
+    private int completedRunsForCurrentLevel;
+    private int sweepRunCount = DungeonBattleAutomation.DEFAULT_DUNGEON_RUN_COUNT;
     private boolean resumePrimaryTask;
 
     DungeonSweepAutomation(AutomationHost host) {
@@ -55,6 +57,8 @@ final class DungeonSweepAutomation {
 
     private void begin() {
         currentIndex = 0;
+        completedRunsForCurrentLevel = 0;
+        sweepRunCount = currentSweepRunCount();
         host.tap(1215, 58, this::resetGameMenu);
     }
 
@@ -108,8 +112,19 @@ final class DungeonSweepAutomation {
     private void confirmCurrentSweep() {
         host.showProgress("扫荡副本：确认奖励");
         host.tap(645, 700, () -> {
+            completedRunsForCurrentLevel++;
+            if (DungeonBattleAutomation.shouldRepeatDungeon(
+                    completedRunsForCurrentLevel, sweepRunCount)) {
+                host.showProgress("扫荡副本：" + selectedLevels.get(currentIndex)
+                        + " 级已完成 " + completedRunsForCurrentLevel + "/"
+                        + sweepRunCount + " 次，继续");
+                findCurrentLevel(MAX_SCROLL_ATTEMPTS);
+                return;
+            }
             currentIndex++;
             if (currentIndex < selectedLevels.size()) {
+                completedRunsForCurrentLevel = 0;
+                sweepRunCount = currentSweepRunCount();
                 findCurrentLevel(MAX_SCROLL_ATTEMPTS);
             } else {
                 host.showProgress("扫荡副本：关闭副本窗口");
@@ -136,6 +151,11 @@ final class DungeonSweepAutomation {
             }
         }
         return null;
+    }
+
+    private int currentSweepRunCount() {
+        return DungeonBattleAutomation.normalizeDungeonRunCount(
+                host.dungeonSweepRunCount(selectedLevels.get(currentIndex)));
     }
 
     static int parseLevel(String value) {

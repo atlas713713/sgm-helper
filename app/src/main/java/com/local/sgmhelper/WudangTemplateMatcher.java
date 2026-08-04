@@ -138,7 +138,11 @@ final class WudangTemplateMatcher {
                 SHOP_TITLE_WIDTH, SHOP_TITLE_HEIGHT), "data/t3.wd", "data/t3_a.wd"),
         MILITARY_CAMP("军营", new FixedRegion(MILITARY_CAMP_TITLE_LEFT,
                 MILITARY_CAMP_TITLE_TOP, MILITARY_CAMP_TITLE_WIDTH,
-                MILITARY_CAMP_TITLE_HEIGHT), "data/t4.wd", "data/t4_a.wd"),
+                MILITARY_CAMP_TITLE_HEIGHT), "data/t4.wd", "data/t4_a.wd",
+                // 5755 uses the same 1280x720 ROI but a different title-bar
+                // raster; keep the original assets and add the real-device
+                // positive sample instead of lowering the shared threshold.
+                "data/t4_5755.wd"),
         SKILL("技能", new FixedRegion(SKILL_TITLE_LEFT, SKILL_TITLE_TOP,
                 SKILL_TITLE_WIDTH, SKILL_TITLE_HEIGHT), "data/t5.wd", "data/t5_a.wd"),
         INN("客栈", new FixedRegion(580, 28, 120, 35), "data/t6.wd", "data/t6_a.wd"),

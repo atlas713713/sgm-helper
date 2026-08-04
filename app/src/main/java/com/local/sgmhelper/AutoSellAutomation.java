@@ -11,17 +11,40 @@ final class AutoSellAutomation {
     private static final int INN_TITLE_TOP = 0;
     private static final int INN_TITLE_RIGHT = 880;
     private static final int INN_TITLE_BOTTOM = 100;
+    // Wudang's DungeonUtil.m15120v uses the type-199 camp map for the nearby
+    // 行脚商队. These are the same map bounds used by the dungeon entry camp.
+    private static final int DUNGEON_CAMP_MAP_MAX_X = 199;
+    private static final int DUNGEON_MERCHANT_NPC_X = 1208;
+    private static final int DUNGEON_MERCHANT_NPC_Y = 410;
+    private static final int DUNGEON_MERCHANT_OPTION_X = 176;
+    private static final int DUNGEON_MERCHANT_OPTION_Y = 636;
+    private static final int MERCHANT_TITLE_LEFT = 120;
+    private static final int MERCHANT_TITLE_TOP = 195;
+    private static final int MERCHANT_TITLE_RIGHT = 390;
+    private static final int MERCHANT_TITLE_BOTTOM = 245;
     private static final Pattern CAPACITY = Pattern.compile(
             "(\\d{1,3})\\s*[/／]\\s*(\\d{1,3})");
 
     private final AutomationHost host;
+    private boolean dungeonMerchantMode;
+    private int dungeonMerchantX;
+    private int dungeonMerchantY;
 
     AutoSellAutomation(AutomationHost host) {
         this.host = host;
     }
 
     void runInline(Runnable next) {
+        dungeonMerchantMode = false;
         host.showProgress("Auto sell: starting");
+        recycleYuanbao(next, true);
+    }
+
+    void runInlineAtDungeonMerchant(int merchantX, int merchantY, Runnable next) {
+        dungeonMerchantMode = true;
+        dungeonMerchantX = merchantX;
+        dungeonMerchantY = merchantY;
+        host.showProgress("Auto sell: starting at dungeon merchant");
         recycleYuanbao(next, true);
     }
 
@@ -167,7 +190,11 @@ final class AutoSellAutomation {
         host.tap(575, 105,
                 () -> quickSellYuanbao(() -> host.tap(1233, 55, () -> {
                     host.showProgress("Auto sell: yuanbao recycle completed");
-                    returnToTown(next);
+                    if (dungeonMerchantMode) {
+                        closeOverlays(() -> goToDungeonMerchant(next));
+                    } else {
+                        returnToTown(next);
+                    }
                 }), next, quickSellRetryAvailable));
     }
 
@@ -198,15 +225,71 @@ final class AutoSellAutomation {
     }
 
     private void returnToTown(Runnable next) {
-        host.showProgress("Auto sell: closing overlays");
-        host.tap(640, 20, () -> host.tap(640, 20, () -> {
+        closeOverlays(() -> {
             host.showProgress("Auto sell: returning to town (1/2)");
             host.tap(1210, 640, () -> {
                 host.showProgress("Auto sell: returning to town (2/2)");
                 host.tap(1210, 640,
                         () -> host.postDelayed(() -> openAutoPath(next), 9_000));
             });
-        }));
+        });
+    }
+
+    private void closeOverlays(Runnable next) {
+        host.showProgress("Auto sell: closing overlays");
+        host.tap(640, 20, () -> host.tap(640, 20, next));
+    }
+
+    /**
+     * Mirrors Wudang's DungeonGearHandleAction -> GearSellAndBuyAction camp
+     * branch: move to DungeonUtil.m15120v, open the nearby 行脚商队, then use
+     * the merchant's fourth dialog option to enter the sell screen.
+     */
+    private void goToDungeonMerchant(Runnable next) {
+        host.showProgress("Auto sell: moving to dungeon merchant");
+        tapDungeonMerchantRoute(2, () -> waitForDungeonMerchant(next, 6, false));
+    }
+
+    private void tapDungeonMerchantRoute(int remainingTaps, Runnable next) {
+        host.tapMapCoordinate(dungeonMerchantX, dungeonMerchantY,
+                DUNGEON_CAMP_MAP_MAX_X, () -> {
+                    if (remainingTaps > 1) {
+                        host.postDelayed(() -> tapDungeonMerchantRoute(
+                                remainingTaps - 1, next), 500);
+                    } else {
+                        host.postDelayed(next, 1_500);
+                    }
+                });
+    }
+
+    private void waitForDungeonMerchant(
+            Runnable next, int remainingAttempts, boolean shortcutTried) {
+        host.recognizeTextRegion(
+                MERCHANT_TITLE_LEFT, MERCHANT_TITLE_TOP,
+                MERCHANT_TITLE_RIGHT, MERCHANT_TITLE_BOTTOM,
+                text -> {
+                    String recognized = text == null ? "" : text.getText();
+                    DiagnosticLog.info("AUTO_SELL", "Dungeon merchant title OCR: "
+                            + recognized.replace('\n', ' '));
+                    if (isDungeonMerchantTitle(recognized)) {
+                        host.tap(DUNGEON_MERCHANT_OPTION_X, DUNGEON_MERCHANT_OPTION_Y,
+                                () -> host.postDelayed(() -> sell(next), 2_000));
+                    } else if (remainingAttempts > 1) {
+                        host.postDelayed(() -> waitForDungeonMerchant(
+                                next, remainingAttempts - 1, shortcutTried), 500);
+                    } else if (!shortcutTried) {
+                        host.showProgress("Auto sell: opening dungeon merchant");
+                        host.tap(DUNGEON_MERCHANT_NPC_X, DUNGEON_MERCHANT_NPC_Y,
+                                () -> waitForDungeonMerchant(next, 10, true));
+                    } else {
+                        host.failAutomation("Auto sell: dungeon merchant was not found");
+                    }
+                });
+    }
+
+    static boolean isDungeonMerchantTitle(String value) {
+        String normalized = value == null ? "" : value.replaceAll("\\s+", "");
+        return normalized.contains("行脚商队") || normalized.contains("行脚商");
     }
 
     private void openAutoPath(Runnable next) {
@@ -262,6 +345,13 @@ final class AutoSellAutomation {
 
     private void sell(Runnable next) {
         host.showProgress("Auto sell: opening Sell");
+        if (dungeonMerchantMode) {
+            // GearSellAndBuyAction.campSell uses Store.tradeStoreTabSellPoint
+            // directly (575,105 on the 1280x720 layout), avoiding another OCR
+            // pass on a fixed tab.
+            host.tap(575, 105, () -> sellJunk(next));
+            return;
+        }
         host.clickTextRegion("贩卖", true, 640, 75, 790, 140,
                 () -> sellJunk(next), 5,
                 () -> host.tap(718, 105, () -> sellJunk(next)));
@@ -292,6 +382,7 @@ final class AutoSellAutomation {
         host.showProgress("Auto sell: closing window");
         host.tap(1233, 55, () -> {
             host.showProgress("Auto sell: completed");
+            dungeonMerchantMode = false;
             next.run();
         });
     }

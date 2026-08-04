@@ -112,6 +112,16 @@ public final class HelperAccessibilityService extends AccessibilityService
     /** 默认开启；读取点有好几处，用常量保证不会各写各的默认值。 */
     static final boolean DEFAULT_AUTO_SELL_ENABLED = true;
     static final String PREF_AUTO_SELL_MIN_FREE_SLOTS = "auto_sell_min_free_slots";
+    /** 武当原版的普通副本/精英试炼物品处理次数设置。 */
+    static final String PREF_DUNGEON_GEAR_HANDLE_COUNT = "dungeon_gear_handle_count";
+    static final String PREF_DUNGEON_PRO_GEAR_HANDLE_COUNT = "dungeon_pro_gear_handle_count";
+    static final int DEFAULT_DUNGEON_GEAR_HANDLE_COUNT = 1;
+    static final int DEFAULT_DUNGEON_PRO_GEAR_HANDLE_COUNT = 1;
+    static final int MAX_DUNGEON_GEAR_HANDLE_COUNT = 20;
+    /** 武当 pick_dungeon_*_id_count：每个已选等级自己的执行次数。 */
+    static final String PREF_DUNGEON_BATTLE_RUN_COUNT_PREFIX = "dungeon_battle_run_count_";
+    static final String PREF_DUNGEON_ELITE_RUN_COUNT_PREFIX = "dungeon_elite_run_count_";
+    static final String PREF_DUNGEON_SWEEP_RUN_COUNT_PREFIX = "dungeon_sweep_run_count_";
     static final String PREF_PRIMARY_TASK = "primary_task";
     static final String PREF_MANUALLY_STOPPED = "manually_stopped";
     private static final String PREF_DUNGEON_BATTLE_MODE = "dungeon_battle_mode";
@@ -996,14 +1006,32 @@ public final class HelperAccessibilityService extends AccessibilityService
             return;
         }
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        addSettingsText(menu, R.string.dungeon_gear_handle_section)
+                .setTextColor(COLOR_SETTINGS_TEXT);
+        addSpinnerRow(menu, R.string.dungeon_gear_handle_count,
+                MAX_DUNGEON_GEAR_HANDLE_COUNT,
+                preferences.getInt(PREF_DUNGEON_GEAR_HANDLE_COUNT,
+                        DEFAULT_DUNGEON_GEAR_HANDLE_COUNT),
+                value -> preferences.edit().putInt(PREF_DUNGEON_GEAR_HANDLE_COUNT, value).apply());
+        addSpinnerRow(menu, R.string.dungeon_pro_gear_handle_count,
+                MAX_DUNGEON_GEAR_HANDLE_COUNT,
+                preferences.getInt(PREF_DUNGEON_PRO_GEAR_HANDLE_COUNT,
+                        DEFAULT_DUNGEON_PRO_GEAR_HANDLE_COUNT),
+                value -> preferences.edit()
+                        .putInt(PREF_DUNGEON_PRO_GEAR_HANDLE_COUNT, value).apply());
+        addSettingsText(menu, R.string.dungeon_run_count_section)
+                .setTextColor(COLOR_SETTINGS_TEXT);
         addDungeonSection(menu, preferences, R.string.dungeon_battle_section,
                 DungeonBattleAutomation.LEVELS, PREF_DUNGEON_BATTLE_LEVELS,
+                PREF_DUNGEON_BATTLE_RUN_COUNT_PREFIX,
                 R.string.dungeon_start_battle, view -> startDungeonBattle());
         addDungeonSection(menu, preferences, R.string.dungeon_elite_section,
                 DungeonBattleAutomation.ELITE_LEVELS, PREF_DUNGEON_ELITE_LEVELS,
+                PREF_DUNGEON_ELITE_RUN_COUNT_PREFIX,
                 R.string.dungeon_start_elite, view -> startDungeonElite());
         addDungeonSection(menu, preferences, R.string.dungeon_sweep_section,
                 DungeonSweepAutomation.LEVELS, PREF_DUNGEON_SWEEP_LEVELS,
+                PREF_DUNGEON_SWEEP_RUN_COUNT_PREFIX,
                 R.string.dungeon_start_sweep, view -> startDungeonSweep());
 
         addSettingsButtonRow(menu,
@@ -1014,7 +1042,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     /** One dungeon mode: its own level checkboxes, select-all/clear, and start button. */
     private void addDungeonSection(LinearLayout menu, SharedPreferences preferences,
             int titleResource, int[] levels, String preferenceKey,
-            int startResource, View.OnClickListener onStart) {
+            String runCountPrefix, int startResource, View.OnClickListener onStart) {
         addSettingsText(menu, titleResource).setTextColor(COLOR_SETTINGS_TEXT);
 
         Set<String> selected = new HashSet<>(preferences.getStringSet(
@@ -1025,10 +1053,12 @@ public final class HelperAccessibilityService extends AccessibilityService
             LinearLayout row = new LinearLayout(this);
             for (int index = start; index < start + columns; index++) {
                 if (index >= levels.length) {
-                    row.addView(new View(this), new LinearLayout.LayoutParams(0, dp(38), 1));
+                    row.addView(new View(this), new LinearLayout.LayoutParams(0, dp(42), 1));
                     continue;
                 }
                 int level = levels[index];
+                LinearLayout cell = new LinearLayout(this);
+                cell.setGravity(Gravity.CENTER_VERTICAL);
                 CheckBox box = new CheckBox(this);
                 box.setText(String.valueOf(level));
                 box.setTextColor(Color.WHITE);
@@ -1046,10 +1076,20 @@ public final class HelperAccessibilityService extends AccessibilityService
                     preferences.edit().putStringSet(preferenceKey, updated).apply();
                 });
                 boxes.add(box);
-                row.addView(box, new LinearLayout.LayoutParams(0, dp(38), 1));
+                cell.addView(box, new LinearLayout.LayoutParams(0, dp(42), 1));
+                Spinner runCount = addDungeonRunCountSpinner(preferences,
+                        runCountPrefix + level);
+                cell.addView(runCount, new LinearLayout.LayoutParams(dp(52), dp(42)));
+                TextView suffix = new TextView(this);
+                suffix.setText(R.string.dungeon_run_count_suffix);
+                suffix.setTextColor(Color.WHITE);
+                suffix.setTextSize(12);
+                suffix.setGravity(Gravity.CENTER_VERTICAL);
+                cell.addView(suffix, new LinearLayout.LayoutParams(dp(22), dp(42)));
+                row.addView(cell, new LinearLayout.LayoutParams(0, dp(42), 1));
             }
             menu.addView(row, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(38)));
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
         }
 
         addSettingsButtonRow(menu,
@@ -1058,6 +1098,33 @@ public final class HelperAccessibilityService extends AccessibilityService
                 createSettingsButton(R.string.dungeon_clear, false,
                         view -> boxes.forEach(box -> box.setChecked(false))),
                 createSettingsButton(startResource, true, onStart));
+    }
+
+    private Spinner addDungeonRunCountSpinner(
+            SharedPreferences preferences, String preferenceKey) {
+        int selected = DungeonBattleAutomation.normalizeDungeonRunCount(
+                preferences.getInt(preferenceKey, DungeonBattleAutomation.DEFAULT_DUNGEON_RUN_COUNT));
+        Spinner spinner = new Spinner(this);
+        List<String> values = new ArrayList<>();
+        for (int value = 1; value <= DungeonBattleAutomation.MAX_DUNGEON_RUN_COUNT; value++) {
+            values.add(String.valueOf(value));
+        }
+        setSpinnerValues(spinner, values, String.valueOf(selected));
+        spinner.setPadding(0, 0, 0, 0);
+        spinner.setMinimumWidth(0);
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parentView, View view,
+                    int position, long id) {
+                preferences.edit().putInt(preferenceKey, position + 1).apply();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parentView) {
+            }
+        });
+        spinner.setSelection(selected - 1);
+        return spinner;
     }
 
     private static List<Integer> selectedDungeonLevels(SharedPreferences preferences) {
@@ -1456,7 +1523,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             return;
         }
         if (inventorySelling) {
-            // 自动贩卖包含元宝回收、回城和客栈贩卖，不能被军务抢占。
+            // 自动贩卖可能正在执行元宝回收、营地商人或客栈贩卖，不能被军务抢占。
             DiagnosticLog.info("MILITARY", "deferred; auto sell in progress");
             WorshipAlarmReceiver.scheduleMilitary(this);
             return;
@@ -1718,19 +1785,113 @@ public final class HelperAccessibilityService extends AccessibilityService
                 || !gearHandleEvent.begin()) {
             return false;
         }
+        return startGearHandling(run, true, false, 0, 0,
+                afterHandled, "pending gear in primary");
+    }
+
+    @Override
+    public int dungeonGearHandleCount(boolean elite) {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        int configured = preferences.getInt(elite
+                ? PREF_DUNGEON_PRO_GEAR_HANDLE_COUNT
+                : PREF_DUNGEON_GEAR_HANDLE_COUNT,
+                elite ? DEFAULT_DUNGEON_PRO_GEAR_HANDLE_COUNT
+                        : DEFAULT_DUNGEON_GEAR_HANDLE_COUNT);
+        return DungeonBattleAutomation.normalizeDungeonGearHandleCount(configured);
+    }
+
+    @Override
+    public int dungeonRunCount(boolean elite, int level) {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String prefix = elite
+                ? PREF_DUNGEON_ELITE_RUN_COUNT_PREFIX
+                : PREF_DUNGEON_BATTLE_RUN_COUNT_PREFIX;
+        return DungeonBattleAutomation.normalizeDungeonRunCount(
+                preferences.getInt(prefix + level,
+                        DungeonBattleAutomation.DEFAULT_DUNGEON_RUN_COUNT));
+    }
+
+    @Override
+    public int dungeonSweepRunCount(int level) {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        return DungeonBattleAutomation.normalizeDungeonRunCount(
+                preferences.getInt(PREF_DUNGEON_SWEEP_RUN_COUNT_PREFIX + level,
+                        DungeonBattleAutomation.DEFAULT_DUNGEON_RUN_COUNT));
+    }
+
+    @Override
+    public boolean handleDungeonGear(boolean force, Runnable afterHandled) {
+        return handleDungeonGearInternal(force, false, 0, 0, afterHandled);
+    }
+
+    @Override
+    public boolean handleDungeonGear(boolean force, int dungeonLevel, int dungeonType,
+            Runnable afterHandled) {
+        return handleDungeonGearInternal(force, true, dungeonLevel, dungeonType,
+                afterHandled);
+    }
+
+    private boolean handleDungeonGearInternal(boolean force, boolean useDungeonMerchant,
+            int dungeonLevel, int dungeonType, Runnable afterHandled) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null || taskState != STATE_RUNNING
+                || !getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED)) {
+            return false;
+        }
+        boolean pending = gearHandleEvent.state() == GearHandleEvent.State.PENDING;
+        if (!force && !pending) {
+            return false;
+        }
+        if (gearHandleEvent.state() == GearHandleEvent.State.HANDLING) {
+            return false;
+        }
+        if (pending && !gearHandleEvent.begin()) {
+            return false;
+        }
+        return startGearHandling(run, pending, useDungeonMerchant,
+                dungeonLevel, dungeonType, afterHandled,
+                pending ? "pending gear after dungeon" : "scheduled dungeon gear");
+    }
+
+    private boolean startGearHandling(AutomationTaskManager.Run run,
+            boolean eventStarted, boolean useDungeonMerchant,
+            int dungeonLevel, int dungeonType,
+            Runnable afterHandled, String reason) {
         inventorySelling = true;
         stopInventoryMonitoring();
-        DiagnosticLog.info("AUTO_SELL", "handling pending gear in primary run=" + run.id);
-        showProgress("Auto sell: handling pending backpack event");
-        ensureAutoAttackDisabled(() -> autoSellAutomation.runInline(() -> {
+        DiagnosticLog.info("AUTO_SELL", "handling " + reason + " run=" + run.id);
+        showProgress(reason.equals("pending gear in primary")
+                ? "Auto sell: handling pending backpack event"
+                : "Auto sell: handling dungeon backpack");
+        Runnable cleanup = () -> {
             if (!taskManager.isCurrent(run.id)) {
+                inventorySelling = false;
+                if (eventStarted) {
+                    gearHandleEvent.complete();
+                }
                 return;
             }
-            gearHandleEvent.complete();
+            if (eventStarted) {
+                gearHandleEvent.complete();
+            }
             inventorySelling = false;
-            DiagnosticLog.info("AUTO_SELL", "pending gear handling completed");
+            if (run.request.kind == AutomationTaskManager.Kind.PRIMARY) {
+                startInventoryMonitoring();
+            }
+            DiagnosticLog.info("AUTO_SELL", "dungeon backpack handling completed");
             afterHandled.run();
-        }));
+        };
+        ensureAutoAttackDisabled(() -> {
+            if (useDungeonMerchant) {
+                int[] merchant = BaseDungeonAction.gearMerchantPoint(
+                        dungeonLevel, dungeonType);
+                autoSellAutomation.runInlineAtDungeonMerchant(
+                        merchant[0], merchant[1], cleanup);
+            } else {
+                autoSellAutomation.runInline(cleanup);
+            }
+        });
         return true;
     }
 
@@ -3836,8 +3997,10 @@ public final class HelperAccessibilityService extends AccessibilityService
 
         TextView text = new TextView(this);
         text.setText(displayValue);
-        text.setTextColor(Color.WHITE);
-        text.setTextSize(11);
+        text.setTextColor(Color.GREEN);
+        // Keep the status bubble out of the fixed title ROIs used by the
+        // Wudang matcher while leaving the blood bar readable below it.
+        text.setTextSize(9);
         text.setGravity(Gravity.CENTER);
         text.setPadding(dp(8), dp(3), dp(8), dp(3));
         text.setAlpha(0.7f);
@@ -3854,8 +4017,9 @@ public final class HelperAccessibilityService extends AccessibilityService
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        params.y = dp(4);
+        params.gravity = Gravity.TOP | Gravity.START;
+        params.x = dp(90);
+        params.y = dp(2);
 
         try {
             windowManager.addView(text, params);

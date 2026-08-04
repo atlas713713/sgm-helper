@@ -1,10 +1,8 @@
 package com.local.sgmhelper;
 
-import java.util.List;
-
 /**
- * 30 级副本没有随机推进，武当整条路线都是固定路点。part0/part1/part3 打 30 级敌人
- * 加副本 BOSS，part2 只打 BOSS。两个 first 标记复刻武当的 flag570/flag420：
+ * 30 级副本没有随机推进，武当整条路线都是固定路点。每个路点只找副本 BOSS，
+ * 不先攻击普通敌人。两个 first 标记复刻武当的 flag570/flag420：
  * 进入该区间的第一拍先回到区间起点，之后才继续往下一个路点走。
  */
 final class Dungeon30Action extends BaseDungeonAction {
@@ -49,66 +47,63 @@ final class Dungeon30Action extends BaseDungeonAction {
     /** part0（599..451）：570 → 500 → part1 门点 (458,4)。 */
     private DungeonBattleAutomation.RouteDecision part0(int x, int gateAttempt) {
         if (x >= 580) {
-            return DungeonBattleAutomation.RouteDecision.search(570, 27, 570, true, 30);
+            return DungeonBattleAutomation.RouteDecision.searchBoss(570, 27, 570);
         }
         if (x >= 510) {
             if (firstBand570) {
                 firstBand570 = false;
-                return DungeonBattleAutomation.RouteDecision.searchRoute(
-                        new int[][] {{570, 27}, {500, 27}}, 30);
+                return DungeonBattleAutomation.RouteDecision.searchBossRoute(
+                        new int[][] {{570, 27}, {500, 27}});
             }
-            return DungeonBattleAutomation.RouteDecision.search(500, 27, 570, true, 30);
+            return DungeonBattleAutomation.RouteDecision.searchBoss(500, 27, 570);
         }
         int[] gate = wudangGate(458, 4, gateAttempt);
-        return DungeonBattleAutomation.RouteDecision.search(
-                gate[0], gate[1], 570, true, 30);
+        return DungeonBattleAutomation.RouteDecision.searchBoss(
+                gate[0], gate[1], 570);
     }
 
     /** part1（448..301）：410 → 340 → part2 门点 (304,27)。 */
     private DungeonBattleAutomation.RouteDecision part1(int x, int gateAttempt) {
         if (x >= 420) {
-            return DungeonBattleAutomation.RouteDecision.search(410, 25, 430, true, 30);
+            return DungeonBattleAutomation.RouteDecision.searchBoss(410, 25, 430);
         }
         if (x >= 350) {
             if (firstBand420) {
                 firstBand420 = false;
-                return DungeonBattleAutomation.RouteDecision.searchRoute(
-                        new int[][] {{410, 25}, {340, 25}}, 30);
+                return DungeonBattleAutomation.RouteDecision.searchBossRoute(
+                        new int[][] {{410, 25}, {340, 25}});
             }
-            return DungeonBattleAutomation.RouteDecision.search(340, 25, 430, true, 30);
+            return DungeonBattleAutomation.RouteDecision.searchBoss(340, 25, 430);
         }
         int[] gate = wudangGate(304, 27, gateAttempt);
-        return DungeonBattleAutomation.RouteDecision.search(
-                gate[0], gate[1], 430, true, 30);
+        return DungeonBattleAutomation.RouteDecision.searchBoss(
+                gate[0], gate[1], 430);
     }
 
     /** part2（297..151）：只找副本 BOSS，235 → 195 → part3 门点 (174,4)。 */
     private DungeonBattleAutomation.RouteDecision part2(int x, int gateAttempt) {
         if (x >= 245) {
-            return DungeonBattleAutomation.RouteDecision.searchNamed(
-                    235, 25, 0, List.of("董军阵旗"), null);
+            return DungeonBattleAutomation.RouteDecision.searchBoss(235, 25, 0);
         }
         if (x >= 205) {
-            return DungeonBattleAutomation.RouteDecision.searchNamed(
-                    195, 25, 0, List.of("董军阵旗"), null);
+            return DungeonBattleAutomation.RouteDecision.searchBoss(195, 25, 0);
         }
         int[] gate = wudangGate(174, 4, gateAttempt);
-        return DungeonBattleAutomation.RouteDecision.searchNamed(
-                gate[0], gate[1], 0, List.of("董军阵旗"), null);
+        return DungeonBattleAutomation.RouteDecision.searchBoss(gate[0], gate[1], 0);
     }
 
     /** part3（148..33）：85 → 45 → 出口点 (24,27)。 */
     private DungeonBattleAutomation.RouteDecision part3(int x) {
         if (x >= 150) {
-            return DungeonBattleAutomation.RouteDecision.search(
-                    scanLeft(x, 15), 27, 0, true, 30);
+            return DungeonBattleAutomation.RouteDecision.searchBoss(
+                    scanLeft(x, 15), 27, 0);
         }
         if (x >= 95) {
-            return DungeonBattleAutomation.RouteDecision.search(85, 25, 0, true, 30);
+            return DungeonBattleAutomation.RouteDecision.searchBoss(85, 25, 0);
         }
         if (x >= 55) {
-            return DungeonBattleAutomation.RouteDecision.search(45, 25, 0, true, 30);
+            return DungeonBattleAutomation.RouteDecision.searchBoss(45, 25, 0);
         }
-        return DungeonBattleAutomation.RouteDecision.search(24, 27, 0, true, 30);
+        return DungeonBattleAutomation.RouteDecision.searchBoss(24, 27, 0);
     }
 }

@@ -58,6 +58,51 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void usesWudangDungeonGearHandlingIntervals() {
+        assertEquals(1, DungeonBattleAutomation.normalizeDungeonGearHandleCount(0));
+        assertEquals(1, DungeonBattleAutomation.normalizeDungeonGearHandleCount(-2));
+        assertEquals(1, DungeonBattleAutomation.normalizeDungeonGearHandleCount(1));
+        assertEquals(20, DungeonBattleAutomation.normalizeDungeonGearHandleCount(20));
+        assertEquals(1, DungeonBattleAutomation.normalizeDungeonGearHandleCount(21));
+
+        assertTrue(DungeonBattleAutomation.shouldHandleDungeonGear(1, 1));
+        assertFalse(DungeonBattleAutomation.shouldHandleDungeonGear(2, 3));
+        assertTrue(DungeonBattleAutomation.shouldHandleDungeonGear(3, 3));
+        assertTrue(DungeonBattleAutomation.shouldHandleDungeonGear(4, 3));
+    }
+
+    @Test
+    public void usesWudangDungeonCampMerchantCoordinates() {
+        assertArrayEquals(new int[] {107, 26}, BaseDungeonAction.gearMerchantPoint(30, 1));
+        assertArrayEquals(new int[] {109, 26}, BaseDungeonAction.gearMerchantPoint(60, 1));
+        assertArrayEquals(new int[] {106, 24}, BaseDungeonAction.gearMerchantPoint(75, 1));
+        assertArrayEquals(new int[] {115, 21}, BaseDungeonAction.gearMerchantPoint(75, 2));
+        assertArrayEquals(new int[] {110, 21}, BaseDungeonAction.gearMerchantPoint(90, 1));
+    }
+
+    @Test
+    public void recognizesWudangDungeonMerchantTitleOnly() {
+        assertTrue(AutoSellAutomation.isDungeonMerchantTitle("行脚商队"));
+        assertTrue(AutoSellAutomation.isDungeonMerchantTitle("行脚 商"));
+        assertFalse(AutoSellAutomation.isDungeonMerchantTitle("客栈"));
+        assertFalse(AutoSellAutomation.isDungeonMerchantTitle(null));
+    }
+
+    @Test
+    public void repeatsEachSelectedDungeonUsingItsWudangCount() {
+        assertEquals(3, DungeonBattleAutomation.normalizeDungeonRunCount(0));
+        assertEquals(3, DungeonBattleAutomation.normalizeDungeonRunCount(-1));
+        assertEquals(1, DungeonBattleAutomation.normalizeDungeonRunCount(1));
+        assertEquals(20, DungeonBattleAutomation.normalizeDungeonRunCount(20));
+        assertEquals(3, DungeonBattleAutomation.normalizeDungeonRunCount(21));
+
+        assertTrue(DungeonBattleAutomation.shouldRepeatDungeon(1, 3));
+        assertTrue(DungeonBattleAutomation.shouldRepeatDungeon(2, 3));
+        assertFalse(DungeonBattleAutomation.shouldRepeatDungeon(3, 3));
+        assertFalse(DungeonBattleAutomation.shouldRepeatDungeon(20, 1));
+    }
+
+    @Test
     public void triesBothSuFlavoursWhenForceStoppingTheGame() {
         List<String[]> commands = GameRestartAutomation.forceStopCommands(
                 GameRestartAutomation.GAME_PACKAGE);
@@ -768,20 +813,24 @@ public final class HelperAccessibilityServiceTest {
 
         // part0：570 → 500 → (458,4)，第一次进入 510..579 时先补一个 570 路点。
         DungeonBattleAutomation.RouteDecision part0 = dungeon.decideRoute(599);
-        assertEquals(Arrays.asList(30), part0.enemyLevels);
+        assertTrue(part0.isBossOnly());
+        assertTrue(part0.enemyLevels.isEmpty());
         assertEquals(570, part0.targetX);
         assertEquals(27, part0.targetY);
         int[][] band570 = dungeon.decideRoute(570).waypoints;
         assertEquals(2, band570.length);
         assertArrayEquals(new int[] {570, 27}, band570[0]);
         assertArrayEquals(new int[] {500, 27}, band570[1]);
+        assertTrue(dungeon.decideRoute(570).isBossOnly());
         assertEquals(500, dungeon.decideRoute(540).targetX);
         assertEquals(0, dungeon.decideRoute(540).waypoints.length);
         DungeonBattleAutomation.RouteDecision part0Door = dungeon.decideRoute(470);
+        assertTrue(part0Door.isBossOnly());
         assertEquals(458, part0Door.targetX);
         assertEquals(4, part0Door.targetY);
 
         // part1：410 → 340 → (304,27)。
+        assertTrue(dungeon.decideRoute(440).isBossOnly());
         assertEquals(410, dungeon.decideRoute(440).targetX);
         int[][] band420 = dungeon.decideRoute(400).waypoints;
         assertEquals(2, band420.length);
@@ -789,14 +838,14 @@ public final class HelperAccessibilityServiceTest {
         assertArrayEquals(new int[] {340, 25}, band420[1]);
         assertEquals(340, dungeon.decideRoute(360).targetX);
         DungeonBattleAutomation.RouteDecision part1Door = dungeon.decideRoute(320);
+        assertTrue(part1Door.isBossOnly());
         assertEquals(304, part1Door.targetX);
         assertEquals(27, part1Door.targetY);
 
         // part2：只找副本 BOSS，235 → 195 → (174,4)。
         DungeonBattleAutomation.RouteDecision part2 = dungeon.decideRoute(200);
-        assertFalse(part2.acceptAnyEnemy);
+        assertTrue(part2.isBossOnly());
         assertTrue(part2.enemyLevels.isEmpty());
-        assertEquals(Arrays.asList("董军阵旗"), part2.priorityEnemyNames);
         assertEquals(174, part2.targetX);
         assertEquals(4, part2.targetY);
         assertEquals(235, dungeon.decideRoute(260).targetX);
@@ -804,8 +853,8 @@ public final class HelperAccessibilityServiceTest {
 
         // part3：85 → 45 → 出口点 (24,27)。
         DungeonBattleAutomation.RouteDecision part3 = dungeon.decideRoute(100);
-        assertEquals(Arrays.asList(30), part3.enemyLevels);
-        assertTrue(part3.acceptAnyEnemy);
+        assertTrue(part3.isBossOnly());
+        assertTrue(part3.enemyLevels.isEmpty());
         assertEquals(85, part3.targetX);
         assertEquals(45, dungeon.decideRoute(60).targetX);
         assertEquals(24, dungeon.decideRoute(40).targetX);
@@ -1070,14 +1119,10 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void acceptsAnyLoadedWildernessTrainingZoneAndTaskStartSignal() {
+    public void acceptsAnyLoadedWildernessTrainingZone() {
         assertTrue(TaskAutomation.isWildernessTrainingMapName("荒野修炼1区"));
         assertTrue(TaskAutomation.isWildernessTrainingMapName("荒野修练 六 区"));
         assertFalse(TaskAutomation.isWildernessTrainingMapName("荒野营地"));
-        assertTrue(TaskAutomation.hasTaskExecutionSignal(
-                Arrays.asList("执行任务：巡狩军团荒野（五）的自动寻路")));
-        assertFalse(TaskAutomation.hasTaskExecutionSignal(
-                Arrays.asList("巡狩军团荒野收集中")));
     }
 
     @Test
