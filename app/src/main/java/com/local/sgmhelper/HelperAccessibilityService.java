@@ -17,11 +17,13 @@ import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.HardwareBuffer;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.Display;
 import android.view.Gravity;
@@ -52,9 +54,11 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 public final class HelperAccessibilityService extends AccessibilityService
         implements AutomationHost {
@@ -66,9 +70,9 @@ public final class HelperAccessibilityService extends AccessibilityService
     private static final int ACTION_DELAY_MS = 1000;
     private static final int CLICK_DELAY_MS = 2000;
     private static final int UI_DELAY_MS = 500;
-    private static final int FAST_BACK_DELAY_MS = 150;
     private static final int TEXT_RETRY_COUNT = 5;
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
+    private static final long HUD_CONFIRMATION_TTL_MS = 3_000;
     // 队伍管理第一行的“分流”数字，避开表头和等级/所在地等其它数字。
     private static final int LEADER_CHANNEL_LEFT = 885;
     private static final int LEADER_CHANNEL_TOP = 208;
@@ -136,6 +140,11 @@ public final class HelperAccessibilityService extends AccessibilityService
             List.of(20, 30, 40, 50, 60, 90, 120, 180, 240, 360);
     /** 到点后每分钟看一次有没有空闲窗口，别在主线任务干活的中途插进去。 */
     private static final long GAME_RESTART_CHECK_INTERVAL_MS = 60_000;
+    private static final int SETTINGS_RESTART_POLL_ATTEMPTS = 30;
+    private static final long SETTINGS_RESTART_POLL_DELAY_MS = 500;
+    private static final String SETTINGS_PACKAGE = "com.android.settings";
+    private static final String FORCE_STOP_BUTTON_ID = "com.android.settings:id/button3";
+    private static final String CONFIRM_BUTTON_ID = "android:id/button1";
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsBackupListener =
             (preferences, key) -> SettingsBackup.export(this);
     static final String PREF_BOSS_FOLLOW_LEADER = "boss_follow_leader";
@@ -213,6 +222,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private boolean automationRunning;
     private int automationRecoveryAttempts;
     private long failingRunId;
+    private long hudConfirmedAt;
     private Runnable currentAutomationAction;
     private PrimaryTask primaryTask = PrimaryTask.TRAINING;
     private Runnable primaryTaskAction = trainingAutomation::start;
@@ -1553,6 +1563,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private void beginGameAutomation(
             String progress, Runnable afterLogin, Runnable recoveryAction) {
         showProgress(progress);
+        invalidateHudConfirmation();
 
         Intent intent = getPackageManager().getLaunchIntentForPackage("hk.phx.khm.cs");
         if (intent == null) {
@@ -1572,6 +1583,126 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public Context context() {
         return this;
+    }
+
+    @Override
+    public void forceStopPackageViaSettings(
+            String packageName, Consumer<Boolean> result) {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + packageName))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        try {
+            startActivity(intent);
+            waitForForceStopButton(result, SETTINGS_RESTART_POLL_ATTEMPTS);
+        } catch (RuntimeException error) {
+            DiagnosticLog.error("RESTART", "unable to open app settings", error);
+            result.accept(false);
+        }
+    }
+
+    private void waitForForceStopButton(Consumer<Boolean> result, int attempts) {
+        AccessibilityNodeInfo root = settingsRoot();
+        AccessibilityNodeInfo button = findSettingsNode(
+                root, FORCE_STOP_BUTTON_ID, HelperAccessibilityService::isForceStopLabel);
+        if (button != null && !button.isEnabled()) {
+            result.accept(true);
+            return;
+        }
+        if (button != null && clickNode(button)) {
+            showProgress("定时重启：确认强行停止");
+            postDelayed(() -> waitForForceStopConfirmation(
+                    result, SETTINGS_RESTART_POLL_ATTEMPTS), SETTINGS_RESTART_POLL_DELAY_MS);
+            return;
+        }
+        retrySettingsAction(() -> waitForForceStopButton(result, attempts - 1),
+                result, attempts, "force-stop button");
+    }
+
+    private void waitForForceStopConfirmation(Consumer<Boolean> result, int attempts) {
+        AccessibilityNodeInfo root = settingsRoot();
+        AccessibilityNodeInfo confirm = findSettingsNode(
+                root, CONFIRM_BUTTON_ID, HelperAccessibilityService::isConfirmLabel);
+        if (confirm != null && clickNode(confirm)) {
+            DiagnosticLog.info("RESTART", "force-stopped "
+                    + GameRestartAutomation.GAME_PACKAGE + " via system settings");
+            postDelayed(() -> result.accept(true), ACTION_DELAY_MS);
+            return;
+        }
+        retrySettingsAction(() -> waitForForceStopConfirmation(result, attempts - 1),
+                result, attempts, "force-stop confirmation");
+    }
+
+    private void retrySettingsAction(Runnable retry, Consumer<Boolean> result,
+            int attempts, String action) {
+        if (attempts > 1) {
+            postDelayed(retry, SETTINGS_RESTART_POLL_DELAY_MS);
+        } else {
+            DiagnosticLog.error("RESTART", "unable to find " + action);
+            result.accept(false);
+        }
+    }
+
+    private AccessibilityNodeInfo settingsRoot() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        return root != null && SETTINGS_PACKAGE.contentEquals(root.getPackageName())
+                ? root : null;
+    }
+
+    private static AccessibilityNodeInfo findSettingsNode(AccessibilityNodeInfo root,
+            String viewId, Predicate<CharSequence> label) {
+        if (root == null) {
+            return null;
+        }
+        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(viewId);
+        if (!nodes.isEmpty()) {
+            return nodes.get(0);
+        }
+        return findNode(root, label);
+    }
+
+    private static AccessibilityNodeInfo findNode(
+            AccessibilityNodeInfo node, Predicate<CharSequence> label) {
+        if (label.test(node.getText()) || label.test(node.getContentDescription())) {
+            return node;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                AccessibilityNodeInfo match = findNode(child, label);
+                if (match != null) {
+                    return match;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean clickNode(AccessibilityNodeInfo node) {
+        for (AccessibilityNodeInfo current = node;
+                current != null; current = current.getParent()) {
+            if (current.isClickable()) {
+                return current.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            }
+        }
+        return false;
+    }
+
+    static boolean isForceStopLabel(CharSequence value) {
+        String label = normalizeSettingsLabel(value);
+        return "FORCE STOP".equals(label)
+                || "强行停止".equals(label)
+                || "强制停止".equals(label);
+    }
+
+    static boolean isConfirmLabel(CharSequence value) {
+        String label = normalizeSettingsLabel(value);
+        return "OK".equals(label) || "确定".equals(label);
+    }
+
+    private static String normalizeSettingsLabel(CharSequence value) {
+        return value == null ? ""
+                : value.toString().trim().replaceAll("\\s+", " ")
+                        .toUpperCase(Locale.ROOT);
     }
 
     @Override
@@ -1679,6 +1810,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 .putBoolean(PREF_MANUALLY_STOPPED, false)
                 .apply();
         automationRunning = true;
+        invalidateHudConfirmation();
         failingRunId = 0;
         if (!run.request.preserveRecovery) {
             automationRecoveryAttempts = 0;
@@ -1703,6 +1835,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             gearHandleEvent.defer();
         }
         automationRunning = false;
+        invalidateHudConfirmation();
         stopInventoryMonitoring();
         currentAutomationAction = null;
         failingRunId = 0;
@@ -1934,6 +2067,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (run == null) {
             return;
         }
+        invalidateHudConfirmation();
         boolean accepted = tap(x, y, new GestureResultCallback() {
             @Override
             public void onCompleted(GestureDescription gestureDescription) {
@@ -1970,6 +2104,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (run == null) {
             return;
         }
+        invalidateHudConfirmation();
         Path path = new Path();
         path.moveTo(startX, startY);
         path.lineTo(endX, endY);
@@ -2065,6 +2200,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (!automationRunning) {
             return;
         }
+        invalidateHudConfirmation();
         if (!performGlobalAction(GLOBAL_ACTION_BACK)) {
             failAutomation("返回键执行失败");
             return;
@@ -2085,7 +2221,26 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void ensureGameHudVisible(Runnable next) {
+        if (!automationRunning) {
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (menuView == null && isRecentHudConfirmation(hudConfirmedAt, now)) {
+            DiagnosticLog.info("SCREEN_GUARD",
+                    "state=CLEAN_HUD source=recent_confirmation action=continue");
+            next.run();
+            return;
+        }
         ensureGameHudVisible(next, TEXT_RETRY_COUNT);
+    }
+
+    static boolean isRecentHudConfirmation(long confirmedAt, long now) {
+        long age = now - confirmedAt;
+        return confirmedAt > 0 && age >= 0 && age <= HUD_CONFIRMATION_TTL_MS;
+    }
+
+    private void invalidateHudConfirmation() {
+        hudConfirmedAt = 0;
     }
 
     @Override
@@ -2120,17 +2275,8 @@ public final class HelperAccessibilityService extends AccessibilityService
             retryGameHudGuard(next, remainingAttempts, "助手菜单未关闭");
             return;
         }
-        backBeforeScreenGuard(next, remainingAttempts, attempt);
-    }
-
-    private void backBeforeScreenGuard(Runnable next, int remainingAttempts, int attempt) {
-        showProgress("准备游戏画面：快速关闭遮挡窗口");
-        pressBackQuicklyThen(
-                () -> {
-                    showProgress("准备游戏画面：检查遮挡窗口");
-                    closeBlockingWindowIfNeeded(next, remainingAttempts, attempt);
-                },
-                3);
+        showProgress("准备游戏画面：检查遮挡窗口");
+        closeBlockingWindowIfNeeded(next, remainingAttempts, attempt);
     }
 
     private void closeBlockingWindowIfNeeded(
@@ -2153,12 +2299,10 @@ public final class HelperAccessibilityService extends AccessibilityService
                 return;
             }
             if (blocker == ScreenGuard.Blocker.GAME_WINDOW) {
-                DiagnosticLog.info("SCREEN_GUARD", "state=GAME_WINDOW action=back_3");
-                showProgress("准备游戏画面：连续返回三次");
-                pressBackThreeTimesThen(
-                        () -> retryGameHudGuard(next, remainingAttempts,
-                                "普通窗口返回后 HUD 仍未确认"),
-                        3);
+                DiagnosticLog.info("SCREEN_GUARD", "state=GAME_WINDOW action=back");
+                showProgress("准备游戏画面：关闭遮挡窗口");
+                backOnceThenRetryHudGuard(next, remainingAttempts,
+                        "普通窗口返回后 HUD 仍未确认");
                 return;
             }
             if (remainingAttempts <= 1 && blocker != ScreenGuard.Blocker.NONE) {
@@ -2199,9 +2343,8 @@ public final class HelperAccessibilityService extends AccessibilityService
                     DiagnosticLog.info("SCREEN_GUARD",
                             "state=REWARD_RECOVERY action=back");
                     showProgress("准备游戏画面：关闭奖励找回");
-                    performGlobalAction(GLOBAL_ACTION_BACK);
-                    postDelayed(() -> ensureGameHudVisible(
-                            next, remainingAttempts - 1), ACTION_DELAY_MS);
+                    backOnceThenRetryHudGuard(next, remainingAttempts,
+                            "奖励找回窗口未关闭");
                 } else {
                     failGameHudGuard("奖励找回窗口未关闭");
                 }
@@ -2224,23 +2367,36 @@ public final class HelperAccessibilityService extends AccessibilityService
                     failGameHudGuard("未领取奖励窗口未关闭");
                 }
             } else if (screen == LoginAutomation.Screen.LOGGED_IN) {
+                hudConfirmedAt = SystemClock.elapsedRealtime();
                 DiagnosticLog.info("SCREEN_GUARD",
                         "state=CLEAN_HUD source=ocr_fallback action=continue");
                 DiagnosticLog.info("TEMPLATE_FALLBACK", "name=HUD source=ocr");
                 next.run();
             } else if (screen == LoginAutomation.Screen.UNKNOWN) {
-                DiagnosticLog.info("SCREEN_GUARD", "state=UNKNOWN action=back_3");
-                showProgress("准备游戏画面：连续返回三次");
-                pressBackThreeTimesThen(
-                        () -> retryGameHudGuard(next, remainingAttempts,
-                                "未知窗口返回后 HUD 仍未确认"),
-                        3);
+                DiagnosticLog.info("SCREEN_GUARD", "state=UNKNOWN action=back");
+                showProgress("准备游戏画面：未识别画面，返回一次");
+                backOnceThenRetryHudGuard(next, remainingAttempts,
+                        "未知窗口返回后 HUD 仍未确认");
             } else {
                 DiagnosticLog.info("SCREEN_GUARD", "state=" + screen
                         + " action=login");
                 loginAutomation.start(next);
             }
         });
+    }
+
+    private void backOnceThenRetryHudGuard(
+            Runnable next, int remainingAttempts, String failureMessage) {
+        invalidateHudConfirmation();
+        boolean sent = performGlobalAction(GLOBAL_ACTION_BACK);
+        DiagnosticLog.info("SCREEN_GUARD", "state=BACK action="
+                + (sent ? "sent" : "failed") + " remainingAttempts="
+                + (remainingAttempts - 1));
+        if (sent) {
+            retryGameHudGuard(next, remainingAttempts, failureMessage);
+        } else {
+            failGameHudGuard("返回键执行失败");
+        }
     }
 
     private void pressBackThreeTimesThen(Runnable next, int remaining) {
@@ -2252,30 +2408,13 @@ public final class HelperAccessibilityService extends AccessibilityService
             next.run();
             return;
         }
+        invalidateHudConfirmation();
         boolean sent = performGlobalAction(GLOBAL_ACTION_BACK);
         DiagnosticLog.info("SCREEN_GUARD", "state=BACK action="
                 + (sent ? "sent" : "failed") + " remaining=" + (remaining - 1));
         postDelayed(
                 () -> pressBackThreeTimesThen(next, remaining - 1),
                 ACTION_DELAY_MS);
-    }
-
-    private void pressBackQuicklyThen(Runnable next, int remaining) {
-        if (!automationRunning) {
-            return;
-        }
-        if (remaining == 0) {
-            DiagnosticLog.info("SCREEN_GUARD",
-                    "state=FAST_BACK_3_COMPLETE action=full_screen_ocr");
-            next.run();
-            return;
-        }
-        boolean sent = performGlobalAction(GLOBAL_ACTION_BACK);
-        DiagnosticLog.info("SCREEN_GUARD", "state=FAST_BACK action="
-                + (sent ? "sent" : "failed") + " remaining=" + (remaining - 1));
-        postDelayed(
-                () -> pressBackQuicklyThen(next, remaining - 1),
-                FAST_BACK_DELAY_MS);
     }
 
     private void retryGameHudGuard(
@@ -3644,6 +3783,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                     .apply();
         }
         automationRunning = false;
+        invalidateHudConfirmation();
         inventorySelling = false;
         gearHandleEvent.clear();
         stopInventoryMonitoring();
@@ -3997,14 +4137,12 @@ public final class HelperAccessibilityService extends AccessibilityService
 
         TextView text = new TextView(this);
         text.setText(displayValue);
-        text.setTextColor(Color.GREEN);
+        text.setTextColor(Color.WHITE);
         // Keep the status bubble out of the fixed title ROIs used by the
         // Wudang matcher while leaving the blood bar readable below it.
-        text.setTextSize(9);
+        text.setTextSize(10);
         text.setGravity(Gravity.CENTER);
         text.setPadding(dp(8), dp(3), dp(8), dp(3));
-        text.setAlpha(0.7f);
-
         GradientDrawable background = new GradientDrawable();
         background.setColor(Color.BLACK);
         background.setCornerRadius(dp(8));
@@ -4111,6 +4249,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         DiagnosticLog.info("SERVICE", "accessibility service disconnected");
         instance = null;
         automationRunning = false;
+        invalidateHudConfirmation();
         inventorySelling = false;
         clearAutomationRecovery();
         taskManager.stopAll();

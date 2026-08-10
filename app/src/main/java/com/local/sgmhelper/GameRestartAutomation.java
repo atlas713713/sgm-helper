@@ -14,8 +14,7 @@ import java.util.function.Consumer;
  * <p>只做“杀进程”这一段。杀完直接结束本次插入任务，任务管理器会走 {@code onResumePrimary}
  * 把主线任务重跑一遍，而主线任务本来就是从“打开游戏 → 登录”开始的，不用在这里重复一套。
  *
- * <p>用 su 直接 force-stop：走系统设置界面点“强行停止”要认几个不同 ROM 的按钮文案，
- * 太脆；模拟器上有 root，一条命令就够。
+ * <p>先走 su 快速路径；模拟器没有可用 su 时，回退到系统应用详情页的无障碍按钮。
  */
 final class GameRestartAutomation {
     static final String GAME_PACKAGE = "hk.phx.khm.cs";
@@ -37,13 +36,26 @@ final class GameRestartAutomation {
             if (!host.isRunCurrent(runId)) {
                 return;
             }
-            if (!stopped) {
-                host.failAutomation("定时重启：无法关闭游戏进程，请确认模拟器已开启 root");
+            if (stopped) {
+                finish(runId, true);
                 return;
             }
-            host.showProgress("定时重启：游戏已关闭，等待重新登录");
-            host.postDelayed(host::resumePrimaryTask, AFTER_STOP_DELAY_MS);
+            host.showProgress("定时重启：无 root，改用系统强行停止");
+            host.forceStopPackageViaSettings(GAME_PACKAGE,
+                    settingsStopped -> finish(runId, settingsStopped));
         });
+    }
+
+    private void finish(long runId, boolean stopped) {
+        if (!host.isRunCurrent(runId)) {
+            return;
+        }
+        if (!stopped) {
+            host.failAutomation("定时重启：无法通过 root 或系统设置关闭游戏");
+            return;
+        }
+        host.showProgress("定时重启：游戏已关闭，等待重新登录");
+        host.postDelayed(host::resumePrimaryTask, AFTER_STOP_DELAY_MS);
     }
 
     private void forceStopAsync(Consumer<Boolean> result) {

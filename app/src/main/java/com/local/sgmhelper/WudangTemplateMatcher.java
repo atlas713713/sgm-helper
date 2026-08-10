@@ -150,6 +150,7 @@ final class WudangTemplateMatcher {
                 LINE_INFO_WIDTH, LINE_INFO_HEIGHT), "data/t7.wd", "data/t7_a.wd"),
         LEGION("军团", new FixedRegion(LEGION_TITLE_LEFT, LEGION_TITLE_TOP,
                 LEGION_TITLE_WIDTH, LEGION_TITLE_HEIGHT), "data/t8.wd"),
+        WILDERNESS_TRAINING("荒野修炼", "data/wilderness_training.wd"),
         FRIEND("好友", new FixedRegion(601, 19, 120, 33), "data/t9.wd", "data/t9_a.wd"),
         LEGION_MENU("军团入口", new FixedRegion(LEGION_MENU_LEFT, LEGION_MENU_TOP,
                 LEGION_MENU_WIDTH, LEGION_MENU_HEIGHT), "data/mjt.wd"),

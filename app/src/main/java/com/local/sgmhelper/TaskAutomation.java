@@ -21,6 +21,7 @@ final class TaskAutomation {
     private static final int SUPPLY_PROGRESS_CHECK_MS = 3 * 60 * 1000;
     private static final int TEXT_RETRY_COUNT = 5;
     private static final int SCREEN_WAIT_RETRY_COUNT = 20;
+    private static final int QUICK_ARRIVAL_ATTEMPTS = 2;
     private static final int SUPPLY_CLICK_RETRY_COUNT = 3;
     private static final int MILITARY_TEXT_LEFT = 80;
     private static final int MILITARY_TEXT_TOP = 70;
@@ -48,10 +49,13 @@ final class TaskAutomation {
     private static final int NPC_DIALOG_TOP = 235;
     private static final int NPC_DIALOG_RIGHT = 415;
     private static final int NPC_DIALOG_BOTTOM = 680;
-    private static final int AUTO_PATH_LEFT = 400;
-    private static final int AUTO_PATH_TOP = 150;
-    private static final int AUTO_PATH_RIGHT = 800;
-    private static final int AUTO_PATH_BOTTOM = 600;
+    // “快速抵达”打开的中央确认弹窗。不要和 HUD 右下角的 g04/自动寻敌混用。
+    private static final int AUTO_PATH_LEFT = 510;
+    private static final int AUTO_PATH_TOP = 445;
+    private static final int AUTO_PATH_RIGHT = 770;
+    private static final int AUTO_PATH_BOTTOM = 505;
+    private static final int AUTO_PATH_X = 642;
+    private static final int AUTO_PATH_Y = 473;
     private static final long MILITARY_HOME_WAIT_MS = 4_000L;
     private static final long MILITARY_HOME_OCR_WINDOW_MS = 5_000L;
     private static final Pattern WILDERNESS_ZONE = Pattern.compile(
@@ -967,17 +971,9 @@ final class TaskAutomation {
             return;
         }
         host.showProgress("自动军务：" + questName + "材料已满，快速抵达");
-        Runnable afterArrival = () -> {
-            host.showProgress("自动军务：点击自动寻路");
-            host.clickTemplateOrTextFast(WudangTemplateMatcher.Template.AUTO_PATH,
-                    "自动寻路", false,
-                    AUTO_PATH_LEFT, AUTO_PATH_TOP,
-                    AUTO_PATH_RIGHT, AUTO_PATH_BOTTOM,
-                    leaveCompletedQuest(questName, completed),
-                    1, SCREEN_WAIT_RETRY_COUNT, null);
-        };
         host.postDelayed(
-                () -> host.clickQuickArrival(afterArrival),
+                () -> host.clickQuickArrival(
+                        () -> finishMilitaryArrival(questName, completed)),
                 ACTION_DELAY_MS);
     }
 
@@ -1000,7 +996,7 @@ final class TaskAutomation {
             host.showProgress("自动军务：点击快速抵达");
             host.postDelayed(
                     () -> host.clickQuickArrival(
-                            () -> finishWildernessArrival(questName, completed)),
+                            () -> finishMilitaryArrival(questName, completed)),
                     ACTION_DELAY_MS);
         };
         host.closeAutoPathPanel(() -> withTaskWindowOpen(
@@ -1043,29 +1039,45 @@ final class TaskAutomation {
         return false;
     }
 
-    private void finishWildernessArrival(String questName, Runnable completed) {
+    void finishMilitaryArrival(String questName, Runnable completed) {
+        finishMilitaryArrival(questName, completed, QUICK_ARRIVAL_ATTEMPTS);
+    }
+
+    private void finishMilitaryArrival(
+            String questName, Runnable completed, int remainingAttempts) {
         Runnable waitForDialogue = leaveCompletedQuest(questName, completed);
         host.showProgress("自动军务：检测是否出现自动寻路");
-        host.clickTemplateOrTextFast(WudangTemplateMatcher.Template.AUTO_PATH,
-                "自动寻路", false,
+        host.waitForTextRegion("自动寻路",
                 AUTO_PATH_LEFT, AUTO_PATH_TOP,
                 AUTO_PATH_RIGHT, AUTO_PATH_BOTTOM,
+                TEXT_RETRY_COUNT,
                 () -> {
-                    host.showProgress("自动军务：已点击自动寻路，等待对话");
-                    waitForDialogue.run();
+                    host.showProgress("自动军务：点击自动寻路");
+                    host.tap(AUTO_PATH_X, AUTO_PATH_Y, () -> {
+                        host.showProgress("自动军务：已点击自动寻路，等待对话");
+                        waitForDialogue.run();
+                    });
                 },
-                1, TEXT_RETRY_COUNT,
                 () -> {
-                    host.showProgress("自动军务：未出现自动寻路，直接等待对话");
-                    waitForDialogue.run();
+                    if (remainingAttempts > 1) {
+                        host.showProgress("自动军务：未出现自动寻路，重新点击快速抵达");
+                        host.clickQuickArrival(() -> finishMilitaryArrival(
+                                questName, completed, remainingAttempts - 1));
+                    } else {
+                        host.failAutomation("快速抵达后未出现自动寻路");
+                    }
                 });
     }
 
     private Runnable leaveCompletedQuest(String questName, Runnable completed) {
-        return () -> host.tap(250, 635,
+        return () -> host.clickTextRegion("\u79bb\u5f00", true,
+                NPC_DIALOG_LEFT, NPC_DIALOG_TOP,
+                NPC_DIALOG_RIGHT, NPC_DIALOG_BOTTOM,
                 () -> host.postDelayed(
                         () -> refreshCompletedQuestCooldown(questName, completed),
-                        ACTION_DELAY_MS));
+                        ACTION_DELAY_MS),
+                SCREEN_WAIT_RETRY_COUNT,
+                () -> host.failAutomation("\u7b49\u5f85\u519b\u52a1\u4ea4\u4ed8\u5bf9\u8bdd\u6846\u8d85\u65f6"));
     }
 
     private void refreshCompletedQuestCooldown(String questName, Runnable completed) {

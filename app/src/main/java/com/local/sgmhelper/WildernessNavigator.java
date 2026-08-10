@@ -108,12 +108,19 @@ final class WildernessNavigator {
 
     private void openWildernessFromLegionWindow() {
         progress("进入荒野营地");
-        host.tapUi(780, 613,
-                        () -> host.tapUi(640, 478,
+        Runnable confirm = () -> host.postDelayed(
+                () -> host.tapFast(640, 478,
+                        () -> host.tapFast(640, 524,
                                 () -> host.postDelayed(
-                                () -> waitForWildernessCamp(
-                                        SCREEN_WAIT_RETRY_COUNT),
-                                4_000)));
+                                        () -> waitForWildernessCamp(
+                                                SCREEN_WAIT_RETRY_COUNT), 4_000))),
+                300);
+        // 军团长页面的按钮在左侧；只搜索右下按钮带，避开左下状态文字。
+        host.clickTemplateOrTextFast(WudangTemplateMatcher.Template.WILDERNESS_TRAINING,
+                "荒野修炼", true,
+                520, 520, 1_050, 670,
+                confirm, 1, 2,
+                () -> host.tapUi(780, 613, confirm));
     }
 
     private void waitForWildernessCamp(int remainingAttempts) {

@@ -23,6 +23,8 @@ interface AutomationHost {
 
     Context context();
 
+    void forceStopPackageViaSettings(String packageName, Consumer<Boolean> result);
+
     boolean isAutomationRunning();
 
     long currentRunId();

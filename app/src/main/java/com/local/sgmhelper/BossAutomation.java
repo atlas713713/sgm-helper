@@ -328,9 +328,9 @@ final class BossAutomation {
         });
     }
 
-    private void closeWorldBossMap(Runnable next) {
+    void closeWorldBossMap(Runnable next) {
         progress("关闭大地图");
-        host.pressBack(() -> host.ensureGameHudVisible(next));
+        host.pressBack(next);
     }
 
     private static String bossNames(List<WorldBossCatalog.BossEntry> bosses) {
@@ -389,6 +389,21 @@ final class BossAutomation {
             }
             return;
         }
+        scanBeforeMove(this::moveToNextRoutePoint);
+    }
+
+    void scanBeforeMove(Runnable move) {
+        progress("移动前检测红名 BOSS");
+        findRedBoss(target -> {
+            if (target != null) {
+                attack(target);
+            } else {
+                move.run();
+            }
+        });
+    }
+
+    private void moveToNextRoutePoint() {
         int x = route.get(routeIndex);
         progress("搜索坐标 " + x + "," + searchY);
         long deadline = System.currentTimeMillis() + MOVE_DURATION_MS;

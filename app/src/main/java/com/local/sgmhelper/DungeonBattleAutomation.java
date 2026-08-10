@@ -64,7 +64,7 @@ final class DungeonBattleAutomation {
 
     /** 武当每个已选副本的默认执行次数；次数保存在每个副本条目上。 */
     static final int DEFAULT_DUNGEON_RUN_COUNT = 3;
-    static final int MAX_DUNGEON_RUN_COUNT = 20;
+    static final int MAX_DUNGEON_RUN_COUNT = 3;
 
     private final AutomationHost host;
     private List<BaseDungeonAction> selectedDungeons = Collections.emptyList();

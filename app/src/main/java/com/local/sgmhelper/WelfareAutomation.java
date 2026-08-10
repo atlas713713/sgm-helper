@@ -18,10 +18,11 @@ final class WelfareAutomation {
     private static final int WELFARE_OPEN_ATTEMPTS = 2;
     private static final int WELFARE_PAGE_ATTEMPTS = 8;
     private final AutomationHost host;
+    private final WelfareCategory dailySignIn = new DailySignInCategory();
     private final List<WelfareCategory> categories = List.of(
             new HeroesStoreCategory(),
             new OnlineRewardCategory(),
-            new DailySignInCategory(),
+            dailySignIn,
             new DailyChallengeCategory(),
             new WeeklyChallengeCategory(),
             new HeroesGloryCategory(),
@@ -65,7 +66,7 @@ final class WelfareAutomation {
         host.recognizeTextRegion(0, 100, 300, 700, text -> {
             if (isWelfarePage(text)) {
                 DiagnosticLog.info("WELFARE", "page=opened");
-                host.postDelayed(() -> scrollToTop(TOP_SWIPES), 500);
+                host.postDelayed(this::claimOpenDailySignIn, 500);
                 return;
             }
             if (remainingChecks > 1) {
@@ -78,6 +79,19 @@ final class WelfareAutomation {
             } else {
                 host.failAutomation("领取福利：福利页面未打开");
             }
+        });
+    }
+
+    private void claimOpenDailySignIn() {
+        host.showProgress("领取福利：检查每日签到");
+        host.recognizeTextRegion(280, 100, 1240, 700, text -> {
+            if (!isDailySignInPage(text)) {
+                scrollToTop(TOP_SWIPES);
+                return;
+            }
+            processed.add(dailySignIn.name());
+            host.showProgress("领取福利：每日签到");
+            dailySignIn.claim(host, () -> scrollToTop(TOP_SWIPES));
         });
     }
 
@@ -168,8 +182,8 @@ final class WelfareAutomation {
 
     private void finish() {
         Runnable resume = () -> {
-            host.showProgress("领取福利完成，10秒后继续之前任务");
-            host.postDelayed(completion, 10_000);
+            host.showProgress("领取福利完成，继续之前任务");
+            completion.run();
         };
         host.closeWelfareWindow(resume);
     }
@@ -204,6 +218,18 @@ final class WelfareAutomation {
             }
         }
         return categoryCount >= 2;
+    }
+
+    static boolean isDailySignInPage(OcrText text) {
+        for (OcrText.TextBlock block : text.getTextBlocks()) {
+            for (OcrText.Line line : block.getLines()) {
+                String value = normalize(line.getText());
+                if (value.contains("每日签到") || value.contains("签到奖励")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     static boolean isRedDotPixel(int red, int green, int blue) {

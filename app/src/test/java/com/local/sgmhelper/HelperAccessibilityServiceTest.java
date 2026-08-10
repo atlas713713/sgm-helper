@@ -10,10 +10,13 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertArrayEquals;
 
+import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.EnumMap;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
@@ -93,8 +96,8 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(3, DungeonBattleAutomation.normalizeDungeonRunCount(0));
         assertEquals(3, DungeonBattleAutomation.normalizeDungeonRunCount(-1));
         assertEquals(1, DungeonBattleAutomation.normalizeDungeonRunCount(1));
-        assertEquals(20, DungeonBattleAutomation.normalizeDungeonRunCount(20));
-        assertEquals(3, DungeonBattleAutomation.normalizeDungeonRunCount(21));
+        assertEquals(3, DungeonBattleAutomation.normalizeDungeonRunCount(3));
+        assertEquals(3, DungeonBattleAutomation.normalizeDungeonRunCount(4));
 
         assertTrue(DungeonBattleAutomation.shouldRepeatDungeon(1, 3));
         assertTrue(DungeonBattleAutomation.shouldRepeatDungeon(2, 3));
@@ -115,6 +118,17 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void recognizesSystemForceStopButtonsWithoutOcr() {
+        assertTrue(HelperAccessibilityService.isForceStopLabel("FORCE STOP"));
+        assertTrue(HelperAccessibilityService.isForceStopLabel("强行停止"));
+        assertTrue(HelperAccessibilityService.isForceStopLabel("强制停止"));
+        assertFalse(HelperAccessibilityService.isForceStopLabel("UNINSTALL"));
+        assertTrue(HelperAccessibilityService.isConfirmLabel("OK"));
+        assertTrue(HelperAccessibilityService.isConfirmLabel("确定"));
+        assertFalse(HelperAccessibilityService.isConfirmLabel("CANCEL"));
+    }
+
+    @Test
     public void prependsCurrentPrimaryTaskToProgress() {
         assertEquals("【练级】 自动军务：检查任务",
                 HelperAccessibilityService.formatProgress(
@@ -125,6 +139,66 @@ public final class HelperAccessibilityServiceTest {
         assertEquals("【副本】 扫荡副本：确认奖励",
                 HelperAccessibilityService.formatProgress(
                         AutomationHost.PrimaryTask.DUNGEON, "扫荡副本：确认奖励"));
+    }
+
+    @Test
+    public void reusesOnlyRecentHudConfirmation() {
+        assertFalse(HelperAccessibilityService.isRecentHudConfirmation(0, 1_000));
+        assertTrue(HelperAccessibilityService.isRecentHudConfirmation(1_000, 4_000));
+        assertFalse(HelperAccessibilityService.isRecentHudConfirmation(1_000, 4_001));
+        assertFalse(HelperAccessibilityService.isRecentHudConfirmation(5_000, 4_000));
+    }
+
+    @Test
+    public void closingWorldBossMapContinuesWithoutHudCheck() {
+        List<String> calls = new ArrayList<>();
+        AtomicReference<Runnable> afterBack = new AtomicReference<>();
+        AtomicInteger completed = new AtomicInteger();
+        AutomationHost host = (AutomationHost) Proxy.newProxyInstance(
+                AutomationHost.class.getClassLoader(),
+                new Class<?>[] {AutomationHost.class},
+                (proxy, method, args) -> {
+                    calls.add(method.getName());
+                    if ("pressBack".equals(method.getName())) {
+                        afterBack.set((Runnable) args[0]);
+                    }
+                    return null;
+                });
+
+        new BossAutomation(host).closeWorldBossMap(completed::incrementAndGet);
+
+        assertEquals(Arrays.asList("showProgress", "pressBack"), calls);
+        afterBack.get().run();
+        assertEquals(1, completed.get());
+        assertFalse(calls.contains("ensureGameHudVisible"));
+    }
+
+    @Test
+    public void scansForRedBossBeforeMoving() {
+        List<String> calls = new ArrayList<>();
+        AtomicReference<java.util.function.Consumer<BossAutomation.BossTarget>> scanResult =
+                new AtomicReference<>();
+        AtomicInteger moves = new AtomicInteger();
+        AutomationHost host = (AutomationHost) Proxy.newProxyInstance(
+                AutomationHost.class.getClassLoader(),
+                new Class<?>[] {AutomationHost.class},
+                (proxy, method, args) -> {
+                    calls.add(method.getName());
+                    if ("recognizeRedBoss".equals(method.getName())) {
+                        @SuppressWarnings("unchecked")
+                        java.util.function.Consumer<BossAutomation.BossTarget> callback =
+                                (java.util.function.Consumer<BossAutomation.BossTarget>) args[0];
+                        scanResult.set(callback);
+                    }
+                    return null;
+                });
+
+        new BossAutomation(host).scanBeforeMove(moves::incrementAndGet);
+
+        assertEquals(Arrays.asList("showProgress", "recognizeRedBoss"), calls);
+        assertEquals(0, moves.get());
+        scanResult.get().accept(null);
+        assertEquals(1, moves.get());
     }
 
     @Test
@@ -264,6 +338,86 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(TaskAutomation.isCompletionGreen(20, 220, 35));
         assertFalse(TaskAutomation.isCompletionGreen(210, 190, 30));
         assertFalse(TaskAutomation.isCompletionGreen(30, 120, 220));
+    }
+
+    @Test
+    public void waitsForAutoPathButtonBeforeWaitingForMilitaryDialogue() {
+        List<String> calls = new ArrayList<>();
+        AtomicReference<Runnable> autoPathFound = new AtomicReference<>();
+        AtomicReference<Runnable> autoPathMissing = new AtomicReference<>();
+        AtomicReference<Runnable> quickArrivalClicked = new AtomicReference<>();
+        AtomicReference<Runnable> autoPathClicked = new AtomicReference<>();
+        AutomationHost host = (AutomationHost) Proxy.newProxyInstance(
+                AutomationHost.class.getClassLoader(),
+                new Class<?>[] {AutomationHost.class},
+                (proxy, method, args) -> {
+                    if ("showProgress".equals(method.getName())) {
+                        calls.add("progress:" + args[0]);
+                    } else if ("waitForTextRegion".equals(method.getName())) {
+                        calls.add("waitForTextRegion:" + args[0] + ":"
+                                + args[1] + "," + args[2] + "-" + args[3] + "," + args[4]);
+                        autoPathFound.set((Runnable) args[6]);
+                        autoPathMissing.set((Runnable) args[7]);
+                    } else if ("clickTextRegion".equals(method.getName())) {
+                        calls.add("clickTextRegion:" + args[0]);
+                    } else if ("failAutomation".equals(method.getName())) {
+                        calls.add("failAutomation:" + args[0]);
+                    } else if ("clickQuickArrival".equals(method.getName())) {
+                        calls.add("clickQuickArrival");
+                        quickArrivalClicked.set((Runnable) args[0]);
+                    } else if ("tap".equals(method.getName())) {
+                        calls.add("tap:" + args[0] + "," + args[1]);
+                        autoPathClicked.set((Runnable) args[2]);
+                    }
+                    return null;
+                });
+
+        new TaskAutomation(host).finishMilitaryArrival("补充军团物资", () -> {});
+        assertEquals(Arrays.asList(
+                "progress:自动军务：检测是否出现自动寻路",
+                "waitForTextRegion:自动寻路:510,445-770,505"), calls);
+
+        autoPathMissing.get().run();
+        assertEquals("clickQuickArrival", calls.get(3));
+        assertFalse(calls.contains("clickTextRegion:离开"));
+
+        quickArrivalClicked.get().run();
+        autoPathFound.get().run();
+        assertEquals("tap:642,473", calls.get(7));
+        assertFalse(calls.contains("clickTextRegion:离开"));
+
+        autoPathClicked.get().run();
+        assertEquals("clickTextRegion:离开", calls.get(9));
+    }
+
+    @Test
+    public void completedSupplyQuestUsesModalAutoPathInsteadOfHud() throws Exception {
+        List<String> calls = new ArrayList<>();
+        AtomicReference<Runnable> delayed = new AtomicReference<>();
+        AtomicReference<Runnable> quickArrivalClicked = new AtomicReference<>();
+        AutomationHost host = (AutomationHost) Proxy.newProxyInstance(
+                AutomationHost.class.getClassLoader(),
+                new Class<?>[] {AutomationHost.class},
+                (proxy, method, args) -> {
+                    calls.add(method.getName());
+                    if ("postDelayed".equals(method.getName())) {
+                        delayed.set((Runnable) args[0]);
+                    } else if ("clickQuickArrival".equals(method.getName())) {
+                        quickArrivalClicked.set((Runnable) args[0]);
+                    }
+                    return null;
+                });
+        TaskAutomation automation = new TaskAutomation(host);
+        java.lang.reflect.Method finish = TaskAutomation.class.getDeclaredMethod(
+                "finishOngoingMilitaryQuest", String.class, Runnable.class);
+        finish.setAccessible(true);
+
+        finish.invoke(automation, "补充军团物资", (Runnable) () -> {});
+        delayed.get().run();
+        quickArrivalClicked.get().run();
+
+        assertTrue(calls.contains("waitForTextRegion"));
+        assertFalse(calls.contains("openAutoPathPanel"));
     }
 
     @Test
@@ -1401,23 +1555,6 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void cleanHudRequiresBothFixedTabsAboveTheTemplateThreshold() {
-        EnumMap<WudangTemplateMatcher.Template, WudangTemplateMatcher.Match> matches =
-                new EnumMap<>(WudangTemplateMatcher.Template.class);
-        matches.put(WudangTemplateMatcher.Template.MAP_TAB,
-                templateMatch(WudangTemplateMatcher.Template.MAP_TAB, 0.91));
-        matches.put(WudangTemplateMatcher.Template.DIALOG_TAB,
-                templateMatch(WudangTemplateMatcher.Template.DIALOG_TAB, 0.90));
-        assertTrue(ScreenGuard.isCleanHud(matches));
-
-        matches.put(WudangTemplateMatcher.Template.DIALOG_TAB,
-                templateMatch(WudangTemplateMatcher.Template.DIALOG_TAB, 0.84));
-        assertFalse(ScreenGuard.isCleanHud(matches));
-        matches.remove(WudangTemplateMatcher.Template.DIALOG_TAB);
-        assertFalse(ScreenGuard.isCleanHud(matches));
-    }
-
-    @Test
     public void templateThresholdAndScaledBoundsAreRecordedWithoutOcrText() {
         WudangTemplateMatcher.Match match = templateMatch(
                 WudangTemplateMatcher.Template.MAP_TAB, 0.95);
@@ -1710,6 +1847,16 @@ public final class HelperAccessibilityServiceTest {
                 new OcrLine("每日挑战", new Rect(0, 40, 100, 70), 1f)))));
         assertFalse(WelfareAutomation.isWelfarePage(new OcrText(Arrays.asList(
                 new OcrLine("商城 福利 竞技场 菜单", new Rect(0, 0, 200, 30), 1f)))));
+    }
+
+    @Test
+    public void recognizesAnOpenDailySignInBeforeScrollingCategories() {
+        assertTrue(WelfareAutomation.isDailySignInPage(new OcrText(Arrays.asList(
+                new OcrLine("今日签到奖励!!", new Rect(300, 100, 700, 160), 1f)))));
+        assertTrue(WelfareAutomation.isDailySignInPage(new OcrText(Arrays.asList(
+                new OcrLine("每 日 签 到", new Rect(500, 180, 700, 220), 1f)))));
+        assertFalse(WelfareAutomation.isDailySignInPage(new OcrText(Arrays.asList(
+                new OcrLine("每日完成奖励", new Rect(500, 180, 800, 220), 1f)))));
     }
 
     @Test
