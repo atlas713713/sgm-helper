@@ -93,7 +93,7 @@ final class TaskAutomation {
     }
 
     private void begin() {
-        host.checkInventoryBeforePrimary(this::beginAfterInventoryCheck);
+        host.checkInventoryDuringMilitary(this::beginAfterInventoryCheck);
     }
 
     private void beginAfterInventoryCheck() {

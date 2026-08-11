@@ -1,5 +1,6 @@
 package com.local.sgmhelper;
 
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -160,16 +161,41 @@ final class AutoSellAutomation {
 
     private void waitForYuanbaoRecycle(
             Runnable next, boolean quickSellRetryAvailable, int attempts) {
-        host.recognizeYuanbaoQuickSell(found -> {
-            if (found) {
-                sellGoldYuanbao(next, quickSellRetryAvailable);
-            } else if (attempts > 1) {
-                host.postDelayed(() -> waitForYuanbaoRecycle(
-                        next, quickSellRetryAvailable, attempts - 1), 500);
-            } else {
-                host.failAutomation("元宝回收页面未打开");
-            }
-        });
+        WudangTemplateMatcher.Template template =
+                WudangTemplateMatcher.Template.YUANBAO_RECYCLE;
+        WudangTemplateMatcher.FixedRegion region = template.fixedRegion;
+        host.matchTemplates(new WudangTemplateMatcher.Template[] {template},
+                region.left, region.top,
+                region.left + region.width, region.top + region.height,
+                matches -> handleYuanbaoRecycleTitleMatch(
+                        isYuanbaoRecycleOpen(matches), next,
+                        quickSellRetryAvailable, attempts),
+                error -> {
+                    DiagnosticLog.warn("AUTO_SELL",
+                            "Yuanbao recycle title template failed: "
+                                    + error.getMessage());
+                    handleYuanbaoRecycleTitleMatch(false, next,
+                            quickSellRetryAvailable, attempts);
+                });
+    }
+
+    private void handleYuanbaoRecycleTitleMatch(
+            boolean found, Runnable next, boolean quickSellRetryAvailable, int attempts) {
+        if (found) {
+            sellGoldYuanbao(next, quickSellRetryAvailable);
+        } else if (attempts > 1) {
+            host.postDelayed(() -> waitForYuanbaoRecycle(
+                    next, quickSellRetryAvailable, attempts - 1), 500);
+        } else {
+            host.failAutomation("元宝回收页面未打开");
+        }
+    }
+
+    static boolean isYuanbaoRecycleOpen(
+            Map<WudangTemplateMatcher.Template, WudangTemplateMatcher.Match> matches) {
+        WudangTemplateMatcher.Match match = matches.get(
+                WudangTemplateMatcher.Template.YUANBAO_RECYCLE);
+        return match != null && match.found();
     }
 
     private void sellGoldYuanbao(Runnable next, boolean quickSellRetryAvailable) {

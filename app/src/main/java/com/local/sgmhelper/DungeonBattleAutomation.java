@@ -28,10 +28,6 @@ final class DungeonBattleAutomation {
     private static final int NPC_TITLE_TOP = 195;
     private static final int NPC_TITLE_RIGHT = 390;
     private static final int NPC_TITLE_BOTTOM = 245;
-    private static final int NPC_BODY_LEFT = 95;
-    private static final int NPC_BODY_TOP = 245;
-    private static final int NPC_BODY_RIGHT = 410;
-    private static final int NPC_BODY_BOTTOM = 540;
     private static final int NPC_OPTION_X = 251;
     private static final int NPC_OPTION_4_X = 176;
     private static final int[] NPC_OPTION_Y = {0, 450, 512, 574, 636};
@@ -57,8 +53,11 @@ final class DungeonBattleAutomation {
     private static final int ROUTE_RETRY_INTERVAL = 5;
     private static final int ROUTE_TOLERANCE = 3;
     private static final int CAMP_NPC_TOLERANCE = 5;
+    private static final int DUNGEON_ENTRY_MAP_ATTEMPTS = 2;
     private static final long MAP_WAIT_MS = 5_000;
     private static final long FIGHT_CHECK_MS = 4_000;
+    private static final long DUNGEON_ENTRY_MAP_POLL_MS = 500;
+    private static final long BACK_KEY_SETTLE_MS = 200;
     /** 一次寻路移动预算，到点还没找到目标就重新读坐标推进下一段。 */
     private static final long MOVE_DURATION_MS = 4_000;
 
@@ -143,8 +142,9 @@ final class DungeonBattleAutomation {
         host.startAutomation("定时一般副本：打开游戏", this::begin);
     }
 
-    private void begin() {
-        host.checkInventoryBeforePrimary(this::beginAfterInventoryCheck);
+    void begin() {
+        host.reviveSoldiersBeforeDungeon(
+                () -> host.checkInventoryBeforePrimary(this::beginAfterInventoryCheck));
     }
 
     private void beginAfterInventoryCheck() {
@@ -347,28 +347,43 @@ final class DungeonBattleAutomation {
                 () -> talkToNpc(currentDungeon().entryNpcName(),
                         currentDungeon().entryNpcButtons(),
                         currentDungeon().entryNpcRows(),
-                        () -> host.postDelayed(this::checkNoDungeonCount, 1_000)));
+                        () -> host.postDelayed(
+                                () -> checkDungeonEntryMap(DUNGEON_ENTRY_MAP_ATTEMPTS),
+                                1_000)));
     }
 
-    /** 武当 STEP_NO_COUNT：退出后重试一次，仍无次数就跳过当前副本。 */
-    private void checkNoDungeonCount() {
-        host.recognizeTextRegion(
-                NPC_BODY_LEFT, NPC_BODY_TOP, NPC_BODY_RIGHT, NPC_BODY_BOTTOM,
-                text -> {
-                    String recognized = text == null ? "" : text.getText();
-                    DiagnosticLog.info("Dungeon", "entry result OCR: " + recognized);
-                    if (!isNoDungeonCountDialog(recognized)) {
-                        waitForDungeon();
-                        return;
-                    }
-                    noCountAttempts++;
-                    host.showProgress(dungeonTitle() + "：没有副本次数"
-                            + (noCountAttempts == 1 ? "，重新确认一次" : "，跳过"));
-                    host.tap(npcOptionX(4), npcOptionY(4), () -> host.postDelayed(
-                            noCountAttempts == 1
-                                    ? this::gotoEntryNpc : () -> finishCurrent(false),
-                            1_000));
-                });
+    /**
+     * 复刻武当 STEP_NO_COUNT：不识别提示正文，只读取小地图名称。进入成功时小地图会变成
+     * 当前副本名；次数不足弹窗出现时仍停留在营地。连续两次没有进入后按返回两次关闭弹窗，
+     * 完整入口再确认一次仍失败就跳过当前副本。
+     */
+    private void checkDungeonEntryMap(int remainingAttempts) {
+        host.showProgress(dungeonTitle() + "：确认是否进入副本");
+        host.recognizeMapName(mapName -> {
+            DiagnosticLog.info("Dungeon", "entry map OCR: " + mapName);
+            if (isCurrentDungeonMap(mapName, currentDungeon().dungeonName())) {
+                noCountAttempts = 0;
+                waitForDungeon();
+                return;
+            }
+            if (remainingAttempts > 1) {
+                host.postDelayed(
+                        () -> checkDungeonEntryMap(remainingAttempts - 1),
+                        DUNGEON_ENTRY_MAP_POLL_MS);
+                return;
+            }
+            noCountAttempts++;
+            host.showProgress(dungeonTitle() + "：未进入副本"
+                    + (noCountAttempts == 1 ? "，重新确认一次" : "，跳过当前副本"));
+            pressBackTwice(() -> host.postDelayed(
+                    noCountAttempts == 1
+                            ? this::gotoEntryNpc : () -> finishCurrent(false),
+                    1_000));
+        });
+    }
+
+    private void pressBackTwice(Runnable next) {
+        host.pressBack(() -> host.postDelayed(() -> host.pressBack(next), BACK_KEY_SETTLE_MS));
     }
 
     /**
@@ -790,11 +805,18 @@ final class DungeonBattleAutomation {
         return false;
     }
 
-    static boolean isNoDungeonCountDialog(String recognized) {
-        String value = normalizeDialogText(recognized);
-        return value.contains("没有此副本的次数")
-                || value.contains("没有副本的次数")
-                || value.contains("副本次数已用完");
+    static boolean isCurrentDungeonMap(String recognizedMap, String expectedNames) {
+        String actual = normalizeDialogText(recognizedMap);
+        if (actual.isEmpty()) {
+            return false;
+        }
+        for (String expected : expectedNames.split("\\|")) {
+            String target = normalizeDialogText(expected);
+            if (!target.isEmpty() && (target.contains(actual) || actual.contains(target))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String normalizeDialogText(String value) {

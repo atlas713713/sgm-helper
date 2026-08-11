@@ -14,7 +14,9 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -139,6 +141,59 @@ public final class HelperAccessibilityServiceTest {
         assertEquals("【副本】 扫荡副本：确认奖励",
                 HelperAccessibilityService.formatProgress(
                         AutomationHost.PrimaryTask.DUNGEON, "扫荡副本：确认奖励"));
+    }
+
+    @Test
+    public void queuesMilitaryWhileSoldierRevivalIsRunning() {
+        assertTrue(HelperAccessibilityService.shouldQueueMilitaryForSoldierRevival(true));
+        assertFalse(HelperAccessibilityService.shouldQueueMilitaryForSoldierRevival(false));
+    }
+
+    @Test
+    public void revivesSoldiersBeforeDungeonInventoryCheck() {
+        List<String> calls = new ArrayList<>();
+        AtomicReference<Runnable> afterRevival = new AtomicReference<>();
+        AutomationHost host = (AutomationHost) Proxy.newProxyInstance(
+                AutomationHost.class.getClassLoader(),
+                new Class<?>[] {AutomationHost.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("reviveSoldiersBeforeDungeon")) {
+                        calls.add("revive");
+                        afterRevival.set((Runnable) args[0]);
+                    } else if (method.getName().equals("checkInventoryBeforePrimary")) {
+                        calls.add("inventory");
+                    }
+                    return null;
+                });
+
+        new DungeonBattleAutomation(host).begin();
+
+        assertEquals(List.of("revive"), calls);
+        afterRevival.get().run();
+        assertEquals(List.of("revive", "inventory"), calls);
+    }
+
+    @Test
+    public void inventoryMonitoringAllowsMilitaryButNotOtherInterrupts() {
+        AutomationTaskManager.Run primary = automationRun(
+                "primary:TRAINING", AutomationTaskManager.Kind.PRIMARY);
+        AutomationTaskManager.Run military = automationRun(
+                "自动军务", AutomationTaskManager.Kind.INTERRUPT);
+        AutomationTaskManager.Run welfare = automationRun(
+                "领取福利", AutomationTaskManager.Kind.HIGH_PRIORITY_INTERRUPT);
+
+        assertTrue(HelperAccessibilityService.shouldMonitorInventoryForRun(
+                primary, AutomationHost.PrimaryTask.TRAINING));
+        assertTrue(HelperAccessibilityService.shouldMonitorInventoryForRun(
+                military, AutomationHost.PrimaryTask.TRAINING));
+        assertFalse(HelperAccessibilityService.shouldMonitorInventoryForRun(
+                welfare, AutomationHost.PrimaryTask.TRAINING));
+    }
+
+    private static AutomationTaskManager.Run automationRun(
+            String key, AutomationTaskManager.Kind kind) {
+        return new AutomationTaskManager.Run(1,
+                new AutomationTaskManager.Request(key, key, kind, () -> { }));
     }
 
     @Test
@@ -767,12 +822,14 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
-    public void detectsTheNoDungeonCountConfirmationWithoutMatchingNormalDialogText() {
-        assertTrue(DungeonBattleAutomation.isNoDungeonCountDialog(
-                "您已经没有此副本的次数：\n1.无法获得所有怪物的掉落\n是否要继续进行此副本？"));
-        assertTrue(DungeonBattleAutomation.isNoDungeonCountDialog("副本次数已用完"));
-        assertFalse(DungeonBattleAutomation.isNoDungeonCountDialog(
-                "详情告知 下一步 进入副本"));
+    public void recognizesSuccessfulDungeonEntryFromTheMiniMapLikeWudang() {
+        assertTrue(DungeonBattleAutomation.isCurrentDungeonMap(
+                "十常侍之乱", "十常侍之乱"));
+        assertTrue(DungeonBattleAutomation.isCurrentDungeonMap(
+                "三英战吕布", "精英三英战吕布|三英战吕布"));
+        assertFalse(DungeonBattleAutomation.isCurrentDungeonMap(
+                "副本宫殿（一般）", "十常侍之乱"));
+        assertFalse(DungeonBattleAutomation.isCurrentDungeonMap("", "十常侍之乱"));
     }
 
     @Test
@@ -1563,6 +1620,21 @@ public final class HelperAccessibilityServiceTest {
         assertEquals("地图", match.template.label);
     }
 
+    @Test
+    public void yuanbaoRecyclePageRequiresTheTitleTemplate() {
+        Map<WudangTemplateMatcher.Template, WudangTemplateMatcher.Match> matches =
+                new EnumMap<>(WudangTemplateMatcher.Template.class);
+        assertFalse(AutoSellAutomation.isYuanbaoRecycleOpen(matches));
+
+        matches.put(WudangTemplateMatcher.Template.YUANBAO_RECYCLE,
+                templateMatch(WudangTemplateMatcher.Template.YUANBAO_RECYCLE, 0.95));
+        assertTrue(AutoSellAutomation.isYuanbaoRecycleOpen(matches));
+
+        matches.put(WudangTemplateMatcher.Template.YUANBAO_RECYCLE,
+                templateMatch(WudangTemplateMatcher.Template.YUANBAO_RECYCLE, 0.80));
+        assertFalse(AutoSellAutomation.isYuanbaoRecycleOpen(matches));
+    }
+
     private static WudangTemplateMatcher.Match templateMatch(
             WudangTemplateMatcher.Template template, double score) {
         return new WudangTemplateMatcher.Match(template, template.assets[0], score,
@@ -1819,6 +1891,15 @@ public final class HelperAccessibilityServiceTest {
         assertEquals("汉中", BossAutomation.displayOcrValue(" 汉中\n"));
         assertEquals("空", BossAutomation.displayOcrValue("  "));
         assertEquals("空", BossAutomation.displayOcrValue(null));
+    }
+
+    @Test
+    public void skipsTheWorldBossMarkerOnlyOnTheConfiguredMap() {
+        WorldBossCatalog.MapEntry target = WorldBossCatalog.findMapByName("潼关");
+        assertTrue(BossAutomation.isAlreadyOnWorldMap("当前地图：潼 关", target));
+        assertFalse(BossAutomation.isAlreadyOnWorldMap("当前地图：白马", target));
+        assertFalse(BossAutomation.isAlreadyOnWorldMap("", target));
+        assertFalse(BossAutomation.isAlreadyOnWorldMap("潼关", null));
     }
 
     @Test

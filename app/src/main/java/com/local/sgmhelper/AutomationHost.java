@@ -59,6 +59,14 @@ interface AutomationHost {
 
     void checkInventoryBeforePrimary(Runnable next);
 
+    default void reviveSoldiersBeforeDungeon(Runnable next) {
+        next.run();
+    }
+
+    default void checkInventoryDuringMilitary(Runnable next) {
+        next.run();
+    }
+
     boolean handlePendingGear(Runnable afterHandled);
 
     /**

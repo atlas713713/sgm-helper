@@ -228,6 +228,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     private Runnable primaryTaskAction = trainingAutomation::start;
     private boolean inventoryCheckRunning;
     private boolean inventorySelling;
+    private boolean soldierRevivalRunning;
+    private boolean militaryQueuedDuringSoldierRevival;
     /** 下次定时重启的时间（{@link SystemClock#elapsedRealtime}）；0 表示还没开始计时。 */
     private long gameRestartDueAt;
     private final GearHandleEvent gearHandleEvent = new GearHandleEvent();
@@ -590,10 +592,23 @@ public final class HelperAccessibilityService extends AccessibilityService
         }
         Runnable next = () -> runTrainingStartSteps(steps, index + 1);
         switch (steps.get(index)) {
-            case REVIVE -> soldierRevivalAutomation.run(next);
+            case REVIVE -> runSoldierRevivalBeforeTraining(next);
             case MILITARY -> checkInventoryBeforeMilitary();
             case TRAINING -> trainingAutomation.start();
         }
+    }
+
+    private void runSoldierRevivalBeforeTraining(Runnable next) {
+        soldierRevivalRunning = true;
+        soldierRevivalAutomation.run(() -> {
+            soldierRevivalRunning = false;
+            if (militaryQueuedDuringSoldierRevival) {
+                DiagnosticLog.info("MILITARY",
+                        "starting queued task after soldier revival");
+                militaryQueuedDuringSoldierRevival = false;
+            }
+            next.run();
+        });
     }
 
     /**
@@ -1532,6 +1547,11 @@ public final class HelperAccessibilityService extends AccessibilityService
                     "skipped; primary task=" + primaryTaskLabel(primaryTask));
             return;
         }
+        if (shouldQueueMilitaryForSoldierRevival(soldierRevivalRunning)) {
+            militaryQueuedDuringSoldierRevival = true;
+            DiagnosticLog.info("MILITARY", "queued; soldier revival in progress");
+            return;
+        }
         if (inventorySelling) {
             // 自动贩卖可能正在执行元宝回收、营地商人或客栈贩卖，不能被军务抢占。
             DiagnosticLog.info("MILITARY", "deferred; auto sell in progress");
@@ -1539,6 +1559,10 @@ public final class HelperAccessibilityService extends AccessibilityService
             return;
         }
         taskAutomation.start();
+    }
+
+    static boolean shouldQueueMilitaryForSoldierRevival(boolean revivalRunning) {
+        return revivalRunning;
     }
 
     private void startScheduledAutomation(String progress, Runnable firstAction) {
@@ -1819,6 +1843,9 @@ public final class HelperAccessibilityService extends AccessibilityService
         closeMenu();
         DiagnosticLog.info("TASK", "start run=" + run.id + " key=" + run.request.key
                 + " kind=" + run.request.kind);
+        if (isMilitaryRun(run)) {
+            startInventoryMonitoring();
+        }
         try {
             run.request.start.run();
         } catch (RuntimeException error) {
@@ -1833,6 +1860,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (run.request.kind == AutomationTaskManager.Kind.PRIMARY) {
             inventorySelling = false;
             gearHandleEvent.defer();
+            soldierRevivalRunning = false;
+            militaryQueuedDuringSoldierRevival = false;
         }
         automationRunning = false;
         invalidateHudConfirmation();
@@ -1909,6 +1938,43 @@ public final class HelperAccessibilityService extends AccessibilityService
                         next.run();
                     }
                 }));
+    }
+
+    @Override
+    public void reviveSoldiersBeforeDungeon(Runnable next) {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (!preferences.getBoolean(
+                PREF_SOLDIER_REVIVAL_ENABLED, DEFAULT_SOLDIER_REVIVAL_ENABLED)) {
+            next.run();
+            return;
+        }
+        soldierRevivalAutomation.run(next);
+    }
+
+    @Override
+    public void checkInventoryDuringMilitary(Runnable next) {
+        if (!isMilitaryRunCurrent() || inventoryCheckRunning) {
+            next.run();
+            return;
+        }
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (!preferences.getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED)) {
+            next.run();
+            return;
+        }
+        inventoryCheckRunning = true;
+        int minimumFreeSlots = preferences.getInt(PREF_AUTO_SELL_MIN_FREE_SLOTS, 5);
+        autoSellAutomation.checkNearlyFull(minimumFreeSlots, nearlyFull -> {
+            inventoryCheckRunning = false;
+            if (!isMilitaryRunCurrent()) {
+                return;
+            }
+            if (nearlyFull) {
+                startMilitaryGearHandling();
+            } else {
+                next.run();
+            }
+        });
     }
 
     @Override
@@ -3960,7 +4026,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         if (!inventorySelling && taskState == STATE_RUNNING
                 && preferences.getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED)
-                && supportsInventoryMonitoring(primaryTask)) {
+                && shouldMonitorInventoryForRun(taskManager.current(), primaryTask)) {
             inventoryHandler.postDelayed(this::checkInventory, INVENTORY_CHECK_INTERVAL_MS);
         }
     }
@@ -3984,6 +4050,10 @@ public final class HelperAccessibilityService extends AccessibilityService
                 return;
             }
             if (nearlyFull) {
+                if (isMilitaryRunCurrent()) {
+                    startMilitaryGearHandling();
+                    return;
+                }
                 requestGearHandle();
                 if (primaryTask == PrimaryTask.TRAINING && !isTrainingPullActive()) {
                     handlePendingGear(trainingAutomation::resumeAfterGearHandle);
@@ -4001,8 +4071,44 @@ public final class HelperAccessibilityService extends AccessibilityService
             return false;
         }
         AutomationTaskManager.Run run = taskManager.current();
-        return run != null && run.request.kind == AutomationTaskManager.Kind.PRIMARY
-                && supportsInventoryMonitoring(primaryTask);
+        return shouldMonitorInventoryForRun(run, primaryTask);
+    }
+
+    static boolean shouldMonitorInventoryForRun(
+            AutomationTaskManager.Run run, PrimaryTask task) {
+        if (run == null) {
+            return false;
+        }
+        return isMilitaryRun(run)
+                || run.request.kind == AutomationTaskManager.Kind.PRIMARY
+                        && supportsInventoryMonitoring(task);
+    }
+
+    private boolean isMilitaryRunCurrent() {
+        return isMilitaryRun(taskManager.current());
+    }
+
+    private static boolean isMilitaryRun(AutomationTaskManager.Run run) {
+        return run != null
+                && run.request.kind == AutomationTaskManager.Kind.INTERRUPT
+                && "自动军务".equals(run.request.key);
+    }
+
+    private void startMilitaryGearHandling() {
+        stopInventoryMonitoring();
+        DiagnosticLog.info("AUTO_SELL",
+                "military backpack nearly full; queueing military and starting sale");
+        startHighPriorityInGameAutomation("自动出售：军务期间处理背包", () -> {
+            inventorySelling = true;
+            showProgress("Auto sell: handling military backpack");
+            ensureAutoAttackDisabled(() -> autoSellAutomation.runInline(() -> {
+                inventorySelling = false;
+                gearHandleEvent.clear();
+                DiagnosticLog.info("AUTO_SELL",
+                        "military backpack handling completed; resuming military");
+                completeAutomation();
+            }));
+        });
     }
 
     private boolean isTrainingPullActive() {

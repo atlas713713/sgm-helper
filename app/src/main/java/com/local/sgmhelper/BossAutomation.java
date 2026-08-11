@@ -257,6 +257,48 @@ final class BossAutomation {
     }
 
     private void useMarker() {
+        if (worldMode) {
+            checkCurrentWorldMapBeforeMarker(WORLD_MAP_NAME_ATTEMPTS);
+            return;
+        }
+        flyToMarker();
+    }
+
+    private void checkCurrentWorldMapBeforeMarker(int remainingAttempts) {
+        progress("识别当前地图");
+        host.recognizeMapName(value -> {
+            WorldBossCatalog.MapEntry currentMap = WorldBossCatalog.findMap(value);
+            if (isAlreadyOnWorldMap(value, worldMap)) {
+                DiagnosticLog.info("BOSS", "already on world target map="
+                        + worldMap.name + " action=skip_marker");
+                progress("已在" + worldMap.name + "，跳过标记点");
+                host.ensureAutoAttackDisabled(
+                        () -> maybeFollowLeader(this::openWorldBossMap));
+            } else if (currentMap != null) {
+                DiagnosticLog.info("BOSS", "current map=" + currentMap.name
+                        + " target=" + worldMap.name + " action=use_marker");
+                flyToMarker();
+            } else if (remainingAttempts > 1) {
+                progress("未识别到当前地图，重新检测");
+                host.postDelayed(() -> checkCurrentWorldMapBeforeMarker(
+                        remainingAttempts - 1), 1_000);
+            } else {
+                DiagnosticLog.warn("BOSS", "current map OCR miss before marker: "
+                        + value);
+                progress("未识别到当前地图，仍前往标记点");
+                flyToMarker();
+            }
+        });
+    }
+
+    static boolean isAlreadyOnWorldMap(
+            String value, WorldBossCatalog.MapEntry targetMap) {
+        WorldBossCatalog.MapEntry currentMap = WorldBossCatalog.findMap(value);
+        return currentMap != null && targetMap != null
+                && currentMap.name.equals(targetMap.name);
+    }
+
+    private void flyToMarker() {
         progress("停止自动攻击后前往标记点");
         host.useFirstMarker(() -> host.postDelayed(
                 () -> host.waitForMapReady(20, this::afterMarkerReady), MAP_LOAD_MS));

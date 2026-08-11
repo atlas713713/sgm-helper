@@ -223,6 +223,23 @@ public final class AutomationTaskManagerTest {
     }
 
     @Test
+    public void militaryInventorySaleReturnsToMilitaryBeforeOtherQueuedTasks() {
+        AutomationTaskManager manager = recordingManager(new ArrayList<>());
+        manager.submit(request("primary", AutomationTaskManager.Kind.PRIMARY));
+        manager.submit(request("自动军务", AutomationTaskManager.Kind.INTERRUPT));
+        manager.submit(request("定时副本", AutomationTaskManager.Kind.INTERRUPT));
+
+        assertTrue(manager.submit(request(
+                "自动出售", AutomationTaskManager.Kind.HIGH_PRIORITY_INTERRUPT)));
+        assertEquals("自动出售", manager.current().request.key);
+
+        assertTrue(manager.finish(manager.current().id));
+        assertEquals("自动军务", manager.current().request.key);
+        assertTrue(manager.finish(manager.current().id));
+        assertEquals("定时副本", manager.current().request.key);
+    }
+
+    @Test
     public void welfareHighPriorityRunsBeforeMilitary() {
         AutomationTaskManager manager = recordingManager(new ArrayList<>());
         manager.submit(request("primary", AutomationTaskManager.Kind.PRIMARY));
