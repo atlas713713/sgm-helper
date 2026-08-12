@@ -53,6 +53,21 @@ final class WildernessNavigator {
                 () -> waitForMonsterArea(MONSTER_ROUTE_RETRY_COUNT));
     }
 
+    void navigateToCoordinate(int x, int y, Runnable next) {
+        try {
+            TrainingAutomation.parseCustomCoordinate(x, y);
+        } catch (IllegalArgumentException error) {
+            host.failAutomation("自定义练级坐标无效");
+            return;
+        }
+        targetEnemy = null;
+        targetMonster = null;
+        completed = next;
+        progress("前往自定义坐标 " + x + "," + y);
+        host.tapMapCoordinate(x, y, () -> waitForCoordinate(x, y,
+                MONSTER_ROUTE_RETRY_COUNT));
+    }
+
     private void waitForMonsterArea(int remainingAttempts) {
         host.recognizeMapCoordinate(value -> {
             if (!host.isAutomationRunning()) {
@@ -69,6 +84,23 @@ final class WildernessNavigator {
                         () -> waitForMonsterArea(remainingAttempts - 1), 1_000);
             } else {
                 host.failAutomation("前往" + targetMonster + "区域超时");
+            }
+        });
+    }
+
+    private void waitForCoordinate(int targetX, int targetY, int remainingAttempts) {
+        host.recognizeMapCoordinate(value -> {
+            if (!host.isAutomationRunning()) {
+                return;
+            }
+            if (TrainingAutomation.coordinateReached(value, targetX, targetY)) {
+                progress("已到达自定义坐标 " + targetX + "," + targetY);
+                host.closeAutoPathPanel(completed);
+            } else if (remainingAttempts > 1) {
+                host.postDelayed(() -> waitForCoordinate(
+                        targetX, targetY, remainingAttempts - 1), 1_000);
+            } else {
+                host.failAutomation("前往自定义坐标 " + targetX + "," + targetY + " 超时");
             }
         });
     }

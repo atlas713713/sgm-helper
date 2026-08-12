@@ -131,6 +131,16 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void requiresTheAutoAttackButtonSignalBeforeTapping() {
+        assertTrue(HelperAccessibilityService.isAutoAttackButtonVisible(4, 44, 31));
+        assertTrue(HelperAccessibilityService.isAutoAttackButtonVisible(28, 3, 12));
+        // The same ROI when the in-game menu covers the control has no button
+        // highlight, so it must not be treated as a tappable attack control.
+        assertFalse(HelperAccessibilityService.isAutoAttackButtonVisible(2, 0, 0));
+        assertFalse(HelperAccessibilityService.isAutoAttackButtonVisible(20, 0, 4));
+    }
+
+    @Test
     public void prependsCurrentPrimaryTaskToProgress() {
         assertEquals("【练级】 自动军务：检查任务",
                 HelperAccessibilityService.formatProgress(
@@ -1362,6 +1372,26 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void givesValidCustomWildernessCoordinatePriority() {
+        TrainingAutomation.CustomCoordinate coordinate =
+                TrainingAutomation.parseCustomCoordinate("123", "27");
+        assertEquals(123, coordinate.x);
+        assertEquals(27, coordinate.y);
+        assertTrue(TrainingAutomation.coordinateReached("坐标 125,25", coordinate.x, coordinate.y));
+        assertFalse(TrainingAutomation.coordinateReached("坐标 126,25", coordinate.x, coordinate.y));
+    }
+
+    @Test
+    public void rejectsInvalidCustomWildernessCoordinate() {
+        assertThrows(IllegalArgumentException.class,
+                () -> TrainingAutomation.parseCustomCoordinate("0", "27"));
+        assertThrows(IllegalArgumentException.class,
+                () -> TrainingAutomation.parseCustomCoordinate("123", "50"));
+        assertThrows(IllegalArgumentException.class,
+                () -> TrainingAutomation.parseCustomCoordinate("abc", "27"));
+    }
+
+    @Test
     public void schedulesTheEarliestIndependentMilitaryTask() {
         assertTrue(WorshipAlarmReceiver.hasConfiguredMilitaryTime(true, true));
         assertFalse(WorshipAlarmReceiver.hasConfiguredMilitaryTime(true, false));
@@ -1751,6 +1781,10 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(BossAutomation.isMenuAutoCandidate("自 动", 1150, 320));
         assertFalse(BossAutomation.isMenuAutoCandidate("自动", 530, 320));
         assertFalse(BossAutomation.isMenuAutoCandidate("打开自动设置", 1170, 320));
+        assertTrue(BossAutomation.matchesBossName("73 貂蝉", "貂蝉"));
+        assertTrue(BossAutomation.matchesBossName("貂 蝉", "貂蝉"));
+        assertFalse(BossAutomation.matchesBossName("71 李肃", "貂蝉"));
+        assertFalse(BossAutomation.matchesBossName("刻表", "刘表"));
         assertTrue(BossAutomation.isPartyManageDialogText(
                 "名称  职业  等级  所在地  分流  操作"));
         assertTrue(BossAutomation.isPartyManageDialogText(

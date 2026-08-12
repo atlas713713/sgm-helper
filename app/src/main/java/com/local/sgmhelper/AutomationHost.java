@@ -330,6 +330,18 @@ interface AutomationHost {
 
     void recognizeRedBoss(Consumer<BossAutomation.BossTarget> result);
 
+    /**
+     * Recognizes a configured world boss from the red-name enemy list. The
+     * default keeps custom hosts compatible while the service can scan every
+     * red row instead of stopping at the first small boss.
+     */
+    default void recognizeRedBoss(String expectedName,
+            Consumer<BossAutomation.BossTarget> result) {
+        recognizeRedBoss(target -> result.accept(target != null
+                && BossAutomation.matchesBossName(target.name, expectedName)
+                ? target : null));
+    }
+
     void recognizeHudChannel(Bitmap screenshot, Consumer<Integer> result);
 
     void recognizeChannelDialog(Consumer<Integer> result);

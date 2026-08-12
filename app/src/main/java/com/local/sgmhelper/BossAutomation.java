@@ -164,7 +164,7 @@ final class BossAutomation {
         progress("打开菜单");
         host.tap(1215, 58, () -> {
             progress("向上滑动菜单");
-            host.swipe(1150, 600, 1150, 220,
+            host.swipe(1150, 500, 1150, 200,
                     () -> clickAutoSettings(remainingAttempts));
         });
     }
@@ -218,19 +218,19 @@ final class BossAutomation {
                 host.tap(bounds.centerX(), bounds.centerY(), this::selectModeOne);
             } else if (remainingAttempts > 1) {
                 progress("未识别到自动，检查遮挡窗口");
-                host.tap(1240, 45, () -> host.ensureGameHudVisible(
+                host.pressBack(() -> host.ensureGameHudVisible(
                         () -> openAutoSettings(remainingAttempts - 1)));
             } else {
                 DiagnosticLog.warn("BOSS", "auto settings OCR missed twice; skipping");
                 progress("未识别到自动，跳过自动设置");
-                host.tap(1240, 45, this::useMarker);
+                host.pressBack(this::useMarker);
             }
         });
     }
 
     private void selectModeOne() {
         progress("选择模式 1");
-        host.tap(1025, 75, () -> host.tap(1240, 45, this::useMarker));
+        host.tap(1025, 75, () -> host.pressBack(() -> host.pressBack(this::useMarker)));
     }
 
     private static Rect findMenuAutoBounds(OcrText text) {
@@ -553,7 +553,7 @@ final class BossAutomation {
     }
 
     private void findRedBoss(java.util.function.Consumer<BossTarget> result) {
-        host.recognizeRedBoss(target -> {
+        java.util.function.Consumer<BossTarget> onTarget = target -> {
             if (!worldMode || target == null || isActiveWorldBoss(target.name)) {
                 result.accept(target);
             } else {
@@ -561,20 +561,45 @@ final class BossAutomation {
                         + " expected=" + bossNames(activeWorldBosses));
                 result.accept(null);
             }
-        });
+        };
+        if (worldMode && worldBossTarget != null) {
+            // A map can show several red-name enemies. Ask the recognizer to
+            // scan all rows for the configured main boss; the first red row
+            // may be a small boss (for example 李肃/魏续 before 貂蝉).
+            host.recognizeRedBoss(worldBossTarget.name, onTarget);
+        } else {
+            host.recognizeRedBoss(onTarget);
+        }
     }
 
     private boolean isActiveWorldBoss(String value) {
-        String normalized = value == null ? "" : value.replaceAll("\\s+", "");
-        if (normalized.isEmpty()) {
-            return false;
-        }
         for (WorldBossCatalog.BossEntry boss : activeWorldBosses) {
-            if (normalized.contains(boss.name) || boss.name.contains(normalized)) {
+            if (matchesBossName(value, boss.name)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** OCR may include the level or punctuation around the Chinese name. */
+    static boolean matchesBossName(String recognized, String expected) {
+        String recognizedName = chineseOnly(recognized);
+        String expectedName = chineseOnly(expected);
+        return !expectedName.isEmpty() && expectedName.equals(recognizedName);
+    }
+
+    private static String chineseOnly(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder normalized = new StringBuilder();
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character >= '\u4e00' && character <= '\u9fff') {
+                normalized.append(character);
+            }
+        }
+        return normalized.toString();
     }
 
     private void switchChannel() {
@@ -1034,6 +1059,17 @@ final class BossAutomation {
 
     static BossTarget findRedBoss(
             OcrText text, Bitmap bitmap, int screenLeft, int ocrScale) {
+        return findRedBoss(text, bitmap, screenLeft, ocrScale, null);
+    }
+
+    /**
+     * Finds a red-name target. With an expected name, all OCR rows are
+     * inspected so a small red boss earlier in the list cannot hide the main
+     * world boss.
+     */
+    static BossTarget findRedBoss(
+            OcrText text, Bitmap bitmap, int screenLeft, int ocrScale,
+            String expectedName) {
         for (OcrText.TextBlock block : text.getTextBlocks()) {
             for (OcrText.Line line : block.getLines()) {
                 for (OcrText.Element element : line.getElements()) {
@@ -1045,7 +1081,11 @@ final class BossAutomation {
                         if (isEnemyListCandidate(bounds.centerY(), bitmap.getHeight())
                                 && hasRedText(bitmap, bounds)) {
                             bounds.offset(screenLeft, 0);
-                            return new BossTarget(name, bounds);
+                            BossTarget candidate = new BossTarget(name, bounds);
+                            if (expectedName == null
+                                    || matchesBossName(name, expectedName)) {
+                                return candidate;
+                            }
                         }
                     }
                 }

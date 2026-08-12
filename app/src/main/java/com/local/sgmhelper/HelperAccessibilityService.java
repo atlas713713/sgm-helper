@@ -160,6 +160,10 @@ public final class HelperAccessibilityService extends AccessibilityService
     static final String PREF_TRAINING_LOCATION = "training_location";
     static final String PREF_TRAINING_WILDERNESS_ZONE = "training_wilderness_zone";
     static final String PREF_TRAINING_MONSTER = "training_monster";
+    static final String PREF_TRAINING_CUSTOM_COORDINATE_ENABLED =
+            "training_custom_coordinate_enabled";
+    static final String PREF_TRAINING_CUSTOM_COORDINATE_X = "training_custom_coordinate_x";
+    static final String PREF_TRAINING_CUSTOM_COORDINATE_Y = "training_custom_coordinate_y";
     static final String PREF_TRAINING_PULL_FOR_OTHERS = "training_pull_for_others";
     static final String PREF_TRAINING_PULL_ROUTE = "training_pull_route";
     static final String TRAINING_LOCATION_WILDERNESS = "荒野";
@@ -821,6 +825,21 @@ public final class HelperAccessibilityService extends AccessibilityService
             public void onNothingSelected(AdapterView<?> parentView) {
             }
         });
+        CheckBox customCoordinate = addSettingsCheckBox(
+                wildernessFields, R.string.training_custom_coordinate,
+                preferences.getBoolean(PREF_TRAINING_CUSTOM_COORDINATE_ENABLED, false));
+        customCoordinate.setOnCheckedChangeListener((button, checked) -> {
+            preferences.edit().putBoolean(PREF_TRAINING_CUSTOM_COORDINATE_ENABLED, checked)
+                    .apply();
+            if (checked && TrainingAutomation.customCoordinateFromPreferences(preferences)
+                    == null) {
+                showTrainingCoordinateDialog();
+            }
+        });
+        addSettingsText(wildernessFields, R.string.training_custom_coordinate_hint);
+        addSettingsButtonRow(wildernessFields,
+                createSettingsButton(R.string.training_custom_coordinate_edit, false,
+                        view -> showTrainingCoordinateDialog()));
         menu.addView(wildernessFields, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -891,6 +910,62 @@ public final class HelperAccessibilityService extends AccessibilityService
                         dialog.dismiss();
                     } catch (IllegalArgumentException error) {
                         route.setError(error.getMessage());
+                    }
+                }));
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY);
+        }
+        dialog.show();
+    }
+
+    private void showTrainingCoordinateDialog() {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        int padding = dp(20);
+        fields.setPadding(padding, 0, padding, 0);
+
+        EditText x = new EditText(this);
+        x.setSingleLine(true);
+        x.setInputType(InputType.TYPE_CLASS_NUMBER);
+        x.setHint(R.string.training_custom_coordinate_x_hint);
+        int savedX = preferences.getInt(PREF_TRAINING_CUSTOM_COORDINATE_X, 0);
+        if (savedX > 0) {
+            x.setText(String.valueOf(savedX));
+        }
+        fields.addView(x, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        EditText y = new EditText(this);
+        y.setSingleLine(true);
+        y.setInputType(InputType.TYPE_CLASS_NUMBER);
+        y.setHint(R.string.training_custom_coordinate_y_hint);
+        int savedY = preferences.getInt(PREF_TRAINING_CUSTOM_COORDINATE_Y, 0);
+        if (savedY > 0) {
+            y.setText(String.valueOf(savedY));
+        }
+        fields.addView(y, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.training_custom_coordinate_edit)
+                .setView(fields)
+                .setNegativeButton(R.string.login_cancel, null)
+                .setPositiveButton(R.string.login_save, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(view -> {
+                    try {
+                        TrainingAutomation.CustomCoordinate coordinate =
+                                TrainingAutomation.parseCustomCoordinate(
+                                        x.getText().toString(), y.getText().toString());
+                        preferences.edit()
+                                .putInt(PREF_TRAINING_CUSTOM_COORDINATE_X, coordinate.x)
+                                .putInt(PREF_TRAINING_CUSTOM_COORDINATE_Y, coordinate.y)
+                                .apply();
+                        dialog.dismiss();
+                    } catch (IllegalArgumentException error) {
+                        y.setError(error.getMessage());
                     }
                 }));
         if (dialog.getWindow() != null) {
@@ -2277,7 +2352,8 @@ public final class HelperAccessibilityService extends AccessibilityService
     @Override
     public void ensureAutoAttackDisabled(Runnable next) {
         ensureGameHudVisible(
-                () -> ensureAutoAttackState(false, next, SCREEN_WAIT_RETRY_COUNT));
+                () -> pressBack(() -> ensureAutoAttackState(
+                        false, next, SCREEN_WAIT_RETRY_COUNT)));
     }
 
     @Override
@@ -2667,12 +2743,30 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private Boolean isAutoAttackEnabled(Bitmap bitmap) {
+        int[] signal = autoAttackButtonSignal(bitmap);
+        if (!isAutoAttackButtonVisible(signal[0], signal[1], signal[2])) {
+            return null;
+        }
+        return signal[0] > signal[1];
+    }
+
+    private boolean isAutoAttackButtonVisible(Bitmap bitmap) {
+        int[] signal = autoAttackButtonSignal(bitmap);
+        return isAutoAttackButtonVisible(signal[0], signal[1], signal[2]);
+    }
+
+    static boolean isAutoAttackButtonVisible(int red, int blue, int bright) {
+        return red + blue >= 10 && bright >= 8;
+    }
+
+    private int[] autoAttackButtonSignal(Bitmap bitmap) {
         int left = 1200 * bitmap.getWidth() / 1280;
         int right = 1260 * bitmap.getWidth() / 1280;
         int top = 440 * bitmap.getHeight() / 720;
         int bottom = 510 * bitmap.getHeight() / 720;
         int red = 0;
         int blue = 0;
+        int bright = 0;
 
         for (int y = top; y < bottom; y += 2) {
             for (int x = left; x < right; x += 2) {
@@ -2686,9 +2780,12 @@ public final class HelperAccessibilityService extends AccessibilityService
                 if (b > 100 && b > r * 1.2f && b > g * 1.05f) {
                     blue++;
                 }
+                if (r > 150 && g > 150 && b > 150) {
+                    bright++;
+                }
             }
         }
-        return red + blue < 10 ? null : red > blue;
+        return new int[] {red, blue, bright};
     }
 
     private void recognizeScreenText(Consumer<OcrText> result) {
@@ -2819,6 +2916,12 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void recognizeRedBoss(Consumer<BossAutomation.BossTarget> result) {
+        recognizeRedBoss(null, result);
+    }
+
+    @Override
+    public void recognizeRedBoss(String expectedName,
+            Consumer<BossAutomation.BossTarget> result) {
         captureScreenshot(bitmap -> {
             if (bitmap == null) {
                 result.accept(null);
@@ -2835,7 +2938,7 @@ public final class HelperAccessibilityService extends AccessibilityService
 
             recognizeText(enlarged, text -> {
                 result.accept(BossAutomation.findRedBoss(
-                        text, cropped, left, scale));
+                        text, cropped, left, scale, expectedName));
                 enlarged.recycle();
                 cropped.recycle();
             }, error -> {
@@ -4134,9 +4237,22 @@ public final class HelperAccessibilityService extends AccessibilityService
         } else if (task == PrimaryTask.DUNGEON) {
             restartDungeonTask();
         } else {
-            setPrimaryTask(PrimaryTask.TRAINING, trainingAutomation::start);
-            startTrainingPrimaryTask(trainingAutomation::start);
+            startTrainingAfterResume();
         }
+    }
+
+    /**
+     * 中断任务结束后恢复练级时，重新执行练级前的复活步骤，但不重复排军务。
+     * 军务本身刚刚结束，若再次走完整前置流程会立即重新启动军务，形成循环。
+     */
+    private void startTrainingAfterResume() {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        boolean revivalEnabled = preferences.getBoolean(
+                PREF_SOLDIER_REVIVAL_ENABLED, DEFAULT_SOLDIER_REVIVAL_ENABLED);
+        List<TrainingStartStep> steps = trainingStartSteps(false, revivalEnabled);
+        DiagnosticLog.info("AUTOMATION", "resuming training preparation: revive="
+                + revivalEnabled + ", military=false");
+        startTrainingPrimaryTask(() -> runTrainingStartSteps(steps, 0));
     }
 
     /** 手动前往某座城市，用来验证城市传送和传送官这两段路。 */

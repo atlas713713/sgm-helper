@@ -63,6 +63,11 @@
     <string name="training_location">练级地点：</string>
     <string name="training_wilderness_zone">荒野几区：</string>
     <string name="training_monster">目标怪物：</string>
+    <string name="training_custom_coordinate">使用自定义练级坐标</string>
+    <string name="training_custom_coordinate_hint">勾选后优先前往自定义坐标（X 1–599，Y 1–49）。</string>
+    <string name="training_custom_coordinate_edit">设置自定义坐标</string>
+    <string name="training_custom_coordinate_x_hint">X坐标（1–599）</string>
+    <string name="training_custom_coordinate_y_hint">Y坐标（1–49）</string>
     <string name="training_pull_for_others">为别人拉怪</string>
     <string name="training_pull_route">设置拉怪路线</string>
     <string name="training_pull_route_hint">每行：X,Y,停留毫秒,是否攻击(1/0)。到点攻击并停留，然后循环下一点。</string>

@@ -14,6 +14,7 @@ final class TrainingAutomation {
     private final WildernessNavigator wildernessNavigator;
     private int wildernessZone;
     private String wildernessMonster;
+    private CustomCoordinate customTrainingCoordinate;
     private List<PullPoint> pullRoute = List.of();
     private int pullRouteIndex;
 
@@ -48,6 +49,7 @@ final class TrainingAutomation {
         } else {
             pullRoute = List.of();
         }
+        customTrainingCoordinate = null;
         if (HelperAccessibilityService.TRAINING_LOCATION_WILDERNESS.equals(location)) {
             wildernessZone = preferences.getInt(
                     HelperAccessibilityService.PREF_TRAINING_WILDERNESS_ZONE, 1);
@@ -57,6 +59,12 @@ final class TrainingAutomation {
                     allowedMonsters.get(0));
             wildernessMonster = monsterName(allowedMonsters.contains(selectedMonster)
                     ? selectedMonster : allowedMonsters.get(0));
+            customTrainingCoordinate = customCoordinateFromPreferences(preferences);
+            if (preferences.getBoolean(
+                    HelperAccessibilityService.PREF_TRAINING_CUSTOM_COORDINATE_ENABLED,
+                    false) && customTrainingCoordinate == null) {
+                host.showProgress("自动练级：自定义坐标无效，使用目标怪物区域");
+            }
             startWilderness();
             return;
         }
@@ -81,6 +89,14 @@ final class TrainingAutomation {
     }
 
     private void selectMonster() {
+        if (customTrainingCoordinate != null) {
+            host.showProgress("自动练级：前往自定义坐标 "
+                    + customTrainingCoordinate.x + "," + customTrainingCoordinate.y);
+            host.openAutoPathPanel(() -> wildernessNavigator.navigateToCoordinate(
+                    customTrainingCoordinate.x, customTrainingCoordinate.y,
+                    this::startTrainingAtLocation));
+            return;
+        }
         host.showProgress("自动练级：选择目标怪物 " + wildernessMonster);
         host.openAutoPathPanel(
                 () -> host.tap(1015, 165,
@@ -185,6 +201,54 @@ final class TrainingAutomation {
         return separator < 0 ? value : value.substring(separator + 1);
     }
 
+    /**
+     * 武当的荒野练级逻辑：勾选自定义坐标且 X/Y 都有效时，优先使用该坐标；
+     * 否则回退到目标怪物区域。
+     */
+    static CustomCoordinate customCoordinateFromPreferences(SharedPreferences preferences) {
+        if (!preferences.getBoolean(
+                HelperAccessibilityService.PREF_TRAINING_CUSTOM_COORDINATE_ENABLED, false)) {
+            return null;
+        }
+        int x = preferences.getInt(
+                HelperAccessibilityService.PREF_TRAINING_CUSTOM_COORDINATE_X, 0);
+        int y = preferences.getInt(
+                HelperAccessibilityService.PREF_TRAINING_CUSTOM_COORDINATE_Y, 0);
+        if (x <= 0 || y <= 0 || x > AutomationHost.MAP_GAME_MAX_X
+                || y > AutomationHost.MAP_GAME_MAX_Y) {
+            return null;
+        }
+        return new CustomCoordinate(x, y);
+    }
+
+    static CustomCoordinate parseCustomCoordinate(String xValue, String yValue) {
+        if (xValue == null || yValue == null
+                || xValue.trim().isEmpty() || yValue.trim().isEmpty()) {
+            throw new IllegalArgumentException("X/Y 坐标不能为空");
+        }
+        try {
+            return parseCustomCoordinate(Integer.parseInt(xValue.trim()),
+                    Integer.parseInt(yValue.trim()));
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException("坐标只能填写数字", error);
+        }
+    }
+
+    static CustomCoordinate parseCustomCoordinate(int x, int y) {
+        if (x <= 0 || x > AutomationHost.MAP_GAME_MAX_X
+                || y <= 0 || y > AutomationHost.MAP_GAME_MAX_Y) {
+            throw new IllegalArgumentException("坐标范围：X 1–599，Y 1–49");
+        }
+        return new CustomCoordinate(x, y);
+    }
+
+    static boolean coordinateReached(String coordinate, int targetX, int targetY) {
+        int[] current = BossAutomation.parseMapCoordinate(coordinate);
+        return current != null
+                && Math.abs(current[0] - targetX) <= 2
+                && Math.abs(current[1] - targetY) <= 2;
+    }
+
     static List<PullPoint> parsePullRoute(String value) {
         List<PullPoint> route = new ArrayList<>();
         if (value == null || value.trim().isEmpty()) {
@@ -223,10 +287,17 @@ final class TrainingAutomation {
     }
 
     static boolean pullPointReached(String coordinate, PullPoint point) {
-        int[] current = BossAutomation.parseMapCoordinate(coordinate);
-        return current != null
-                && Math.abs(current[0] - point.x) <= 2
-                && Math.abs(current[1] - point.y) <= 2;
+        return coordinateReached(coordinate, point.x, point.y);
+    }
+
+    static final class CustomCoordinate {
+        final int x;
+        final int y;
+
+        CustomCoordinate(int x, int y) {
+            this.x = x;
+            this.y = y;
+        }
     }
 
     static final class PullPoint {
