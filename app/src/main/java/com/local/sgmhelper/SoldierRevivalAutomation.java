@@ -6,6 +6,8 @@ import java.util.List;
 
 final class SoldierRevivalAutomation {
     private static final int CAMP_SCROLL_ATTEMPTS = 4;
+    private static final int CAMP_SCROLL_START_Y = 400;
+    private static final int CAMP_SCROLL_END_Y = 250;
     private static final int ARRIVAL_ATTEMPTS = 16;
     private static final long RETURN_HOME_SETTLE_MS = 2_000L;
     private static final long ARRIVAL_POLL_DELAY_MS = 500L;
@@ -54,7 +56,7 @@ final class SoldierRevivalAutomation {
         host.showProgress("复活士兵：查找军营");
         host.clickRightTextFast("军营", () -> waitForCamp(ARRIVAL_ATTEMPTS, next), 2, () -> {
             if (remainingScrolls > 0) {
-                host.swipe(1120, 450, 1120, 230,
+                host.swipe(1120, CAMP_SCROLL_START_Y, 1120, CAMP_SCROLL_END_Y,
                         () -> findCamp(remainingScrolls - 1, next));
             } else {
                 skip("回城后仍未找到军营", next);

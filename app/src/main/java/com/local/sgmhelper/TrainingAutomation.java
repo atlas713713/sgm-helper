@@ -9,6 +9,13 @@ import java.util.List;
 final class TrainingAutomation {
     private static final int PULL_ROUTE_RETRY_COUNT = 90;
     private static final long PULL_ROUTE_CHECK_MS = 1_000;
+    /** 这张图的怪不会自动打，得在引路面板里手动选目标。 */
+    private static final String CHARIOT_MAP = "铁门峡二层";
+    private static final String CHARIOT_ENEMY = "黄金刀车";
+    private static final int CHARIOT_RETRY_COUNT = 10;
+    /** 引路面板的“敌人”页签，和荒野选怪用的是同一个按钮。 */
+    private static final int GUIDE_ENEMY_TAB_X = 1015;
+    private static final int GUIDE_ENEMY_TAB_Y = 165;
 
     private final AutomationHost host;
     private final WildernessNavigator wildernessNavigator;
@@ -75,11 +82,44 @@ final class TrainingAutomation {
         host.showProgress("自动练级：停止自动攻击后使用第一个标记卷");
         host.useFirstMarker(() -> {
             host.showProgress("自动练级：等待地图加载");
-            host.postDelayed(() -> {
+            host.postDelayed(this::checkMarkerMap, 5_000);
+        });
+    }
+
+    /** 标记点落地后先看是哪张图：铁门峡二层要自己在引路列表里点黄金刀车。 */
+    private void checkMarkerMap() {
+        host.showProgress("自动练级：识别标记点地图");
+        host.recognizeMapName(mapName -> {
+            if (!host.isAutomationRunning()) {
+                return;
+            }
+            DiagnosticLog.info("TRAINING", "marker map=" + mapName);
+            if (!isChariotMap(mapName)) {
                 host.showProgress("自动练级：等待自动攻击按钮");
                 startTrainingAtLocation();
-            }, 5_000);
+                return;
+            }
+            host.showProgress("自动练级：" + CHARIOT_MAP + "，改打" + CHARIOT_ENEMY);
+            selectChariot();
         });
+    }
+
+    private void selectChariot() {
+        host.openAutoPathPanel(() -> host.tap(GUIDE_ENEMY_TAB_X, GUIDE_ENEMY_TAB_Y,
+                () -> host.clickRightText(CHARIOT_ENEMY, () -> {
+                    host.showProgress("自动练级：已选中" + CHARIOT_ENEMY);
+                    startTrainingAtLocation();
+                }, CHARIOT_RETRY_COUNT, () -> {
+                    // 刀车没刷出来时照常练级，不把整条主线判死。
+                    DiagnosticLog.warn("TRAINING", "chariot not in the guide list");
+                    host.showProgress("自动练级：未找到" + CHARIOT_ENEMY + "，按普通练级继续");
+                    host.closeAutoPathPanel(this::startTrainingAtLocation);
+                })));
+    }
+
+    /** 地图名 OCR 偶尔会带空格或多认一两个字，包含即可。 */
+    static boolean isChariotMap(String mapName) {
+        return mapName != null && mapName.replaceAll("\\s", "").contains(CHARIOT_MAP);
     }
 
     private void startWilderness() {

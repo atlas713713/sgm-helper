@@ -1347,6 +1347,18 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void picksTheGoldenChariotOnlyOnTheIronGateSecondFloor() {
+        assertTrue(TrainingAutomation.isChariotMap("铁门峡二层"));
+        // 地图名 OCR 常带空格，或者把周围的字一起认进来。
+        assertTrue(TrainingAutomation.isChariotMap(" 铁门峡 二层 "));
+        assertTrue(TrainingAutomation.isChariotMap("当前地图：铁门峡二层"));
+        assertFalse(TrainingAutomation.isChariotMap("铁门峡一层"));
+        assertFalse(TrainingAutomation.isChariotMap("荒野修炼三区"));
+        assertFalse(TrainingAutomation.isChariotMap(""));
+        assertFalse(TrainingAutomation.isChariotMap(null));
+    }
+
+    @Test
     public void parsesAndLoopsThroughPullForOthersRoutePoints() {
         List<TrainingAutomation.PullPoint> route =
                 TrainingAutomation.parsePullRoute(
@@ -1779,6 +1791,7 @@ public final class HelperAccessibilityServiceTest {
         assertFalse(BossAutomation.isStableLeaderChannel(4, 5));
         assertFalse(BossAutomation.isStableLeaderChannel(4, null));
         assertTrue(BossAutomation.isMenuAutoCandidate("自 动", 1150, 320));
+        assertTrue(BossAutomation.isMenuAutoCandidate("自动", 1210, 130));
         assertFalse(BossAutomation.isMenuAutoCandidate("自动", 530, 320));
         assertFalse(BossAutomation.isMenuAutoCandidate("打开自动设置", 1170, 320));
         assertTrue(BossAutomation.matchesBossName("73 貂蝉", "貂蝉"));

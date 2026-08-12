@@ -170,62 +170,75 @@ final class BossAutomation {
     }
 
     private void clickAutoSettings(int remainingAttempts) {
-        progress("识别自动设置");
-        clickAutoSettingsTemplate(remainingAttempts, 2);
+        progress("识别菜单自动");
+        clickAutoMenuItem(remainingAttempts, 2);
     }
 
-    private void clickAutoSettingsTemplate(int remainingAttempts, int templateAttempts) {
+    private void clickAutoMenuItem(int remainingAttempts, int ocrAttempts) {
+        // The menu entry is not the AUTO_FUNCTION title template. Locate the
+        // visible "自动" entry first, then verify the page title after tapping.
+        host.recognizeTextRegion(1030, 70, 1280, 500, text -> {
+            DiagnosticLog.info("BOSS", "auto menu ROI Paddle OCR='"
+                    + text.getText().replace('\n', ' ') + "'");
+            Rect bounds = findMenuAutoBounds(text);
+            if (bounds != null) {
+                progress("点击菜单自动");
+                host.tap(bounds.centerX(), bounds.centerY(),
+                        () -> confirmAutoSettingsPage(remainingAttempts, 3));
+            } else if (ocrAttempts > 1) {
+                host.postDelayed(
+                        () -> clickAutoMenuItem(remainingAttempts, ocrAttempts - 1),
+                        500);
+            } else {
+                retryAutoSettings(remainingAttempts, "未识别到菜单自动");
+            }
+        });
+    }
+
+    private void confirmAutoSettingsPage(int remainingAttempts, int templateAttempts) {
         host.matchTemplates(new WudangTemplateMatcher.Template[] {
                         WudangTemplateMatcher.Template.AUTO_FUNCTION
                 },
-                1100, 330, 1270, 405,
+                570, 6, 1280, 44,
                 matches -> {
                     WudangTemplateMatcher.Match match = matches.get(
                             WudangTemplateMatcher.Template.AUTO_FUNCTION);
                     if (match != null && match.found()) {
-                        host.tap(match.centerX(), match.centerY(), this::selectModeOne);
+                        DiagnosticLog.info("BOSS", "auto settings page confirmed by title");
+                        selectModeOne();
                     } else if (templateAttempts > 1) {
                         host.postDelayed(
-                                () -> clickAutoSettingsTemplate(
+                                () -> confirmAutoSettingsPage(
                                         remainingAttempts, templateAttempts - 1),
                                 500);
                     } else {
-                        DiagnosticLog.info("TEMPLATE_FALLBACK",
-                                "name=自动功能 source=ocr");
-                        clickAutoSettingsByOcr(remainingAttempts);
+                        retryAutoSettings(remainingAttempts, "自动功能标题未出现");
                     }
                 }, error -> {
                     if (templateAttempts > 1) {
                         host.postDelayed(
-                                () -> clickAutoSettingsTemplate(
+                                () -> confirmAutoSettingsPage(
                                         remainingAttempts, templateAttempts - 1),
                                 500);
                     } else {
-                        DiagnosticLog.info("TEMPLATE_FALLBACK",
-                                "name=自动功能 source=ocr error="
+                        retryAutoSettings(remainingAttempts,
+                                "自动功能标题模板异常："
                                         + error.getClass().getSimpleName());
-                        clickAutoSettingsByOcr(remainingAttempts);
                     }
                 });
     }
 
-    private void clickAutoSettingsByOcr(int remainingAttempts) {
-        host.recognizeTextRegion(1100, 330, 1270, 405, text -> {
-            DiagnosticLog.info("BOSS", "auto settings ROI Paddle OCR='"
-                    + text.getText().replace('\n', ' ') + "'");
-            Rect bounds = findMenuAutoBounds(text);
-            if (bounds != null) {
-                host.tap(bounds.centerX(), bounds.centerY(), this::selectModeOne);
-            } else if (remainingAttempts > 1) {
-                progress("未识别到自动，检查遮挡窗口");
-                host.pressBack(() -> host.ensureGameHudVisible(
-                        () -> openAutoSettings(remainingAttempts - 1)));
-            } else {
-                DiagnosticLog.warn("BOSS", "auto settings OCR missed twice; skipping");
-                progress("未识别到自动，跳过自动设置");
-                host.pressBack(this::useMarker);
-            }
-        });
+    private void retryAutoSettings(int remainingAttempts, String reason) {
+        if (remainingAttempts > 1) {
+            DiagnosticLog.warn("BOSS", reason + "; reopening auto menu");
+            progress(reason + "，重新打开菜单");
+            host.pressBack(() -> host.ensureGameHudVisible(
+                    () -> openAutoSettings(remainingAttempts - 1)));
+        } else {
+            DiagnosticLog.warn("BOSS", reason + "; skipping auto settings");
+            progress("自动设置未打开，跳过自动设置");
+            host.pressBack(this::useMarker);
+        }
     }
 
     private void selectModeOne() {
