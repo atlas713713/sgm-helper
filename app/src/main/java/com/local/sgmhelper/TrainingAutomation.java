@@ -12,7 +12,13 @@ final class TrainingAutomation {
     private static final long PULL_ROUTE_CHECK_MS = 1_000;
     /** 这张图的怪不会自动打，得在引路面板里手动选目标。 */
     private static final String CHARIOT_MAP = "铁门峡二层";
-    private static final String CHARIOT_ENEMY = "黄金刀车";
+    /** 游戏里的名字是“黄巾刀车”，和“黄金”同音，早期版本写错成黄金刀车所以一直匹配不到。 */
+    private static final String CHARIOT_ENEMY = "黄巾刀车";
+    /**
+     * 只认“刀车”这两个字：同列表里的黄巾枪骑兵、黄巾力士都不含它，而“巾/金”既同音又形近，
+     * 无论 OCR 读成哪个都能命中。
+     */
+    private static final String CHARIOT_KEYWORD = "刀车";
     private static final int CHARIOT_RETRY_COUNT = 10;
     private static final long CHARIOT_POLL_MS = 1_000;
     /** 引路面板的“敌人”页签，和荒野选怪用的是同一个按钮。 */
@@ -88,7 +94,7 @@ final class TrainingAutomation {
         });
     }
 
-    /** 标记点落地后先看是哪张图：铁门峡二层要自己在引路列表里点黄金刀车。 */
+    /** 标记点落地后先看是哪张图：铁门峡二层要自己在引路列表里点黄巾刀车。 */
     private void checkMarkerMap() {
         host.showProgress("自动练级：识别标记点地图");
         host.recognizeMapName(mapName -> {
@@ -149,11 +155,11 @@ final class TrainingAutomation {
         return mapName != null && mapName.replaceAll("\\s", "").contains(CHARIOT_MAP);
     }
 
-    /** 行文字是“35 黄金刀车”这种等级加名字，去掉空格再按名字找。 */
+    /** 行文字是“35 黄巾刀车”这种等级加名字，去掉空格再按关键字找。 */
     static Rect findChariotBounds(List<DungeonBattleAutomation.EnemyRow> rows) {
         for (DungeonBattleAutomation.EnemyRow row : rows) {
             String label = row.label == null ? "" : row.label.replaceAll("\\s", "");
-            if (label.contains(CHARIOT_ENEMY)) {
+            if (label.contains(CHARIOT_KEYWORD)) {
                 return row.bounds;
             }
         }

@@ -33,8 +33,8 @@ android {
         applicationId = "com.local.sgmhelper"
         minSdk = 24
         targetSdk = 36
-        versionCode = 349
-        versionName = "0.1.349"
+        versionCode = 350
+        versionName = "0.1.350"
         testInstrumentationRunner =
                 "com.local.sgmhelper.WudangTemplateMatcherInstrumentedTest"
 
