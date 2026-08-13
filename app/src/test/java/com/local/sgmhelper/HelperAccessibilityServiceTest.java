@@ -1359,6 +1359,31 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void picksTheChariotRowOutOfTheGuideEnemyList() {
+        // 坐标取自铁门峡二层截图：表头 140..170，三行敌人 180..300。
+        OcrLine header = new OcrLine("全部怪物", testRect(1000, 140, 1120, 170), 0.9f);
+        OcrLine chariotLevel = new OcrLine("35", testRect(965, 182, 995, 212), 0.9f);
+        OcrLine chariotName = new OcrLine("黄金刀车", testRect(1005, 182, 1120, 212), 0.9f);
+        OcrLine lancer = new OcrLine("38 黄巾枪骑兵", testRect(965, 220, 1140, 250), 0.9f);
+        OcrLine strongman = new OcrLine("39 黄巾力士", testRect(965, 258, 1140, 288), 0.9f);
+        // 战斗飘字会盖到面板上，不能因此认错行。
+        OcrLine damage = new OcrLine("200", testRect(1190, 190, 1245, 220), 0.9f);
+
+        List<DungeonBattleAutomation.EnemyRow> rows = DungeonBattleAutomation.readEnemyRows(
+                Arrays.asList(header, chariotLevel, chariotName, damage, lancer, strongman));
+        android.graphics.Rect bounds = TrainingAutomation.findChariotBounds(rows);
+        assertNotNull(bounds);
+        int tapY = (bounds.top + bounds.bottom) / 2;
+        assertTrue("点击点必须落在黄金刀车那一行", tapY >= 182 && tapY <= 212);
+
+        // 刀车没刷出来时不能误点别的怪。
+        assertNull(TrainingAutomation.findChariotBounds(
+                DungeonBattleAutomation.readEnemyRows(
+                        Arrays.asList(header, lancer, strongman))));
+        assertNull(TrainingAutomation.findChariotBounds(List.of()));
+    }
+
+    @Test
     public void parsesAndLoopsThroughPullForOthersRoutePoints() {
         List<TrainingAutomation.PullPoint> route =
                 TrainingAutomation.parsePullRoute(

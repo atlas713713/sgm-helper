@@ -2,6 +2,7 @@ package com.local.sgmhelper;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Rect;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,6 +14,7 @@ final class TrainingAutomation {
     private static final String CHARIOT_MAP = "铁门峡二层";
     private static final String CHARIOT_ENEMY = "黄金刀车";
     private static final int CHARIOT_RETRY_COUNT = 10;
+    private static final long CHARIOT_POLL_MS = 1_000;
     /** 引路面板的“敌人”页签，和荒野选怪用的是同一个按钮。 */
     private static final int GUIDE_ENEMY_TAB_X = 1015;
     private static final int GUIDE_ENEMY_TAB_Y = 165;
@@ -106,20 +108,70 @@ final class TrainingAutomation {
 
     private void selectChariot() {
         host.openAutoPathPanel(() -> host.tap(GUIDE_ENEMY_TAB_X, GUIDE_ENEMY_TAB_Y,
-                () -> host.clickRightText(CHARIOT_ENEMY, () -> {
+                () -> host.postDelayed(
+                        () -> findChariotRow(CHARIOT_RETRY_COUNT), CHARIOT_POLL_MS)));
+    }
+
+    /**
+     * 引路面板的小字通用 OCR 读不出来，改用副本那套 Paddle 识别：以“全部怪物”表头为锚点
+     * 拆出敌人行，再按名字挑。
+     */
+    private void findChariotRow(int remainingAttempts) {
+        host.recognizeDungeonText(lines -> {
+            if (!host.isAutomationRunning()) {
+                return;
+            }
+            List<DungeonBattleAutomation.EnemyRow> rows =
+                    DungeonBattleAutomation.readEnemyRows(lines);
+            Rect bounds = findChariotBounds(rows);
+            if (bounds != null) {
+                host.tap(bounds.centerX(), bounds.centerY(), () -> {
                     host.showProgress("自动练级：已选中" + CHARIOT_ENEMY);
                     startTrainingAtLocation();
-                }, CHARIOT_RETRY_COUNT, () -> {
-                    // 刀车没刷出来时照常练级，不把整条主线判死。
-                    DiagnosticLog.warn("TRAINING", "chariot not in the guide list");
-                    host.showProgress("自动练级：未找到" + CHARIOT_ENEMY + "，按普通练级继续");
-                    host.closeAutoPathPanel(this::startTrainingAtLocation);
-                })));
+                });
+                return;
+            }
+            DiagnosticLog.info("TRAINING", "guide rows=" + describeRows(rows));
+            if (remainingAttempts > 1) {
+                host.postDelayed(
+                        () -> findChariotRow(remainingAttempts - 1), CHARIOT_POLL_MS);
+                return;
+            }
+            // 刀车没刷出来时照常练级，不把整条主线判死。
+            DiagnosticLog.warn("TRAINING", "chariot not in the guide list");
+            host.showProgress("自动练级：未找到" + CHARIOT_ENEMY + "，按普通练级继续");
+            host.closeAutoPathPanel(this::startTrainingAtLocation);
+        });
     }
 
     /** 地图名 OCR 偶尔会带空格或多认一两个字，包含即可。 */
     static boolean isChariotMap(String mapName) {
         return mapName != null && mapName.replaceAll("\\s", "").contains(CHARIOT_MAP);
+    }
+
+    /** 行文字是“35 黄金刀车”这种等级加名字，去掉空格再按名字找。 */
+    static Rect findChariotBounds(List<DungeonBattleAutomation.EnemyRow> rows) {
+        for (DungeonBattleAutomation.EnemyRow row : rows) {
+            String label = row.label == null ? "" : row.label.replaceAll("\\s", "");
+            if (label.contains(CHARIOT_ENEMY)) {
+                return row.bounds;
+            }
+        }
+        return null;
+    }
+
+    private static String describeRows(List<DungeonBattleAutomation.EnemyRow> rows) {
+        if (rows.isEmpty()) {
+            return "(空)";
+        }
+        StringBuilder value = new StringBuilder();
+        for (DungeonBattleAutomation.EnemyRow row : rows) {
+            if (value.length() > 0) {
+                value.append(" | ");
+            }
+            value.append(row.label);
+        }
+        return value.toString();
     }
 
     private void startWilderness() {
