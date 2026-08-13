@@ -252,6 +252,17 @@ public final class AutomationTaskManagerTest {
         assertEquals("自动军务", manager.current().request.key);
     }
 
+    @Test
+    public void snapshotsPendingRequestsBeforeServiceDisconnect() {
+        AutomationTaskManager manager = recordingManager(new ArrayList<>());
+        manager.submit(request("primary", AutomationTaskManager.Kind.PRIMARY));
+        manager.submit(request("自动军务", AutomationTaskManager.Kind.INTERRUPT));
+        manager.submit(request("领取福利", AutomationTaskManager.Kind.INTERRUPT));
+
+        assertEquals(1, manager.pendingRequests().size());
+        assertEquals("领取福利", manager.pendingRequests().get(0).key);
+    }
+
     private static AutomationTaskManager recordingManager(List<String> events) {
         return new AutomationTaskManager(new AutomationTaskManager.Listener() {
             @Override

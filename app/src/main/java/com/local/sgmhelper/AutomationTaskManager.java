@@ -1,6 +1,8 @@
 package com.local.sgmhelper;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 
 final class AutomationTaskManager {
     enum Kind {
@@ -145,6 +147,10 @@ final class AutomationTaskManager {
 
     int pendingCount() {
         return pending.size();
+    }
+
+    List<Request> pendingRequests() {
+        return new ArrayList<>(pending);
     }
 
     private boolean contains(String key) {

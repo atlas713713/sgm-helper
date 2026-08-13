@@ -186,6 +186,10 @@ public final class HelperAccessibilityService extends AccessibilityService
 
                 @Override
                 public void onResumePrimary() {
+                    if (WorshipAlarmReceiver.startPendingAutomation(
+                            HelperAccessibilityService.this)) {
+                        return;
+                    }
                     automationRunning = false;
                     clearAutomationRecovery();
                     restartPrimaryTask(primaryTask);
@@ -3950,6 +3954,7 @@ public final class HelperAccessibilityService extends AccessibilityService
             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                     .putBoolean(PREF_MANUALLY_STOPPED, true)
                     .apply();
+            WorshipAlarmReceiver.clearPendingAutomation(this);
         }
         automationRunning = false;
         invalidateHudConfirmation();
@@ -4469,6 +4474,8 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     private void cleanUp() {
         DiagnosticLog.info("SERVICE", "accessibility service disconnected");
+        WorshipAlarmReceiver.persistScheduledTasks(
+                this, taskManager.current(), taskManager.pendingRequests());
         instance = null;
         automationRunning = false;
         invalidateHudConfirmation();

@@ -7,15 +7,19 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.List;
 
 public final class WorshipAlarmReceiver extends BroadcastReceiver {
     /** 武当在没有读到任何有效冷却时使用的兜底间隔。 */
     private static final long MILITARY_INTERVAL_MS = 2 * 60 * 60 * 1_000L;
     private static final long MILITARY_OVERDUE_RETRY_MS = 60_000L;
     private static final long PENDING_AUTOMATION_MAX_AGE_MS = 15 * 60 * 1_000L;
-    private static final String PREF_PENDING_ACTION = "pending_scheduled_action";
+    private static final String PREF_PENDING_ACTIONS = "pending_scheduled_actions";
     private static final String PREF_PENDING_AT = "pending_scheduled_at";
+    /** 旧版单任务字段只用于一次性迁移到队列。 */
+    private static final String PREF_LEGACY_PENDING_ACTION = "pending_scheduled_action";
     private static final String ACTION_WORSHIP = "com.local.sgmhelper.WORSHIP";
     private static final String ACTION_LEGION_REWARD = "com.local.sgmhelper.LEGION_REWARD";
     private static final String ACTION_MILITARY = "com.local.sgmhelper.MILITARY";
@@ -26,6 +30,9 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
+        if (action == null) {
+            action = ACTION_WORSHIP;
+        }
         if (!isActionEnabled(context, action)) {
             return;
         }
@@ -54,12 +61,7 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
         if (service != null) {
             startScheduledAutomation(service, action);
         } else {
-            context.getSharedPreferences(
-                    HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit()
-                    .putString(PREF_PENDING_ACTION, action)
-                    .putLong(PREF_PENDING_AT, System.currentTimeMillis())
-                    .commit();
+            enqueuePendingAction(context, action);
             DiagnosticLog.warn("SCHEDULE",
                     "task deferred until the accessibility service reconnects: " + action);
         }
@@ -68,31 +70,173 @@ public final class WorshipAlarmReceiver extends BroadcastReceiver {
     static boolean startPendingAutomation(HelperAccessibilityService service) {
         SharedPreferences preferences = service.getSharedPreferences(
                 HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE);
-        String action = preferences.getString(PREF_PENDING_ACTION, null);
+        List<String> actions = loadPendingActions(preferences);
         long pendingAt = preferences.getLong(PREF_PENDING_AT, 0);
-        preferences.edit()
-                .remove(PREF_PENDING_ACTION)
-                .remove(PREF_PENDING_AT)
-                .commit();
-        if (!isPendingFresh(System.currentTimeMillis(), pendingAt)
-                || !isActionEnabled(service, action)
-                || !shouldStartScheduledAutomation(preferences.getBoolean(
-                        HelperAccessibilityService.PREF_MANUALLY_STOPPED, false))) {
-            if (action != null) {
+        boolean manuallyStopped = preferences.getBoolean(
+                HelperAccessibilityService.PREF_MANUALLY_STOPPED, false);
+        boolean started = false;
+        while (!actions.isEmpty()) {
+            String action = actions.remove(0);
+            if (!isPendingFresh(System.currentTimeMillis(), pendingAt)
+                    || !isActionEnabled(service, action)
+                    || !shouldStartScheduledAutomation(manuallyStopped)) {
                 DiagnosticLog.info("SCHEDULE", "discarded stale or disabled pending task: "
                         + action);
+                continue;
             }
-            return false;
+            savePendingActions(preferences, actions);
+            DiagnosticLog.info("SCHEDULE", "starting deferred task: " + action);
+            startScheduledAutomation(service, action);
+            started = service.isAutomationRunning();
+            if (started) {
+                return true;
+            }
         }
-        DiagnosticLog.info("SCHEDULE", "starting deferred task: " + action);
-        startScheduledAutomation(service, action);
-        return true;
+        savePendingActions(preferences, actions);
+        return started;
     }
 
     static boolean isPendingFresh(long now, long pendingAt) {
         return pendingAt > 0
                 && now >= pendingAt
                 && now - pendingAt <= PENDING_AUTOMATION_MAX_AGE_MS;
+    }
+
+    static void enqueuePendingAction(Context context, String action) {
+        if (action == null) {
+            return;
+        }
+        SharedPreferences preferences = context.getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE);
+        List<String> actions = loadPendingActions(preferences);
+        if (!actions.contains(action)) {
+            actions.add(action);
+        }
+        preferences.edit()
+                .putString(PREF_PENDING_ACTIONS, encodePendingActions(actions))
+                .putLong(PREF_PENDING_AT, System.currentTimeMillis())
+                .remove(PREF_LEGACY_PENDING_ACTION)
+                .commit();
+    }
+
+    /** 服务断连前保存当前插入任务和队列，重连后从当前任务开始恢复。 */
+    static void persistScheduledTasks(Context context,
+            AutomationTaskManager.Run current,
+            List<AutomationTaskManager.Request> pending) {
+        SharedPreferences preferences = context.getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE);
+        List<String> actions = new ArrayList<>();
+        addScheduledAction(actions, current == null ? null : current.request.key);
+        if (pending != null) {
+            for (AutomationTaskManager.Request request : pending) {
+                addScheduledAction(actions, request == null ? null : request.key);
+            }
+        }
+        for (String action : loadPendingActions(preferences)) {
+            if (!actions.contains(action)) {
+                actions.add(action);
+            }
+        }
+        if (actions.isEmpty()) {
+            return;
+        }
+        preferences.edit()
+                .putString(PREF_PENDING_ACTIONS, encodePendingActions(actions))
+                .putLong(PREF_PENDING_AT, System.currentTimeMillis())
+                .remove(PREF_LEGACY_PENDING_ACTION)
+                .commit();
+        DiagnosticLog.info("SCHEDULE", "persisted pending tasks=" + actions);
+    }
+
+    static void clearPendingAutomation(Context context) {
+        context.getSharedPreferences(
+                HelperAccessibilityService.PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .remove(PREF_PENDING_ACTIONS)
+                .remove(PREF_PENDING_AT)
+                .remove(PREF_LEGACY_PENDING_ACTION)
+                .commit();
+    }
+
+    static String scheduledActionForTaskKey(String taskKey) {
+        if ("膜拜".equals(taskKey)) {
+            return ACTION_WORSHIP;
+        }
+        if ("军团奖励".equals(taskKey)) {
+            return ACTION_LEGION_REWARD;
+        }
+        if ("自动军务".equals(taskKey)) {
+            return ACTION_MILITARY;
+        }
+        if ("领取福利".equals(taskKey)) {
+            return ACTION_WELFARE;
+        }
+        if ("天降".equals(taskKey)) {
+            return ACTION_HEAVENFALL;
+        }
+        if ("定时一般副本".equals(taskKey) || "定时副本".equals(taskKey)) {
+            return ACTION_DUNGEON;
+        }
+        return null;
+    }
+
+    static String encodePendingActions(List<String> actions) {
+        StringBuilder encoded = new StringBuilder();
+        if (actions != null) {
+            for (String action : actions) {
+                if (action != null && !action.isEmpty()) {
+                    if (encoded.length() > 0) {
+                        encoded.append('\n');
+                    }
+                    encoded.append(action);
+                }
+            }
+        }
+        return encoded.toString();
+    }
+
+    static List<String> decodePendingActions(String encoded) {
+        List<String> actions = new ArrayList<>();
+        if (encoded == null || encoded.trim().isEmpty()) {
+            return actions;
+        }
+        for (String action : encoded.split("\\n")) {
+            if (!action.isEmpty() && !actions.contains(action)) {
+                actions.add(action);
+            }
+        }
+        return actions;
+    }
+
+    private static List<String> loadPendingActions(SharedPreferences preferences) {
+        List<String> actions = decodePendingActions(
+                preferences.getString(PREF_PENDING_ACTIONS, ""));
+        if (actions.isEmpty()) {
+            String legacy = preferences.getString(PREF_LEGACY_PENDING_ACTION, null);
+            if (legacy != null && !legacy.isEmpty()) {
+                actions.add(legacy);
+            }
+        }
+        return actions;
+    }
+
+    private static void savePendingActions(
+            SharedPreferences preferences, List<String> actions) {
+        SharedPreferences.Editor editor = preferences.edit()
+                .remove(PREF_LEGACY_PENDING_ACTION);
+        if (actions == null || actions.isEmpty()) {
+            editor.remove(PREF_PENDING_ACTIONS).remove(PREF_PENDING_AT);
+        } else {
+            editor.putString(PREF_PENDING_ACTIONS, encodePendingActions(actions));
+        }
+        editor.commit();
+    }
+
+    private static void addScheduledAction(List<String> actions, String taskKey) {
+        String action = scheduledActionForTaskKey(taskKey);
+        if (action != null && !actions.contains(action)) {
+            actions.add(action);
+        }
     }
 
     private static void startScheduledAutomation(

@@ -1356,6 +1356,13 @@ public final class HelperAccessibilityServiceTest {
         assertFalse(TrainingAutomation.isChariotMap("荒野修炼三区"));
         assertFalse(TrainingAutomation.isChariotMap(""));
         assertFalse(TrainingAutomation.isChariotMap(null));
+
+        // 落地瞬间地图名还没画出来，OCR 读回空串，这时要重试而不是当成别的图。
+        assertTrue(TrainingAutomation.isBlankMapName(null));
+        assertTrue(TrainingAutomation.isBlankMapName(""));
+        assertTrue(TrainingAutomation.isBlankMapName("  "));
+        assertFalse(TrainingAutomation.isBlankMapName("铁门峡二层"));
+        assertFalse(TrainingAutomation.isBlankMapName("荒野修炼三区"));
     }
 
     @Test
@@ -1469,6 +1476,22 @@ public final class HelperAccessibilityServiceTest {
                 pendingAt + 15 * 60 * 1_000L + 1, pendingAt));
         assertFalse(WorshipAlarmReceiver.isPendingFresh(pendingAt - 1, pendingAt));
         assertFalse(WorshipAlarmReceiver.isPendingFresh(pendingAt, 0));
+    }
+
+    @Test
+    public void persistsScheduledTaskQueueInOrderWithoutDuplicates() {
+        List<String> actions = Arrays.asList(
+                "com.local.sgmhelper.WORSHIP",
+                "com.local.sgmhelper.MILITARY",
+                "com.local.sgmhelper.WORSHIP");
+        String encoded = WorshipAlarmReceiver.encodePendingActions(actions);
+
+        assertEquals(actions.subList(0, 2), WorshipAlarmReceiver.decodePendingActions(encoded));
+        assertEquals("com.local.sgmhelper.WORSHIP",
+                WorshipAlarmReceiver.scheduledActionForTaskKey("膜拜"));
+        assertEquals("com.local.sgmhelper.MILITARY",
+                WorshipAlarmReceiver.scheduledActionForTaskKey("自动军务"));
+        assertNull(WorshipAlarmReceiver.scheduledActionForTaskKey("primary:TRAINING"));
     }
 
     @Test

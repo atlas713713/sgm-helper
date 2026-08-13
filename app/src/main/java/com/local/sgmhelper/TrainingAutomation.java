@@ -21,6 +21,9 @@ final class TrainingAutomation {
     private static final String CHARIOT_KEYWORD = "刀车";
     private static final int CHARIOT_RETRY_COUNT = 10;
     private static final long CHARIOT_POLL_MS = 1_000;
+    /** 等地图名变掉的轮询次数和间隔，最多等 15 秒。 */
+    private static final int MARKER_ARRIVAL_ATTEMPTS = 15;
+    private static final long MARKER_MAP_POLL_MS = 1_000;
     /** 引路面板的“敌人”页签，和荒野选怪用的是同一个按钮。 */
     private static final int GUIDE_ENEMY_TAB_X = 1015;
     private static final int GUIDE_ENEMY_TAB_Y = 165;
@@ -32,6 +35,8 @@ final class TrainingAutomation {
     private CustomCoordinate customTrainingCoordinate;
     private List<PullPoint> pullRoute = List.of();
     private int pullRouteIndex;
+    /** 用标记卷之前所在的地图，用来判断有没有真的传送过去。 */
+    private String markerOriginMap = "";
 
     TrainingAutomation(AutomationHost host) {
         this.host = host;
@@ -88,28 +93,63 @@ final class TrainingAutomation {
 
     private void startMarker() {
         host.showProgress("自动练级：停止自动攻击后使用第一个标记卷");
-        host.useFirstMarker(() -> {
-            host.showProgress("自动练级：等待地图加载");
-            host.postDelayed(this::checkMarkerMap, 5_000);
+        // 先记下出发地，落地判定要靠地图名变没变。
+        host.recognizeMapName(origin -> {
+            if (!host.isAutomationRunning()) {
+                return;
+            }
+            markerOriginMap = normalizeMapName(origin);
+            DiagnosticLog.info("TRAINING", "marker origin=" + markerOriginMap);
+            host.useFirstMarker(() -> {
+                host.showProgress("自动练级：等待地图加载");
+                waitForMarkerArrival(MARKER_ARRIVAL_ATTEMPTS);
+            });
         });
     }
 
-    /** 标记点落地后先看是哪张图：铁门峡二层要自己在引路列表里点黄巾刀车。 */
-    private void checkMarkerMap() {
-        host.showProgress("自动练级：识别标记点地图");
+    /**
+     * 传送完成的信号是地图名“变了”，不是底部地图栏在不在——人在城里时那条栏本来就一直在，
+     * 传送过程中也不消失，拿它当门槛会 0.6 秒就通过，读到的还是出发城市。
+     */
+    private void waitForMarkerArrival(int remainingAttempts) {
         host.recognizeMapName(mapName -> {
             if (!host.isAutomationRunning()) {
                 return;
             }
-            DiagnosticLog.info("TRAINING", "marker map=" + mapName);
-            if (!isChariotMap(mapName)) {
-                host.showProgress("自动练级：等待自动攻击按钮");
-                startTrainingAtLocation();
+            String current = normalizeMapName(mapName);
+            if (!current.isEmpty() && !current.equals(markerOriginMap)) {
+                DiagnosticLog.info("TRAINING", "marker map=" + current);
+                dispatchMarkerMap(current);
                 return;
             }
-            host.showProgress("自动练级：" + CHARIOT_MAP + "，改打" + CHARIOT_ENEMY);
-            selectChariot();
+            if (remainingAttempts > 1) {
+                host.postDelayed(
+                        () -> waitForMarkerArrival(remainingAttempts - 1), MARKER_MAP_POLL_MS);
+                return;
+            }
+            // 标记点本来就在原地，或者一直读不到新名字：按当前读到的继续，不判死。
+            DiagnosticLog.warn("TRAINING", "marker map unchanged, still " + current);
+            dispatchMarkerMap(current);
         });
+    }
+
+    /** 铁门峡二层要自己在引路列表里点黄巾刀车，别的图照常开自动攻击。 */
+    private void dispatchMarkerMap(String mapName) {
+        if (!isChariotMap(mapName)) {
+            host.showProgress("自动练级：等待自动攻击按钮");
+            startTrainingAtLocation();
+            return;
+        }
+        host.showProgress("自动练级：" + CHARIOT_MAP + "，改打" + CHARIOT_ENEMY);
+        selectChariot();
+    }
+
+    static String normalizeMapName(String mapName) {
+        return mapName == null ? "" : mapName.replaceAll("\\s", "");
+    }
+
+    static boolean isBlankMapName(String mapName) {
+        return normalizeMapName(mapName).isEmpty();
     }
 
     private void selectChariot() {
