@@ -30,31 +30,35 @@ final class GameRestartAutomation {
     }
 
     void run() {
-        host.showProgress("定时重启：关闭游戏进程");
+        run("定时重启");
+    }
+
+    void run(String reason) {
+        host.showProgress(reason + "：关闭游戏进程");
         long runId = host.currentRunId();
         forceStopAsync(stopped -> {
             if (!host.isRunCurrent(runId)) {
                 return;
             }
             if (stopped) {
-                finish(runId, true);
+                finish(runId, true, reason);
                 return;
             }
-            host.showProgress("定时重启：无 root，改用系统强行停止");
+            host.showProgress(reason + "：无 root，改用系统强行停止");
             host.forceStopPackageViaSettings(GAME_PACKAGE,
-                    settingsStopped -> finish(runId, settingsStopped));
+                    settingsStopped -> finish(runId, settingsStopped, reason));
         });
     }
 
-    private void finish(long runId, boolean stopped) {
+    private void finish(long runId, boolean stopped, String reason) {
         if (!host.isRunCurrent(runId)) {
             return;
         }
         if (!stopped) {
-            host.failAutomation("定时重启：无法通过 root 或系统设置关闭游戏");
+            host.failAutomation(reason + "：无法通过 root 或系统设置关闭游戏");
             return;
         }
-        host.showProgress("定时重启：游戏已关闭，等待重新登录");
+        host.showProgress(reason + "：游戏已关闭，等待重新登录");
         host.postDelayed(host::resumePrimaryTask, AFTER_STOP_DELAY_MS);
     }
 

@@ -476,7 +476,8 @@ final class DungeonBattleAutomation {
             gotoExit();
         } else if (decision.shortcutClicks > 0) {
             host.showProgress(dungeonTitle() + "：" + decision.interactionText);
-            tapNpcShortcut(decision.shortcutClicks);
+            // 副本开始后引路面板保持打开；先关掉它，否则 NPC 快捷键会点到面板。
+            host.closeAutoPathPanel(() -> tapNpcShortcut(decision.shortcutClicks));
         } else if (decision.interactionText != null) {
             host.showProgress(dungeonTitle() + "：" + decision.interactionText);
             String npcName = currentDungeon().interactionNpcName();
@@ -486,7 +487,9 @@ final class DungeonBattleAutomation {
                     : () -> clickNpcOption(npcName,
                             currentDungeon().interactionNpcRow(), afterClick, 8);
             if (decision.openNpc) {
-                host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, click);
+                // 中途 NPC 交互前必须先收起右侧“敌人/寻路”面板；否则
+                // (1208,410) 落在面板上，NPCDialog 不会打开，后续 OCR 只能得到空文本。
+                host.closeAutoPathPanel(() -> host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, click));
             } else {
                 click.run();
             }
@@ -636,8 +639,9 @@ final class DungeonBattleAutomation {
         host.showProgress(dungeonTitle() + "：前往出口 "
                 + exit[0] + "," + exit[1]);
         host.tapMapCoordinate(exit[0], exit[1], currentDungeon().dungeonMapMaxX(),
-                () -> host.postDelayed(() -> host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y,
-                        this::claimReward), MAP_WAIT_MS));
+                () -> host.postDelayed(() -> host.closeAutoPathPanel(
+                        () -> host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, this::claimReward)),
+                        MAP_WAIT_MS));
     }
 
     private void claimReward() {

@@ -732,10 +732,10 @@ public final class HelperAccessibilityServiceTest {
         OcrText dialog = new OcrText(Arrays.asList(
                 new OcrLine("再稍做准备", testRect(140, 432, 300, 468), 0.9f),
                 new OcrLine("随时可以出击", testRect(140, 556, 320, 592), 0.9f),
-                new OcrLine("离开", testRect(140, 618, 240, 654), 0.9f)));
+                new OcrLine("交给我吧", testRect(140, 618, 240, 654), 0.9f)));
         assertEquals(1, DungeonBattleAutomation.npcRowForButton(dialog, "再稍做准备"));
         assertEquals(3, DungeonBattleAutomation.npcRowForButton(dialog, "随时可以出击"));
-        assertEquals(4, DungeonBattleAutomation.npcRowForButton(dialog, "离开"));
+        assertEquals(4, DungeonBattleAutomation.npcRowForButton(dialog, "交给我吧"));
         assertEquals(0, DungeonBattleAutomation.npcRowForButton(dialog, "收下奖赏"));
         assertEquals(0, DungeonBattleAutomation.npcRowForButton(null, "进入"));
     }
@@ -1121,15 +1121,23 @@ public final class HelperAccessibilityServiceTest {
         assertFalse(Dungeon50Action.decideRoute(80).acceptAnyEnemy);
         assertEquals(110, Dungeon50Action.decideRoute(80).targetX);
         assertEquals(27, Dungeon50Action.decideRoute(80).targetY);
+        assertEquals(100, Dungeon50Action.decideRoute(80).unstuckX);
+        assertEquals(130, Dungeon50Action.decideRoute(100).targetX);
+        assertEquals(150, Dungeon50Action.decideRoute(100).unstuckX);
         assertEquals(180, Dungeon50Action.decideRoute(150).targetX);
+        assertEquals(184, Dungeon50Action.decideRoute(150).unstuckX);
+        assertEquals(224, Dungeon50Action.decideRoute(194).targetX);
+        assertEquals(317, Dungeon50Action.decideRoute(287).targetX);
         assertEquals("交给我吧", Dungeon50Action.decideRoute(300).interactionText);
         assertTrue(Dungeon50Action.decideRoute(300).openNpc);
-        assertEquals("年轻时的历战老兵",
-                BaseDungeonAction.forLevel(50).interactionNpcName());
+        assertNull(BaseDungeonAction.forLevel(50).interactionNpcName());
         assertEquals("孙坚", BaseDungeonAction.forLevel(50).exitNpcName());
         assertEquals(380, Dungeon50Action.decideRoute(350).targetX);
+        assertEquals(378, Dungeon50Action.decideRoute(350).unstuckX);
         assertEquals(480, Dungeon50Action.decideRoute(450).targetX);
+        assertEquals(474, Dungeon50Action.decideRoute(450).unstuckX);
         assertEquals(575, Dungeon50Action.decideRoute(550).targetX);
+        assertEquals(571, Dungeon50Action.decideRoute(550).unstuckX);
         assertTrue(Dungeon50Action.decideRoute(590).exit);
         assertArrayEquals(new int[] {570, 25},
                 BaseDungeonAction.forLevel(50).exitPoint());
@@ -1534,6 +1542,14 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(HelperAccessibilityService.shouldRetryAutomation(3));
         assertFalse(HelperAccessibilityService.shouldRetryAutomation(4));
         assertFalse(HelperAccessibilityService.shouldRetryAutomation(100));
+    }
+
+    @Test
+    public void restartsGameAfterScreenGuardFailureWithABound() {
+        assertTrue(HelperAccessibilityService.shouldRestartAfterScreenGuard(1));
+        assertTrue(HelperAccessibilityService.shouldRestartAfterScreenGuard(3));
+        assertFalse(HelperAccessibilityService.shouldRestartAfterScreenGuard(0));
+        assertFalse(HelperAccessibilityService.shouldRestartAfterScreenGuard(4));
     }
 
     @Test
@@ -1985,6 +2001,9 @@ public final class HelperAccessibilityServiceTest {
         assertFalse(HeavenfallAutomation.centerReached("279,25"));
         assertTrue(HeavenfallAutomation.centerReached("300,30"));
         assertFalse(HeavenfallAutomation.centerReached("300,31"));
+        assertTrue(HeavenfallAutomation.isTargetChannel(1, 1));
+        assertFalse(HeavenfallAutomation.isTargetChannel(2, 1));
+        assertFalse(HeavenfallAutomation.isTargetChannel(null, 1));
     }
 
     @Test

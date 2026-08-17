@@ -12,13 +12,15 @@ final class HeavenfallAutomation {
     private static final long BOSS_SCAN_INTERVAL_MS = 3_000;
     private static final long RESUME_DELAY_MS = 10_000;
     private static final int TARGET_CHANNEL = 1;
-    private static final int CHANNEL_BUTTON_X = 1215;
-    private static final int CHANNEL_BUTTON_Y = 705;
     private static final long CHANNEL_DIALOG_WAIT_MS = 1_000;
+    private static final long CHANNEL_CHECK_WAIT_MS = 2_000;
+    private static final long CHANNEL_READY_WAIT_MS = 3_000;
+    private static final int CHANNEL_DIALOG_ATTEMPTS = 5;
 
     private final AutomationHost host;
     private final WildernessNavigator wildernessNavigator;
     private final ChannelSwitcher channelSwitcher;
+    private final AntiCheatVerification antiCheatVerification;
     private long deadline;
     private boolean finishing;
 
@@ -26,6 +28,7 @@ final class HeavenfallAutomation {
         this.host = host;
         wildernessNavigator = new WildernessNavigator(host, "天降");
         channelSwitcher = new ChannelSwitcher(host);
+        antiCheatVerification = new AntiCheatVerification(host);
     }
 
     void start() {
@@ -50,11 +53,58 @@ final class HeavenfallAutomation {
     }
 
     private void switchToChannelOne(Runnable next) {
-        host.showProgress("天降：切换到第 1 分流");
-        host.tap(CHANNEL_BUTTON_X, CHANNEL_BUTTON_Y,
-                () -> host.postDelayed(
-                        () -> channelSwitcher.switchOpenTo(TARGET_CHANNEL, next),
-                        CHANNEL_DIALOG_WAIT_MS));
+        host.showProgress("天降：打开分流信息");
+        host.openChannelDropdown(() -> host.postDelayed(
+                () -> waitForCurrentChannel(next, CHANNEL_DIALOG_ATTEMPTS),
+                CHANNEL_DIALOG_WAIT_MS));
+    }
+
+    private void waitForCurrentChannel(Runnable next, int remainingAttempts) {
+        host.waitTemplateOrText(
+                WudangTemplateMatcher.Template.LINE_INFO,
+                "分流信息", true,
+                WudangTemplateMatcher.LINE_INFO_LEFT,
+                WudangTemplateMatcher.LINE_INFO_TOP,
+                WudangTemplateMatcher.LINE_INFO_LEFT
+                        + WudangTemplateMatcher.LINE_INFO_WIDTH,
+                WudangTemplateMatcher.LINE_INFO_TOP
+                        + WudangTemplateMatcher.LINE_INFO_HEIGHT,
+                2, 1,
+                () -> readCurrentChannel(next, remainingAttempts),
+                () -> readCurrentChannel(next, remainingAttempts));
+    }
+
+    private void readCurrentChannel(Runnable next, int remainingAttempts) {
+        host.showProgress("天降：判断当前分流");
+        host.recognizeChannelDialog(current -> {
+            if (current == null) {
+                if (remainingAttempts <= 1) {
+                    host.failAutomation("天降：未识别到当前分流");
+                } else {
+                    host.postDelayed(
+                            () -> waitForCurrentChannel(next, remainingAttempts - 1),
+                            CHANNEL_DIALOG_WAIT_MS);
+                }
+                return;
+            }
+            if (isTargetChannel(current, TARGET_CHANNEL)) {
+                host.showProgress("天降：已经是第 1 分流，关闭分流信息");
+                host.pressBack(() -> host.ensureGameHudVisible(next));
+                return;
+            }
+            host.showProgress("天降：第 " + current + " 分流 → 第 1 分流");
+            channelSwitcher.switchOpenTo(TARGET_CHANNEL,
+                    () -> host.postDelayed(
+                            () -> checkAfterChannelSwitch(next), CHANNEL_CHECK_WAIT_MS));
+        });
+    }
+
+    private void checkAfterChannelSwitch(Runnable next) {
+        host.showProgress("天降：检查分流切换后的验证窗口");
+        antiCheatVerification.checkThen(() -> host.postDelayed(
+                () -> antiCheatVerification.checkThen(
+                        () -> host.waitForMapReady(20, next)),
+                CHANNEL_READY_WAIT_MS));
     }
 
     private void goToCenter() {
@@ -145,6 +195,10 @@ final class HeavenfallAutomation {
 
     static long durationMillis(int minutes) {
         return Math.max(1, minutes) * 60_000L;
+    }
+
+    static boolean isTargetChannel(Integer current, int target) {
+        return current != null && current == target;
     }
 
     static boolean expired(long now, long deadline) {

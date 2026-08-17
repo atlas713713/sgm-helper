@@ -5,7 +5,11 @@ final class Dungeon50Action extends BaseDungeonAction {
     @Override String dungeonName() { return "孙坚与玉玺"; }
     @Override String entryNpcName() { return "历战老兵"; }
     @Override String exitNpcName() { return "孙坚"; }
-    @Override String interactionNpcName() { return "年轻时的历战老兵"; }
+    /**
+     * 中央段是武当的特殊 partCenter：只识别并点击“交给我吧”，不先校验 NPC 标题。
+     * 原版也是直接在 NPCDialog 选项区找按钮；标题 OCR 在副本中央并不稳定。
+     */
+    @Override String interactionNpcName() { return null; }
     @Override String campName() { return "追忆之地"; }
     @Override int campNpcX() { return 89; }
     @Override int[] entryNpcRows() { return new int[] {4, 3, 3}; }
@@ -27,17 +31,43 @@ final class Dungeon50Action extends BaseDungeonAction {
             return DungeonBattleAutomation.RouteDecision.moveRoute(
                     new int[][] {{46, 6}, {46, 45}, {60, 45}});
         }
+        if (x >= 50 && x <= 110) {
+            return rightwardRoute(x, 110);
+        }
+        if (x >= 112 && x <= 194) {
+            return rightwardRoute(x, 194);
+        }
+        if (x >= 205 && x <= 287) {
+            return rightwardRoute(x, 287);
+        }
         if (x >= 291 && x <= 308) {
             // partCenter：先点 NPC 快捷键，再和“年轻时的历战老兵”点“交给我吧”。
             return DungeonBattleAutomation.RouteDecision.interactNpc("交给我吧");
+        }
+        if (x >= 312 && x <= 388) {
+            return rightwardRoute(x, 388);
+        }
+        if (x >= 399 && x <= 484) {
+            return rightwardRoute(x, 484);
+        }
+        if (x >= 495 && x <= 581) {
+            return rightwardRoute(x, 581);
         }
         if (x >= 583) {
             // part7：切换离场。
             return DungeonBattleAutomation.RouteDecision.exit(570, 25);
         }
-        // part1..part6 全部走武当的 attackPart：先找红名副本 BOSS，
-        // 没有目标就固定右移 30 格（y=27），上限 570，越界后落在 575。
-        return DungeonBattleAutomation.RouteDecision.search(stepRight(x), 27, 0, false);
+        // 武当在分段之间的几个空档坐标不执行新的动作，下一轮重新读坐标。
+        // 当前执行器没有“等待”类型，沿用右移探测，避免 OCR 抖动时停死。
+        return rightwardRoute(x, 581);
+    }
+
+    private static DungeonBattleAutomation.RouteDecision rightwardRoute(int x, int endX) {
+        int nextX = stepRight(x);
+        // 武当 toRight 的卡点处理：分段终点只用于生成脱困点，正常目标仍是
+        // LocationUtil 按 30 格计算出的 nextX。
+        int unstuckX = nextX <= endX ? endX - 10 : nextX + 20;
+        return DungeonBattleAutomation.RouteDecision.search(nextX, 27, unstuckX, false);
     }
 
     /** 复刻武当 toRight：+30 一步，超过 570 就落在 575。 */

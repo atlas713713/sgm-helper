@@ -79,6 +79,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private static final int LEADER_CHANNEL_RIGHT = 925;
     private static final int LEADER_CHANNEL_BOTTOM = 250;
     private static final int MAX_AUTOMATION_RECOVERY_ATTEMPTS = 3;
+    private static final int MAX_SCREEN_GUARD_RESTART_ATTEMPTS = 3;
     private static final int RECOVERY_START_DELAY_MS = 5_000;
     private static final int RECOVERY_LONG_DELAY_MS = 60_000;
     private static final long INVENTORY_CHECK_INTERVAL_MS = 60_000;
@@ -186,6 +187,7 @@ public final class HelperAccessibilityService extends AccessibilityService
 
                 @Override
                 public void onResumePrimary() {
+                    gameRestartInProgress = false;
                     if (WorshipAlarmReceiver.startPendingAutomation(
                             HelperAccessibilityService.this)) {
                         return;
@@ -229,6 +231,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private int taskState = STATE_IDLE;
     private boolean automationRunning;
     private int automationRecoveryAttempts;
+    private int screenGuardRestartAttempts;
     private long failingRunId;
     private long hudConfirmedAt;
     private Runnable currentAutomationAction;
@@ -236,6 +239,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     private Runnable primaryTaskAction = trainingAutomation::start;
     private boolean inventoryCheckRunning;
     private boolean inventorySelling;
+    private boolean gameRestartInProgress;
     private boolean soldierRevivalRunning;
     private boolean militaryQueuedDuringSoldierRevival;
     /** 下次定时重启的时间（{@link SystemClock#elapsedRealtime}）；0 表示还没开始计时。 */
@@ -2514,6 +2518,7 @@ public final class HelperAccessibilityService extends AccessibilityService
                 }
             } else if (screen == LoginAutomation.Screen.LOGGED_IN) {
                 hudConfirmedAt = SystemClock.elapsedRealtime();
+                screenGuardRestartAttempts = 0;
                 DiagnosticLog.info("SCREEN_GUARD",
                         "state=CLEAN_HUD source=ocr_fallback action=continue");
                 DiagnosticLog.info("TEMPLATE_FALLBACK", "name=HUD source=ocr");
@@ -2579,17 +2584,45 @@ public final class HelperAccessibilityService extends AccessibilityService
         terminateAfterScreenGuard("游戏画面恢复失败：" + message);
     }
 
-    /** ScreenGuard failures must not enter the primary-task auto-recovery loop. */
+    /**
+     * HUD recovery has already exhausted the cheap back/reconnect attempts. Restart the
+     * game and let the task manager run the primary task from its normal game-login entry.
+     */
     private void terminateAfterScreenGuard(String message) {
         DiagnosticLog.error("SCREEN_GUARD", message);
         captureScreenshot(bitmap -> {
             try {
-                DiagnosticLog.saveScreenshot(bitmap, "screen-guard-stop");
+                DiagnosticLog.saveScreenshot(bitmap, "screen-guard-restart");
             } finally {
                 recycleIfNeeded(bitmap);
-                stopAutomation(STATE_STOPPED);
+                restartGameAfterScreenGuard(message);
             }
         });
+    }
+
+    private void restartGameAfterScreenGuard(String message) {
+        AutomationTaskManager.Run run = taskManager.current();
+        if (run == null) {
+            return;
+        }
+        screenGuardRestartAttempts++;
+        if (!shouldRestartAfterScreenGuard(screenGuardRestartAttempts)) {
+            DiagnosticLog.error("SCREEN_GUARD",
+                    "restart limit reached; stopping automation after "
+                            + screenGuardRestartAttempts + " attempts");
+            stopAutomation(STATE_STOPPED);
+            return;
+        }
+
+        stopInventoryMonitoring();
+        inventorySelling = false;
+        gameRestartInProgress = true;
+        failingRunId = 0;
+        DiagnosticLog.warn("SCREEN_GUARD", "action=restart_game attempt="
+                + screenGuardRestartAttempts + " run=" + run.id + " reason=" + message);
+        submitManagedTask(AutomationTaskManager.Kind.HIGH_PRIORITY_INTERRUPT,
+                "屏幕守护恢复", "屏幕守护恢复：关闭游戏", () ->
+                        gameRestartAutomation.run("屏幕守护恢复"));
     }
 
     private void ensureAutoAttackState(
@@ -3785,6 +3818,10 @@ public final class HelperAccessibilityService extends AccessibilityService
         return failedAttempts <= MAX_AUTOMATION_RECOVERY_ATTEMPTS;
     }
 
+    static boolean shouldRestartAfterScreenGuard(int attempts) {
+        return attempts > 0 && attempts <= MAX_SCREEN_GUARD_RESTART_ATTEMPTS;
+    }
+
     static boolean shouldRunMilitary(PrimaryTask task) {
         return task == PrimaryTask.TRAINING;
     }
@@ -3800,6 +3837,8 @@ public final class HelperAccessibilityService extends AccessibilityService
                 && primaryTask == PrimaryTask.DUNGEON;
         stopInventoryMonitoring();
         clearAutomationRecovery();
+        screenGuardRestartAttempts = 0;
+        gameRestartInProgress = false;
         if (completedPrimaryDungeon) {
             resetPrimaryTaskToTraining();
         }
@@ -3818,6 +3857,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (run == null) {
             return;
         }
+        gameRestartInProgress = false;
         clearAutomationRecovery();
         retireManagedRun(run);
         taskManager.finish(run.id);
@@ -3839,6 +3879,7 @@ public final class HelperAccessibilityService extends AccessibilityService
         if (run == null || failingRunId == run.id) {
             return;
         }
+        gameRestartInProgress = false;
         failingRunId = run.id;
         DiagnosticLog.error("AUTOMATION", message);
         handler.removeCallbacksAndMessages(run);
@@ -3959,6 +4000,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         automationRunning = false;
         invalidateHudConfirmation();
         inventorySelling = false;
+        gameRestartInProgress = false;
+        screenGuardRestartAttempts = 0;
         gearHandleEvent.clear();
         stopInventoryMonitoring();
         clearAutomationRecovery();
@@ -4173,7 +4216,7 @@ public final class HelperAccessibilityService extends AccessibilityService
     }
 
     private boolean canCheckInventory() {
-        if (inventorySelling || taskState != STATE_RUNNING
+        if (gameRestartInProgress || inventorySelling || taskState != STATE_RUNNING
                 || !getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                         .getBoolean(PREF_AUTO_SELL_ENABLED, DEFAULT_AUTO_SELL_ENABLED)) {
             return false;
@@ -4480,6 +4523,8 @@ public final class HelperAccessibilityService extends AccessibilityService
         automationRunning = false;
         invalidateHudConfirmation();
         inventorySelling = false;
+        gameRestartInProgress = false;
+        screenGuardRestartAttempts = 0;
         clearAutomationRecovery();
         taskManager.stopAll();
         handler.removeCallbacksAndMessages(null);
