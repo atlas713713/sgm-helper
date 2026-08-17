@@ -154,6 +154,16 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void labelsDungeonReturnHomeAsDungeonEvenWhenScheduledAsInterrupt() {
+        assertEquals("副本", HelperAccessibilityService.returnHomeProgressPrefix(
+                AutomationHost.PrimaryTask.DUNGEON, "primary:DUNGEON"));
+        assertEquals("副本", HelperAccessibilityService.returnHomeProgressPrefix(
+                AutomationHost.PrimaryTask.TRAINING, "定时一般副本"));
+        assertEquals("自动军务", HelperAccessibilityService.returnHomeProgressPrefix(
+                AutomationHost.PrimaryTask.TRAINING, "自动军务"));
+    }
+
+    @Test
     public void queuesMilitaryWhileSoldierRevivalIsRunning() {
         assertTrue(HelperAccessibilityService.shouldQueueMilitaryForSoldierRevival(true));
         assertFalse(HelperAccessibilityService.shouldQueueMilitaryForSoldierRevival(false));
@@ -843,6 +853,14 @@ public final class HelperAccessibilityServiceTest {
     }
 
     @Test
+    public void recognizesWudangStyleNoDungeonCountDialog() {
+        assertTrue(DungeonBattleAutomation.isNoCountDialog(
+                "您已经没有此副本的次数：无法获得所有怪物的掉落，无法领取通关奖励"));
+        assertTrue(DungeonBattleAutomation.isNoCountDialog("没有副本次数"));
+        assertFalse(DungeonBattleAutomation.isNoCountDialog("孙坚与玉玺 进入 离开"));
+    }
+
+    @Test
     public void dungeonNpcDialogsFollowEveryWudangClickSequence() {
         assertArrayEquals(new int[] {3, 3},
                 BaseDungeonAction.forLevel(10).entryNpcRows());
@@ -1141,6 +1159,13 @@ public final class HelperAccessibilityServiceTest {
         assertTrue(Dungeon50Action.decideRoute(590).exit);
         assertArrayEquals(new int[] {570, 25},
                 BaseDungeonAction.forLevel(50).exitPoint());
+    }
+
+    @Test
+    public void keepsWaitingWhileActiveDungeonBossNameIsVisible() {
+        assertTrue(DungeonBattleAutomation.containsBossName("52 贾诩", "贾诩"));
+        assertTrue(DungeonBattleAutomation.containsBossName("战斗中：50宋果", "50宋果"));
+        assertFalse(DungeonBattleAutomation.containsBossName("自动 寻路", "贾诩"));
     }
 
     @Test

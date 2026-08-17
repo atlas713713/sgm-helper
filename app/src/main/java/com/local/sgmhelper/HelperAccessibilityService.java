@@ -2195,16 +2195,25 @@ public final class HelperAccessibilityService extends AccessibilityService
 
     @Override
     public void returnHome(Runnable next) {
-        showProgress("自动军务：回城前停止自动攻击");
-        ensureAutoAttackDisabled(() -> performReturnHome(next));
+        AutomationTaskManager.Run run = taskManager.current();
+        String progressPrefix = returnHomeProgressPrefix(
+                primaryTask, run == null ? null : run.request.key);
+        showProgress(progressPrefix + "：回城前停止自动攻击");
+        ensureAutoAttackDisabled(() -> performReturnHome(next, progressPrefix));
     }
 
-    private void performReturnHome(Runnable next) {
-        showProgress("自动军务：回城（1/2）");
+    private void performReturnHome(Runnable next, String progressPrefix) {
+        showProgress(progressPrefix + "：回城（1/2）");
         performTap(1210, 640, () -> {
-            showProgress("自动军务：回城（2/2）");
+            showProgress(progressPrefix + "：回城（2/2）");
             performTap(1210, 640, next);
         });
+    }
+
+    static String returnHomeProgressPrefix(PrimaryTask primaryTask, String taskKey) {
+        return primaryTask == PrimaryTask.DUNGEON
+                || (taskKey != null && taskKey.contains("副本"))
+                ? "副本" : "自动军务";
     }
 
     private void performTap(int x, int y, Runnable next) {

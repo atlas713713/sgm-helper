@@ -28,6 +28,13 @@ final class DungeonBattleAutomation {
     private static final int NPC_TITLE_TOP = 195;
     private static final int NPC_TITLE_RIGHT = 390;
     private static final int NPC_TITLE_BOTTOM = 245;
+    // The no-count prompt uses the same left-side NPC dialog as the entry
+    // choices, but the message itself is below the title. OCR the whole panel
+    // before falling back to the mini-map check.
+    private static final int NPC_DIALOG_LEFT = 105;
+    private static final int NPC_DIALOG_TOP = 235;
+    private static final int NPC_DIALOG_RIGHT = 415;
+    private static final int NPC_DIALOG_BOTTOM = 680;
     private static final int NPC_OPTION_X = 251;
     private static final int NPC_OPTION_4_X = 176;
     private static final int[] NPC_OPTION_Y = {0, 450, 512, 574, 636};
@@ -56,6 +63,14 @@ final class DungeonBattleAutomation {
     private static final int DUNGEON_ENTRY_MAP_ATTEMPTS = 2;
     private static final long MAP_WAIT_MS = 5_000;
     private static final long FIGHT_CHECK_MS = 4_000;
+    private static final int DUNGEON_BOSS_DEFEAT_CONFIRMATIONS = 3;
+    // The selected target name is shown in the top-center target bar after the
+    // guide-panel row has been tapped. Keep this separate from the right-side
+    // enemy-list OCR, which may disappear during combat.
+    private static final int ACTIVE_BOSS_TITLE_LEFT = 300;
+    private static final int ACTIVE_BOSS_TITLE_TOP = 0;
+    private static final int ACTIVE_BOSS_TITLE_RIGHT = 800;
+    private static final int ACTIVE_BOSS_TITLE_BOTTOM = 130;
     private static final long DUNGEON_ENTRY_MAP_POLL_MS = 500;
     private static final long BACK_KEY_SETTLE_MS = 200;
     /** 一次寻路移动预算，到点还没找到目标就重新读坐标推进下一段。 */
@@ -353,12 +368,24 @@ final class DungeonBattleAutomation {
     }
 
     /**
-     * 复刻武当 STEP_NO_COUNT：不识别提示正文，只读取小地图名称。进入成功时小地图会变成
-     * 当前副本名；次数不足弹窗出现时仍停留在营地。连续两次没有进入后按返回两次关闭弹窗，
-     * 完整入口再确认一次仍失败就跳过当前副本。
+     * 复刻武当 STEP_NO_COUNT：先识别入口弹窗正文，确认次数不足后点“离开”并跳过；
+     * 普通的地图加载延迟再使用小地图名称确认，避免把 no-count 弹窗当成传送失败。
      */
     private void checkDungeonEntryMap(int remainingAttempts) {
         host.showProgress(dungeonTitle() + "：确认是否进入副本");
+        host.recognizeTextRegion(NPC_DIALOG_LEFT, NPC_DIALOG_TOP,
+                NPC_DIALOG_RIGHT, NPC_DIALOG_BOTTOM, text -> {
+                    String recognized = text == null ? "" : text.getText();
+                    DiagnosticLog.info("Dungeon", "entry dialog OCR: " + recognized);
+                    if (isNoCountDialog(recognized)) {
+                        skipNoCountDungeon();
+                        return;
+                    }
+                    checkDungeonEntryMapByMap(remainingAttempts);
+                });
+    }
+
+    private void checkDungeonEntryMapByMap(int remainingAttempts) {
         host.recognizeMapName(mapName -> {
             DiagnosticLog.info("Dungeon", "entry map OCR: " + mapName);
             if (isCurrentDungeonMap(mapName, currentDungeon().dungeonName())) {
@@ -380,6 +407,12 @@ final class DungeonBattleAutomation {
                             ? this::gotoEntryNpc : () -> finishCurrent(false),
                     1_000));
         });
+    }
+
+    private void skipNoCountDungeon() {
+        noCountAttempts++;
+        host.showProgress(dungeonTitle() + "：检测到没有副本次数，点击离开并跳过");
+        clickNpcButton("离开", 10, () -> finishCurrent(false));
     }
 
     private void pressBackTwice(Runnable next) {
@@ -489,7 +522,15 @@ final class DungeonBattleAutomation {
             if (decision.openNpc) {
                 // 中途 NPC 交互前必须先收起右侧“敌人/寻路”面板；否则
                 // (1208,410) 落在面板上，NPCDialog 不会打开，后续 OCR 只能得到空文本。
-                host.closeAutoPathPanel(() -> host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, click));
+                // 50 级中央的“年轻时的历战老兵”第一次点击只会选中 NPC，第二次才会
+                // 展开对话选项；两次点击之间留出一秒给游戏完成选中状态切换。
+                host.closeAutoPathPanel(() -> {
+                    if (currentLevel() == 50) {
+                        tapNpcShortcutTwice(click);
+                    } else {
+                        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, click);
+                    }
+                });
             } else {
                 click.run();
             }
@@ -508,6 +549,11 @@ final class DungeonBattleAutomation {
                 host.postDelayed(this::inspectPosition, 2_000);
             }
         });
+    }
+
+    private void tapNpcShortcutTwice(Runnable next) {
+        host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, () -> host.postDelayed(
+                () -> host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, next), 1_000));
     }
 
     /** 40/50 级靠红名 BOSS 识别，其余副本读右侧引路敌人列表。 */
@@ -572,7 +618,66 @@ final class DungeonBattleAutomation {
         host.showProgress(dungeonTitle() + "：攻击 " + boss.name);
         host.tap(boss.bounds.centerX(), boss.bounds.centerY(),
                 () -> host.ensureAutoAttackEnabled(
-                        () -> host.postDelayed(this::inspectPosition, FIGHT_CHECK_MS)));
+                        () -> host.postDelayed(
+                                () -> waitForRedBossDefeated(boss.name, 0), FIGHT_CHECK_MS)));
+    }
+
+    private void waitForRedBossDefeated(String currentBoss, int consecutiveMisses) {
+        host.recognizeTextRegion(
+                ACTIVE_BOSS_TITLE_LEFT, ACTIVE_BOSS_TITLE_TOP,
+                ACTIVE_BOSS_TITLE_RIGHT, ACTIVE_BOSS_TITLE_BOTTOM,
+                text -> {
+                    String recognized = text == null ? "" : text.getText();
+                    if (containsBossName(recognized, currentBoss)) {
+                        host.showProgress(dungeonTitle() + "：战斗中 " + currentBoss);
+                        host.postDelayed(
+                                () -> waitForRedBossDefeated(currentBoss, 0), FIGHT_CHECK_MS);
+                        return;
+                    }
+                    // If the target bar OCR is temporarily unreadable, keep the
+                    // old right-side list as a second signal before counting a miss.
+                    host.recognizeRedBoss(candidate -> {
+                        if (candidate != null
+                                && BossAutomation.matchesBossName(candidate.name, currentBoss)) {
+                            host.showProgress(dungeonTitle() + "：战斗中 " + currentBoss);
+                            host.postDelayed(
+                                    () -> waitForRedBossDefeated(currentBoss, 0), FIGHT_CHECK_MS);
+                            return;
+                        }
+                        int misses = consecutiveMisses + 1;
+                        if (misses >= DUNGEON_BOSS_DEFEAT_CONFIRMATIONS) {
+                            host.showProgress(dungeonTitle() + "：已击败 " + currentBoss);
+                            inspectPosition();
+                        } else {
+                            host.showProgress(dungeonTitle() + "：确认击败 "
+                                    + currentBoss + "（" + misses + "/"
+                                    + DUNGEON_BOSS_DEFEAT_CONFIRMATIONS + "）");
+                            host.postDelayed(
+                                    () -> waitForRedBossDefeated(currentBoss, misses),
+                                    FIGHT_CHECK_MS);
+                        }
+                    });
+                });
+    }
+
+    static boolean containsBossName(String recognized, String expected) {
+        String actual = chineseOnly(recognized);
+        String target = chineseOnly(expected);
+        return !target.isEmpty() && actual.contains(target);
+    }
+
+    private static String chineseOnly(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder normalized = new StringBuilder();
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character >= '\u4e00' && character <= '\u9fff') {
+                normalized.append(character);
+            }
+        }
+        return normalized.toString();
     }
 
     /**
@@ -640,7 +745,8 @@ final class DungeonBattleAutomation {
                 + exit[0] + "," + exit[1]);
         host.tapMapCoordinate(exit[0], exit[1], currentDungeon().dungeonMapMaxX(),
                 () -> host.postDelayed(() -> host.closeAutoPathPanel(
-                        () -> host.tap(NPC_SHORTCUT_X, NPC_SHORTCUT_Y, this::claimReward)),
+                        // 出口 NPC 的第一次点击同样只选中 NPC，第二次才展开奖励对话。
+                        () -> tapNpcShortcutTwice(this::claimReward)),
                         MAP_WAIT_MS));
     }
 
@@ -821,6 +927,19 @@ final class DungeonBattleAutomation {
             }
         }
         return false;
+    }
+
+    static boolean isNoCountDialog(String recognized) {
+        String actual = normalizeDialogText(recognized);
+        if (actual.isEmpty()) {
+            return false;
+        }
+        return actual.contains("没有此副本的次数")
+                || (actual.contains("无法获得所有怪物的掉落")
+                && actual.contains("无法领取通关奖励"))
+                || (actual.contains("没有")
+                && actual.contains("副本")
+                && actual.contains("次数"));
     }
 
     private static String normalizeDialogText(String value) {
