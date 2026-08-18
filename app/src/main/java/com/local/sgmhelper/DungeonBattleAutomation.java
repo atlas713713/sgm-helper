@@ -447,11 +447,23 @@ final class DungeonBattleAutomation {
 
     private void clickNpcOption(
             String expectedTitle, int row, Runnable next, int remainingAttempts) {
+        clickNpcOption(expectedTitle, row, next, remainingAttempts, null);
+    }
+
+    private void clickNpcOption(String expectedTitle, int row, Runnable next,
+            int remainingAttempts, Runnable onExhausted) {
         verifyNpcTitle(expectedTitle,
-                () -> host.tap(npcOptionX(row), npcOptionY(row), next), remainingAttempts);
+                () -> host.tap(npcOptionX(row), npcOptionY(row), next),
+                remainingAttempts, onExhausted);
     }
 
     private void verifyNpcTitle(String expectedTitle, Runnable next, int remainingAttempts) {
+        verifyNpcTitle(expectedTitle, next, remainingAttempts, null);
+    }
+
+    /** {@code onExhausted} 为 null 时按失败处理，否则交给调用方重试（见 clickNpcButton）。 */
+    private void verifyNpcTitle(String expectedTitle, Runnable next, int remainingAttempts,
+            Runnable onExhausted) {
         host.recognizeTextRegion(
                 NPC_TITLE_LEFT, NPC_TITLE_TOP, NPC_TITLE_RIGHT, NPC_TITLE_BOTTOM,
                 text -> {
@@ -461,7 +473,9 @@ final class DungeonBattleAutomation {
                         next.run();
                     } else if (remainingAttempts > 1) {
                         host.postDelayed(() -> verifyNpcTitle(
-                                expectedTitle, next, remainingAttempts - 1), 500);
+                                expectedTitle, next, remainingAttempts - 1, onExhausted), 500);
+                    } else if (onExhausted != null) {
+                        onExhausted.run();
                     } else {
                         host.failAutomation(dungeonTitle() + "：未识别到“"
                                 + expectedTitle + "”对话框");
@@ -515,10 +529,12 @@ final class DungeonBattleAutomation {
             host.showProgress(dungeonTitle() + "：" + decision.interactionText);
             String npcName = currentDungeon().interactionNpcName();
             Runnable afterClick = () -> host.postDelayed(this::inspectPosition, 2_000);
+            // 认不出对话就重新读坐标再来一遍，和武当 partCenter 的“直接 return”一致。
             Runnable click = npcName == null
-                    ? () -> clickNpcButton(decision.interactionText, 8, afterClick)
+                    ? () -> clickNpcButton(
+                            decision.interactionText, 8, afterClick, afterClick)
                     : () -> clickNpcOption(npcName,
-                            currentDungeon().interactionNpcRow(), afterClick, 8);
+                            currentDungeon().interactionNpcRow(), afterClick, 8, afterClick);
             if (decision.openNpc) {
                 // 中途 NPC 交互前必须先收起右侧“敌人/寻路”面板；否则
                 // (1208,410) 落在面板上，NPCDialog 不会打开，后续 OCR 只能得到空文本。
@@ -771,6 +787,17 @@ final class DungeonBattleAutomation {
     }
 
     private void clickNpcButton(String button, int remainingAttempts, Runnable next) {
+        clickNpcButton(button, remainingAttempts, next,
+                () -> host.failAutomation(dungeonTitle() + "：未找到“" + button + "”按钮"));
+    }
+
+    /**
+     * 武当 partCenter 认不出按钮时是直接 return，靠外层下一拍重新读坐标再来一遍，
+     * 既不报错也不打重试风暴。副本中途的交互沿用这个语义（`onExhausted` 传重新读坐标）；
+     * 入场、离场、“离开”那种必须出现的对话仍然按失败处理。
+     */
+    private void clickNpcButton(
+            String button, int remainingAttempts, Runnable next, Runnable onExhausted) {
         host.recognizeTextRegion(NPC_ROW_LEFT, NPC_ROW_TOP, NPC_ROW_RIGHT, NPC_ROW_BOTTOM,
                 text -> {
                     int row = npcRowForButton(text, button);
@@ -779,10 +806,10 @@ final class DungeonBattleAutomation {
                     if (row > 0) {
                         host.tap(npcOptionX(row), npcOptionY(row), next);
                     } else if (remainingAttempts > 1) {
-                        host.postDelayed(
-                                () -> clickNpcButton(button, remainingAttempts - 1, next), 500);
+                        host.postDelayed(() -> clickNpcButton(
+                                button, remainingAttempts - 1, next, onExhausted), 500);
                     } else {
-                        host.failAutomation(dungeonTitle() + "：未找到“" + button + "”按钮");
+                        onExhausted.run();
                     }
                 });
     }

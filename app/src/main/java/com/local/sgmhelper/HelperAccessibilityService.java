@@ -2671,14 +2671,14 @@ public final class HelperAccessibilityService extends AccessibilityService
         });
     }
 
+    /**
+     * 一律用 OCR 确认面板真的收起来了。原来先拿 g04“自动寻路”模板抄近路，但那个锚点在
+     * (1114,479)，落在引路列表下边界 440 之外、不会被面板遮住；只要匹配上就整段跳过关闭，
+     * 随后的 NPC 快捷键 (1208,410) 正好打在敌人列表第三行（40/50/60 用的下方行 y=404）上，
+     * 把怪选中交给游戏的辅助开关去打，看起来就像助手在副本中途乱打怪。
+     */
     private void closeAutoPathPanelIfNeeded(Runnable next) {
-        matchAutoPathAnchor(match -> {
-            if (match != null && match.found()) {
-                next.run();
-            } else {
-                closeAutoPathPanelIfNeeded(next, TEXT_RETRY_COUNT);
-            }
-        }, () -> closeAutoPathPanelIfNeeded(next, TEXT_RETRY_COUNT));
+        closeAutoPathPanelIfNeeded(next, TEXT_RETRY_COUNT);
     }
 
     private void closeAutoPathPanelIfNeeded(Runnable next, int remainingAttempts) {
