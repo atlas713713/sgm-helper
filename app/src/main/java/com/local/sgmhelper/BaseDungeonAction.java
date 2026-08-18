@@ -77,6 +77,10 @@ abstract class BaseDungeonAction {
         switch (level) {
             case 60:
                 return new int[] {109, 26};
+            case 65:
+                return dungeonType == 2
+                        ? new int[] {107, 26}
+                        : new int[] {110, 26};
             case 70:
                 return new int[] {110, 26};
             case 75:
@@ -90,7 +94,11 @@ abstract class BaseDungeonAction {
             case 120:
             case 135:
                 return new int[] {106, 24};
+            case 150:
+            case 165:
+                return new int[] {110, 26};
             default:
+                // 10/20/30/40/50 都是这个点。
                 return new int[] {107, 26};
         }
     }
@@ -194,6 +202,21 @@ abstract class BaseDungeonAction {
         int next = currentX + HIGH_LEVEL_STEP;
         int limit = Math.max(beginX, endX);
         return next > limit ? limit + 5 : next;
+    }
+
+    /**
+     * 武当 toRight 的分段扫描：没有目标时每拍推进 {@code stepX} 格；一步跨过分段终点就说明
+     * 这一段已经扫完，返回 -1 让调用方改走门点/传送点。武当在跨过终点的那一拍还会先退回
+     * {@code endX-10} 再在下一拍走门点，那一步回头路不影响结果，这里直接进门点。
+     */
+    protected static int sweepRight(int currentX, int endX, int stepX) {
+        int next = currentX + stepX;
+        return next > endX ? -1 : next;
+    }
+
+    /** 武当 60 级 toRight 的随机步长：`Random.nextInt(20, 30)`。 */
+    protected static int randomRoomStep() {
+        return ThreadLocalRandom.current().nextInt(20, 30);
     }
 
     protected static boolean isNear(int x, int y, int targetX, int targetY) {

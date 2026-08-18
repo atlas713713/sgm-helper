@@ -27,9 +27,15 @@ final class Dungeon50Action extends BaseDungeonAction {
 
     static DungeonBattleAutomation.RouteDecision decideRoute(int x, int y) {
         if (x <= 49) {
-            // part0：出生点必须依次走三个点，不能直接点最后一个。
-            return DungeonBattleAutomation.RouteDecision.moveRoute(
-                    new int[][] {{46, 6}, {46, 45}, {60, 45}});
+            // part0：武当按当前 (x,y) 三选一走一个点，不是一次走完三个——
+            // 在 (46,45) 复活时直接接着走 (60,45)，不会被送回 (46,6)。
+            if (x < 42) {
+                return DungeonBattleAutomation.RouteDecision.move(46, 6, 0);
+            }
+            if (y < 40) {
+                return DungeonBattleAutomation.RouteDecision.move(46, 45, 0);
+            }
+            return DungeonBattleAutomation.RouteDecision.move(60, 45, 0);
         }
         if (x >= 50 && x <= 110) {
             return rightwardRoute(x, 110);
@@ -65,9 +71,12 @@ final class Dungeon50Action extends BaseDungeonAction {
     private static DungeonBattleAutomation.RouteDecision rightwardRoute(int x, int endX) {
         int nextX = stepRight(x);
         // 武当 toRight 的卡点处理：分段终点只用于生成脱困点，正常目标仍是
-        // LocationUtil 按 30 格计算出的 nextX。
-        int unstuckX = nextX <= endX ? endX - 10 : nextX + 20;
-        return DungeonBattleAutomation.RouteDecision.search(nextX, 27, unstuckX, false);
+        // LocationUtil 按 30 格计算出的 nextX。越过分段终点才退回 endX-10，
+        // 还没走到终点则再往前顶 20 格。
+        int unstuckX = nextX > endX ? endX - 10 : nextX + 20;
+        return DungeonBattleAutomation.RouteDecision
+                .search(nextX, 27, 0, false)
+                .unstuckAt(unstuckX, 27);
     }
 
     /** 复刻武当 toRight：+30 一步，超过 570 就落在 575。 */

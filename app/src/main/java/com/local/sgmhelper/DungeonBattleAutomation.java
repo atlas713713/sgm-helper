@@ -573,11 +573,13 @@ final class DungeonBattleAutomation {
         host.showProgress(dungeonTitle() + "：搜索 " + decision.enemyDescription());
         host.recognizeDungeonText(lines -> {
             EnemyRow enemy = selectEnemyRow(
-                    readEnemyRows(lines), decision.enemyLevels,
-                    decision.priorityEnemyNames, decision.protectName,
-                    decision.acceptAnyEnemy);
+                    readEnemyRows(lines), decision.priorityEnemyLevels,
+                    decision.priorityEnemyNames, decision.enemyLevels,
+                    decision.protectName, decision.acceptAnyEnemy);
             if (enemy == null) {
-                if (decision.exitWhenNoEnemy) {
+                if (decision.bossFallback) {
+                    findDungeonBoss(decision);
+                } else if (decision.exitWhenNoEnemy) {
                     gotoExit();
                 } else {
                     move(decision);
@@ -716,7 +718,8 @@ final class DungeonBattleAutomation {
         if (samePositionCount >= 3 && decision.unstuckX > 0) {
             samePositionCount = 0;
             host.showProgress(dungeonTitle() + "：脱离门点 " + lastX);
-            host.tapMapCoordinate(decision.unstuckX, 25, currentDungeon().dungeonMapMaxX(),
+            host.tapMapCoordinate(decision.unstuckX, decision.unstuckY,
+                    currentDungeon().dungeonMapMaxX(),
                     () -> host.postDelayed(this::inspectPosition, 2_000));
             return;
         }
@@ -977,11 +980,22 @@ final class DungeonBattleAutomation {
 
     static EnemyRow selectEnemyRow(
             List<EnemyRow> rows, List<Integer> levels, boolean acceptAnyEnemy) {
-        return selectEnemyRow(rows, levels, Collections.emptyList(), null, acceptAnyEnemy);
+        return selectEnemyRow(rows, Collections.emptyList(), Collections.emptyList(),
+                levels, null, acceptAnyEnemy);
     }
 
-    static EnemyRow selectEnemyRow(List<EnemyRow> rows, List<Integer> levels,
-            List<String> priorityNames, String protectName, boolean acceptAnyEnemy) {
+    /**
+     * 复刻武当每个战斗分段的搜索顺序：先 `FindDungeonBossLevelAction(priorityLevels)`，
+     * 再 `FindDungeonBossAction(priorityNames)`，最后 `FindEnemyAction(levels)`。三层都是
+     * 严格匹配，全落空就继续推进；只有明确要“打任意一行”的分段才走最后的兜底。
+     */
+    static EnemyRow selectEnemyRow(List<EnemyRow> rows, List<Integer> priorityLevels,
+            List<String> priorityNames, List<Integer> levels, String protectName,
+            boolean acceptAnyEnemy) {
+        EnemyRow byPriorityLevel = firstAtLevels(rows, priorityLevels, protectName);
+        if (byPriorityLevel != null) {
+            return byPriorityLevel;
+        }
         for (String priorityName : priorityNames) {
             for (EnemyRow row : rows) {
                 if (row.label.contains(priorityName)) {
@@ -989,17 +1003,29 @@ final class DungeonBattleAutomation {
                 }
             }
         }
-        for (EnemyRow row : rows) {
-            if (protectName != null && row.label.contains(protectName)) {
-                continue;
-            }
-            if (row.level != null && levels.contains(row.level)) {
-                return row;
-            }
+        EnemyRow byLevel = firstAtLevels(rows, levels, protectName);
+        if (byLevel != null) {
+            return byLevel;
         }
-        if (acceptAnyEnemy || !priorityNames.isEmpty()) {
+        if (acceptAnyEnemy) {
             for (EnemyRow row : rows) {
                 if (protectName == null || !row.label.contains(protectName)) {
+                    return row;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 等级表是有先后的，所以按等级而不是按行遍历。 */
+    private static EnemyRow firstAtLevels(
+            List<EnemyRow> rows, List<Integer> levels, String protectName) {
+        for (Integer level : levels) {
+            for (EnemyRow row : rows) {
+                if (protectName != null && row.label.contains(protectName)) {
+                    continue;
+                }
+                if (level.equals(row.level)) {
                     return row;
                 }
             }
@@ -1124,125 +1150,191 @@ final class DungeonBattleAutomation {
         }
     }
 
+    /**
+     * 一拍要执行的动作。武当每个 partN 的分支组合都不一样，逐条补构造参数会让参数表长到
+     * 读不动，所以字段由工厂方法按需赋值，其余保持默认。
+     */
     static final class RouteDecision {
-        final int targetX;
-        final int targetY;
-        final int unstuckX;
-        final boolean searchEnemies;
-        final boolean acceptAnyEnemy;
-        final boolean exit;
-        final String interactionText;
-        final boolean openNpc;
-        final List<Integer> enemyLevels;
-        final List<String> priorityEnemyNames;
-        final String protectName;
-        final boolean exitWhenNoEnemy;
-        final int shortcutClicks;
-        final int[][] waypoints;
+        private static final int[][] NO_WAYPOINTS = new int[0][];
 
-        private RouteDecision(int targetX, int targetY, int unstuckX,
-                boolean searchEnemies, boolean acceptAnyEnemy, boolean exit,
-                String interactionText, boolean openNpc, List<Integer> enemyLevels,
-                List<String> priorityEnemyNames, String protectName, boolean exitWhenNoEnemy,
-                int shortcutClicks, int[][] waypoints) {
-            this.targetX = targetX;
-            this.targetY = targetY;
-            this.unstuckX = unstuckX;
-            this.searchEnemies = searchEnemies;
-            this.acceptAnyEnemy = acceptAnyEnemy;
-            this.exit = exit;
-            this.interactionText = interactionText;
-            this.openNpc = openNpc;
-            this.enemyLevels = enemyLevels;
-            this.priorityEnemyNames = priorityEnemyNames;
-            this.protectName = protectName;
-            this.exitWhenNoEnemy = exitWhenNoEnemy;
-            this.shortcutClicks = shortcutClicks;
-            this.waypoints = waypoints;
+        int targetX;
+        int targetY;
+        /** 卡在同一坐标时的脱困点；{@code <= 0} 表示武当这一段没有脱困坐标。 */
+        int unstuckX;
+        int unstuckY = 25;
+        boolean searchEnemies;
+        boolean acceptAnyEnemy;
+        /** 武当 30 级 part3：名单落空后还要再走一次 FindDungeonBossAction。 */
+        boolean bossFallback;
+        boolean exit;
+        String interactionText;
+        boolean openNpc;
+        /** 武当 `FindDungeonBossLevelAction(priorityEnemyLevels)`，比名字和次选等级都优先。 */
+        List<Integer> priorityEnemyLevels = Collections.emptyList();
+        List<Integer> enemyLevels = Collections.emptyList();
+        List<String> priorityEnemyNames = Collections.emptyList();
+        String protectName;
+        boolean exitWhenNoEnemy;
+        int shortcutClicks;
+        int[][] waypoints = NO_WAYPOINTS;
+
+        private RouteDecision() {
+        }
+
+        private static RouteDecision at(int x, int y) {
+            RouteDecision decision = new RouteDecision();
+            decision.targetX = x;
+            decision.targetY = y;
+            return decision;
+        }
+
+        private static RouteDecision along(int[][] points) {
+            RouteDecision decision = at(points[0][0], points[0][1]);
+            decision.waypoints = points;
+            return decision;
         }
 
         static RouteDecision search(
                 int x, int y, int unstuckX, boolean acceptAnyEnemy, Integer... levels) {
-            return new RouteDecision(x, y, unstuckX, true, acceptAnyEnemy, false, null, false,
-                    List.of(levels), Collections.emptyList(), null, false, 0, new int[0][]);
+            RouteDecision decision = at(x, y);
+            decision.unstuckX = unstuckX;
+            decision.searchEnemies = true;
+            decision.acceptAnyEnemy = acceptAnyEnemy;
+            decision.enemyLevels = List.of(levels);
+            return decision;
         }
 
         static RouteDecision searchRoute(int[][] points, Integer... levels) {
-            int[] first = points[0];
-            return new RouteDecision(first[0], first[1], 0, true, true, false, null, false,
-                    List.of(levels), Collections.emptyList(), null, false, 0, points);
+            RouteDecision decision = along(points);
+            decision.searchEnemies = true;
+            decision.acceptAnyEnemy = true;
+            decision.enemyLevels = List.of(levels);
+            return decision;
         }
 
         static RouteDecision searchBoss(int x, int y, int unstuckX) {
-            return new RouteDecision(x, y, unstuckX, true, false, false, null, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
-                    new int[0][]);
+            RouteDecision decision = at(x, y);
+            decision.unstuckX = unstuckX;
+            decision.searchEnemies = true;
+            return decision;
         }
 
         static RouteDecision searchBossRoute(int[][] points) {
-            int[] first = points[0];
-            return new RouteDecision(first[0], first[1], 0, true, false, false, null, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false, 0, points);
+            RouteDecision decision = along(points);
+            decision.searchEnemies = true;
+            return decision;
         }
 
-        static RouteDecision searchNamed(int x, int y, int unstuckX,
-                List<String> priorityNames, String protectName) {
-            return new RouteDecision(x, y, unstuckX, true, false, false, null, false,
-                    Collections.emptyList(), priorityNames, protectName, false, 0,
-                    new int[0][]);
+        /**
+         * 武当 FindTargetBossAction / FindEnemyAction(names)：只打名单里的目标，名单外的
+         * 一律不打，找不到就继续推进。和 {@link #searchNamed} 的区别就是没有“打任意一行”。
+         */
+        static RouteDecision searchTargetBoss(
+                int x, int y, int unstuckX, List<String> names, Integer... levels) {
+            RouteDecision decision = at(x, y);
+            decision.unstuckX = unstuckX;
+            decision.searchEnemies = true;
+            decision.priorityEnemyNames = names;
+            decision.enemyLevels = List.of(levels);
+            return decision;
+        }
+
+        /** 武当 `FindDungeonBossLevelAction(priorityEnemyLevels)` 之后再退到次选等级/名字。 */
+        static RouteDecision searchByLevel(int x, int y, int priorityLevel,
+                List<Integer> levels, List<String> names) {
+            return byLevel(at(x, y), priorityLevel, levels, names);
+        }
+
+        static RouteDecision searchByLevelRoute(int[][] points, int priorityLevel,
+                List<Integer> levels, List<String> names) {
+            return byLevel(along(points), priorityLevel, levels, names);
+        }
+
+        private static RouteDecision byLevel(RouteDecision decision, int priorityLevel,
+                List<Integer> levels, List<String> names) {
+            decision.searchEnemies = true;
+            decision.priorityEnemyLevels = List.of(priorityLevel);
+            decision.enemyLevels = levels;
+            decision.priorityEnemyNames = names;
+            return decision;
+        }
+
+        static RouteDecision searchTargetBossRoute(int[][] points, List<String> names) {
+            RouteDecision decision = along(points);
+            decision.searchEnemies = true;
+            decision.priorityEnemyNames = names;
+            return decision;
+        }
+
+        /** 武当 30 级 part3：先 FindEnemyAction(["董军阵旗"])，没有再 FindDungeonBossAction。 */
+        static RouteDecision searchNamedThenBoss(
+                int x, int y, int unstuckX, List<String> names) {
+            RouteDecision decision = searchTargetBoss(x, y, unstuckX, names);
+            decision.bossFallback = true;
+            return decision;
         }
 
         static RouteDecision searchNamed(int x, int y, int unstuckX,
                 List<String> priorityNames, String protectName, Integer... levels) {
-            return new RouteDecision(x, y, unstuckX, true, false, false, null, false,
-                    List.of(levels), priorityNames, protectName, false, 0, new int[0][]);
+            RouteDecision decision = at(x, y);
+            decision.unstuckX = unstuckX;
+            decision.searchEnemies = true;
+            // 武当这一层的次选是 FindEnemyAction(enemyLevels)，那些等级来自服务端下发的
+            // DungeonEntity，APK 里没有；沿用“优先名单落空就打任意一行”。
+            decision.acceptAnyEnemy = true;
+            decision.priorityEnemyNames = priorityNames;
+            decision.protectName = protectName;
+            decision.enemyLevels = List.of(levels);
+            return decision;
         }
 
         static RouteDecision searchThenExit(int x, int y,
                 List<String> priorityNames, String protectName) {
-            return new RouteDecision(x, y, 0, true, false, false, null, false,
-                    Collections.emptyList(), priorityNames, protectName, true, 0,
-                    new int[0][]);
+            RouteDecision decision = searchNamed(x, y, 0, priorityNames, protectName);
+            decision.exitWhenNoEnemy = true;
+            return decision;
         }
 
         static RouteDecision move(int x, int y, int unstuckX) {
-            return new RouteDecision(x, y, unstuckX, false, false, false, null, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
-                    new int[0][]);
+            RouteDecision decision = at(x, y);
+            decision.unstuckX = unstuckX;
+            return decision;
         }
 
         static RouteDecision moveRoute(int[][] points) {
-            int[] first = points[0];
-            return new RouteDecision(first[0], first[1], 0, false, false, false, null, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false, 0, points);
-        }
-
-        static RouteDecision interact(String text) {
-            return new RouteDecision(0, 0, 0, false, false, false, text, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
-                    new int[0][]);
+            return along(points);
         }
 
         static RouteDecision interactNpc(String text) {
-            return new RouteDecision(0, 0, 0, false, false, false, text, true,
-                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
-                    new int[0][]);
+            RouteDecision decision = new RouteDecision();
+            decision.interactionText = text;
+            decision.openNpc = true;
+            return decision;
         }
 
         static RouteDecision shortcut(int clicks, String text) {
-            return new RouteDecision(0, 0, 0, false, false, false, text, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false, clicks,
-                    new int[0][]);
+            RouteDecision decision = new RouteDecision();
+            decision.interactionText = text;
+            decision.shortcutClicks = clicks;
+            return decision;
         }
 
         static RouteDecision exit(int x, int y) {
-            return new RouteDecision(x, y, 0, false, false, true, null, false,
-                    Collections.emptyList(), Collections.emptyList(), null, false, 0,
-                    new int[0][]);
+            RouteDecision decision = at(x, y);
+            decision.exit = true;
+            return decision;
+        }
+
+        /** 武当 50 级的脱困点落在 y=27 的走廊上，不是其他副本的 25。 */
+        RouteDecision unstuckAt(int x, int y) {
+            unstuckX = x;
+            unstuckY = y;
+            return this;
         }
 
         boolean isBossOnly() {
-            return searchEnemies && enemyLevels.isEmpty() && priorityEnemyNames.isEmpty();
+            return searchEnemies && priorityEnemyLevels.isEmpty()
+                    && enemyLevels.isEmpty() && priorityEnemyNames.isEmpty();
         }
 
         String enemyDescription() {
@@ -1251,6 +1343,9 @@ final class DungeonBattleAutomation {
             }
             if (!priorityEnemyNames.isEmpty()) {
                 return priorityEnemyNames.toString();
+            }
+            if (!priorityEnemyLevels.isEmpty()) {
+                return priorityEnemyLevels + "级 BOSS";
             }
             return acceptAnyEnemy ? "副本BOSS/普通敌人" : enemyLevels + "级敌人";
         }

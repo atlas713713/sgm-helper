@@ -1051,17 +1051,19 @@ public final class HelperAccessibilityServiceTest {
         Dungeon30Action dungeon = new Dungeon30Action();
 
         // part0：570 → 500 → (458,4)，第一次进入 510..579 时先补一个 570 路点。
+        // 武当这两个路点都在 y=25，只有门点 (458,4) 例外。
         DungeonBattleAutomation.RouteDecision part0 = dungeon.decideRoute(599);
         assertTrue(part0.isBossOnly());
         assertTrue(part0.enemyLevels.isEmpty());
         assertEquals(570, part0.targetX);
-        assertEquals(27, part0.targetY);
+        assertEquals(25, part0.targetY);
         int[][] band570 = dungeon.decideRoute(570).waypoints;
         assertEquals(2, band570.length);
-        assertArrayEquals(new int[] {570, 27}, band570[0]);
-        assertArrayEquals(new int[] {500, 27}, band570[1]);
+        assertArrayEquals(new int[] {570, 25}, band570[0]);
+        assertArrayEquals(new int[] {500, 25}, band570[1]);
         assertTrue(dungeon.decideRoute(570).isBossOnly());
         assertEquals(500, dungeon.decideRoute(540).targetX);
+        assertEquals(25, dungeon.decideRoute(540).targetY);
         assertEquals(0, dungeon.decideRoute(540).waypoints.length);
         DungeonBattleAutomation.RouteDecision part0Door = dungeon.decideRoute(470);
         assertTrue(part0Door.isBossOnly());
@@ -1090,10 +1092,12 @@ public final class HelperAccessibilityServiceTest {
         assertEquals(235, dungeon.decideRoute(260).targetX);
         assertEquals(195, dungeon.decideRoute(220).targetX);
 
-        // part3：85 → 45 → 出口点 (24,27)。
+        // part3：85 → 45 → 出口点 (24,27)。武当这一段先打“董军阵旗”，再找红名 BOSS。
         DungeonBattleAutomation.RouteDecision part3 = dungeon.decideRoute(100);
-        assertTrue(part3.isBossOnly());
-        assertTrue(part3.enemyLevels.isEmpty());
+        assertFalse(part3.isBossOnly());
+        assertTrue(part3.bossFallback);
+        assertFalse(part3.acceptAnyEnemy);
+        assertEquals(Arrays.asList("董军阵旗"), part3.priorityEnemyNames);
         assertEquals(85, part3.targetX);
         assertEquals(45, dungeon.decideRoute(60).targetX);
         assertEquals(24, dungeon.decideRoute(40).targetX);
@@ -1128,34 +1132,39 @@ public final class HelperAccessibilityServiceTest {
 
     @Test
     public void reproducesTheLevel50RightwardBossRouteAndCenterDialog() {
+        // part0 是三选一，不是一次走完三个点：x<42 走 (46,6)，到位后按 y 接着走。
         assertEquals(46, Dungeon50Action.decideRoute(25, 25).targetX);
         assertEquals(6, Dungeon50Action.decideRoute(25, 25).targetY);
-        int[][] opening = Dungeon50Action.decideRoute(25, 25).waypoints;
-        assertArrayEquals(new int[] {46, 6}, opening[0]);
-        assertArrayEquals(new int[] {46, 45}, opening[1]);
-        assertArrayEquals(new int[] {60, 45}, opening[2]);
+        assertEquals(46, Dungeon50Action.decideRoute(46, 6).targetX);
+        assertEquals(45, Dungeon50Action.decideRoute(46, 6).targetY);
+        assertEquals(60, Dungeon50Action.decideRoute(46, 45).targetX);
+        assertEquals(45, Dungeon50Action.decideRoute(46, 45).targetY);
         // 武当 toRight 是固定 +30、y=27，不是随机 40–49。
         assertTrue(Dungeon50Action.decideRoute(80).searchEnemies);
         assertFalse(Dungeon50Action.decideRoute(80).acceptAnyEnemy);
         assertEquals(110, Dungeon50Action.decideRoute(80).targetX);
         assertEquals(27, Dungeon50Action.decideRoute(80).targetY);
-        assertEquals(100, Dungeon50Action.decideRoute(80).unstuckX);
+        // 脱困：越过分段终点才退回 endX-10，没到终点则再往前顶 20 格，落点也在 y=27。
+        assertEquals(130, Dungeon50Action.decideRoute(80).unstuckX);
+        assertEquals(27, Dungeon50Action.decideRoute(80).unstuckY);
         assertEquals(130, Dungeon50Action.decideRoute(100).targetX);
-        assertEquals(150, Dungeon50Action.decideRoute(100).unstuckX);
+        assertEquals(100, Dungeon50Action.decideRoute(100).unstuckX);
         assertEquals(180, Dungeon50Action.decideRoute(150).targetX);
-        assertEquals(184, Dungeon50Action.decideRoute(150).unstuckX);
+        assertEquals(200, Dungeon50Action.decideRoute(150).unstuckX);
         assertEquals(224, Dungeon50Action.decideRoute(194).targetX);
+        assertEquals(184, Dungeon50Action.decideRoute(194).unstuckX);
         assertEquals(317, Dungeon50Action.decideRoute(287).targetX);
+        assertEquals(277, Dungeon50Action.decideRoute(287).unstuckX);
         assertEquals("交给我吧", Dungeon50Action.decideRoute(300).interactionText);
         assertTrue(Dungeon50Action.decideRoute(300).openNpc);
         assertNull(BaseDungeonAction.forLevel(50).interactionNpcName());
         assertEquals("孙坚", BaseDungeonAction.forLevel(50).exitNpcName());
         assertEquals(380, Dungeon50Action.decideRoute(350).targetX);
-        assertEquals(378, Dungeon50Action.decideRoute(350).unstuckX);
+        assertEquals(400, Dungeon50Action.decideRoute(350).unstuckX);
         assertEquals(480, Dungeon50Action.decideRoute(450).targetX);
-        assertEquals(474, Dungeon50Action.decideRoute(450).unstuckX);
+        assertEquals(500, Dungeon50Action.decideRoute(450).unstuckX);
         assertEquals(575, Dungeon50Action.decideRoute(550).targetX);
-        assertEquals(571, Dungeon50Action.decideRoute(550).unstuckX);
+        assertEquals(595, Dungeon50Action.decideRoute(550).unstuckX);
         assertTrue(Dungeon50Action.decideRoute(590).exit);
         assertArrayEquals(new int[] {570, 25},
                 BaseDungeonAction.forLevel(50).exitPoint());
@@ -1172,33 +1181,48 @@ public final class HelperAccessibilityServiceTest {
     public void reproducesTheLevel60PortalRoomRoute() {
         Dungeon60Action dungeon = new Dungeon60Action();
 
-        // partStep 0：走廊指向第一战斗房门点。
+        // partStep 0：走廊指向第一战斗房门点。武当走廊里不搜怪，只走门点。
+        assertFalse(dungeon.decideRoute(50, 25).searchEnemies);
         assertEquals(71, dungeon.decideRoute(50, 25).targetX);
         assertEquals(10, dungeon.decideRoute(50, 25).targetY);
         assertArrayEquals(new int[] {71, 4}, dungeon.decideRoute(50, 25).waypoints[1]);
 
-        // 第一战斗房清空后走 (114,40) → (114,46)。
-        assertEquals(114, dungeon.decideRoute(150, 25).targetX);
-        assertArrayEquals(new int[] {114, 46}, dungeon.decideRoute(150, 25).waypoints[1]);
+        // 第一战斗房只打田丰，用 toRight 逐格扫（随机 20–29 格），扫到房尾才传送。
+        DungeonBattleAutomation.RouteDecision room1 = dungeon.decideRoute(150, 25);
+        assertEquals(Arrays.asList("田丰"), room1.priorityEnemyNames);
+        assertFalse(room1.acceptAnyEnemy);
+        assertEquals(0, room1.waypoints.length);
+        assertTrue(room1.targetX >= 170 && room1.targetX <= 179);
+        DungeonBattleAutomation.RouteDecision room1Exit = dungeon.decideRoute(190, 25);
+        assertEquals(114, room1Exit.targetX);
+        assertArrayEquals(new int[] {114, 46}, room1Exit.waypoints[1]);
 
         // 传送区点一次快捷键并推进 partStep，走廊随之指向第二战斗房。
         assertEquals(1, dungeon.decideRoute(515, 25).shortcutClicks);
         assertEquals(70, dungeon.decideRoute(50, 25).targetX);
         assertArrayEquals(new int[] {70, 46}, dungeon.decideRoute(50, 25).waypoints[1]);
 
-        // 第二战斗房清空后走 (214,10) → (214,4)。
-        assertEquals(214, dungeon.decideRoute(250, 25).targetX);
-        assertArrayEquals(new int[] {214, 4}, dungeon.decideRoute(250, 25).waypoints[1]);
+        // 第二战斗房打文丑，扫完走 (214,10) → (214,4)。
+        assertEquals(Arrays.asList("文丑"), dungeon.decideRoute(250, 25).priorityEnemyNames);
+        DungeonBattleAutomation.RouteDecision room2Exit = dungeon.decideRoute(290, 25);
+        assertEquals(214, room2Exit.targetX);
+        assertArrayEquals(new int[] {214, 4}, room2Exit.waypoints[1]);
 
         assertEquals(1, dungeon.decideRoute(540, 25).shortcutClicks);
         assertEquals(90, dungeon.decideRoute(50, 25).targetX);
         assertArrayEquals(new int[] {94, 27}, dungeon.decideRoute(50, 25).waypoints[1]);
 
-        assertEquals(380, dungeon.decideRoute(350, 25).targetX);
-        assertArrayEquals(new int[] {394, 27}, dungeon.decideRoute(350, 25).waypoints[1]);
+        // 第三战斗房打颜良。
+        assertEquals(Arrays.asList("颜良"), dungeon.decideRoute(350, 25).priorityEnemyNames);
+        DungeonBattleAutomation.RouteDecision room3Exit = dungeon.decideRoute(390, 25);
+        assertEquals(380, room3Exit.targetX);
+        assertArrayEquals(new int[] {394, 27}, room3Exit.waypoints[1]);
+
         assertEquals(570, dungeon.decideRoute(560, 25).targetX);
         assertEquals(2, dungeon.decideRoute(570, 27).shortcutClicks);
-        assertEquals(486, dungeon.decideRoute(450).targetX);
+        // 最终 BOSS 段是红名，扫到段尾才去出口点。
+        assertTrue(dungeon.decideRoute(450).isBossOnly());
+        assertEquals(486, dungeon.decideRoute(470).targetX);
         assertTrue(dungeon.decideRoute(490).exit);
         assertArrayEquals(new int[] {486, 27},
                 BaseDungeonAction.forLevel(60).exitPoint());
@@ -1210,14 +1234,28 @@ public final class HelperAccessibilityServiceTest {
         assertEquals("出击", Dungeon65Action.decideRoute(34).interactionText);
         assertTrue(Dungeon65Action.decideRoute(34).openNpc);
         assertEquals(245, Dungeon65Action.decideRoute(150).targetX);
-        assertEquals(Arrays.asList(64), Dungeon65Action.decideRoute(150).enemyLevels);
-        assertEquals(252, Dungeon65Action.decideRoute(245).targetX);
+        // 三层：优先 64 级 BOSS → 精英才有的名字 → 次选等级 [1,63]，全落空就继续推进。
+        assertEquals(Arrays.asList(64),
+                Dungeon65Action.decideRoute(150).priorityEnemyLevels);
+        assertEquals(Arrays.asList(1, 63), Dungeon65Action.decideRoute(150).enemyLevels);
+        assertFalse(Dungeon65Action.decideRoute(150).acceptAnyEnemy);
+        // 231..250 武当照样搜怪，再用 toRight 顶进下一段，不是纯移动。
+        assertTrue(Dungeon65Action.decideRoute(245).searchEnemies);
+        assertEquals(275, Dungeon65Action.decideRoute(245).targetX);
+        // 252..349 逐格扫；310..380 这段走廊的 y 是 37。
+        assertEquals(330, Dungeon65Action.decideRoute(300).targetX);
+        assertEquals(27, Dungeon65Action.decideRoute(300).targetY);
+        assertEquals(350, Dungeon65Action.decideRoute(320).targetX);
+        assertEquals(37, Dungeon65Action.decideRoute(320).targetY);
         assertEquals(409, Dungeon65Action.decideRoute(350, 25).targetX);
         assertEquals(30, Dungeon65Action.decideRoute(350, 25).targetY);
         int[][] gate = Dungeon65Action.decideRoute(350, 25).waypoints;
         assertArrayEquals(new int[] {410, 10}, gate[1]);
         assertArrayEquals(new int[] {410, 4}, gate[2]);
-        assertEquals(538, Dungeon65Action.decideRoute(500).targetX);
+        // 440..537 武当找的是红名副本 BOSS，不按等级；扫到段尾才走 538。
+        assertTrue(Dungeon65Action.decideRoute(500).isBossOnly());
+        assertEquals(530, Dungeon65Action.decideRoute(500).targetX);
+        assertEquals(538, Dungeon65Action.decideRoute(520).targetX);
         assertTrue(Dungeon65Action.decideRoute(550).exit);
     }
 
@@ -1278,17 +1316,36 @@ public final class HelperAccessibilityServiceTest {
         // 武当 Dungeon60/70/75Action 不看副本类型，路线完全相同。
         assertArrayEquals(new int[] {486, 27}, BaseDungeonAction.forElite(60).exitPoint());
         assertEquals(115, BaseDungeonAction.forElite(70).decide(80, 27).targetX);
-        assertEquals(73, BaseDungeonAction.forElite(75).decide(50, 27).targetX);
+        assertEquals(73, BaseDungeonAction.forElite(75).decide(62, 27).targetX);
         assertTrue(BaseDungeonAction.forElite(75).decide(187, 27).exit);
 
-        // Dungeon65Action：priorityEnemyLevels 一般 64、精英 68。
+        // Dungeon65Action：priorityEnemyLevels 一般 64、精英 68；次选目标也不是同一套。
         assertEquals(Arrays.asList(64),
+                BaseDungeonAction.forLevel(65).decide(150, 27).priorityEnemyLevels);
+        assertEquals(Arrays.asList(1, 63),
                 BaseDungeonAction.forLevel(65).decide(150, 27).enemyLevels);
         assertEquals(Arrays.asList(68),
+                BaseDungeonAction.forElite(65).decide(150, 27).priorityEnemyLevels);
+        assertEquals(Arrays.asList(1),
                 BaseDungeonAction.forElite(65).decide(150, 27).enemyLevels);
+        assertEquals(Arrays.asList("虎牢关副将"),
+                BaseDungeonAction.forElite(65).decide(150, 27).priorityEnemyNames);
         assertEquals(Arrays.asList(68),
-                BaseDungeonAction.forElite(65).decide(350, 25).enemyLevels);
+                BaseDungeonAction.forElite(65).decide(350, 25).priorityEnemyLevels);
         assertEquals(245, BaseDungeonAction.forElite(65).decide(150, 27).targetX);
+
+        // 精英 75 的次选等级表和一般副本不是同一张。
+        assertEquals(Arrays.asList(1, 74, 75),
+                BaseDungeonAction.forLevel(75).decide(100, 27).enemyLevels);
+        assertEquals(Arrays.asList(1, 75, 79, 80),
+                BaseDungeonAction.forElite(75).decide(100, 27).enemyLevels);
+        assertEquals(Arrays.asList("吕虔", "于禁", "李典", "夏侯渊"),
+                BaseDungeonAction.forElite(75).decide(100, 27).priorityEnemyNames);
+        // 行脚商队：一般 75 在 (106,24)，精英 75 在 (115,21)。
+        assertArrayEquals(new int[] {106, 24}, BaseDungeonAction.gearMerchantPoint(75, 1));
+        assertArrayEquals(new int[] {115, 21}, BaseDungeonAction.gearMerchantPoint(75, 2));
+        assertArrayEquals(new int[] {110, 26}, BaseDungeonAction.gearMerchantPoint(65, 1));
+        assertArrayEquals(new int[] {107, 26}, BaseDungeonAction.gearMerchantPoint(65, 2));
     }
 
     @Test
@@ -1302,10 +1359,26 @@ public final class HelperAccessibilityServiceTest {
     public void reproducesTheLevel70EscortRouteAndNeverTargetsTheCarriage() {
         DungeonBattleAutomation.RouteDecision part0 = Dungeon70Action.decideRoute(80);
         assertEquals(115, part0.targetX);
+        assertEquals(27, part0.targetY);
         assertEquals(Arrays.asList("长安城驻军队长", "长安白虎大门"),
                 part0.priorityEnemyNames);
         assertEquals("马车", part0.protectName);
-        assertEquals(560, Dungeon70Action.decideRoute(300).targetX);
+
+        // 护送是一段一段推的：40 → 90 → 115 → 230 → 330 → 450 → 540 → 560，
+        // 中途站都在 y=25。一次寻路冲到 560 会把马车甩在后面。
+        int[] positions = {10, 50, 80, 150, 300, 400, 500, 545};
+        int[] targets = {40, 90, 115, 230, 330, 450, 540, 560};
+        int[] targetYs = {25, 25, 27, 25, 25, 25, 25, 27};
+        for (int index = 0; index < positions.length; index++) {
+            DungeonBattleAutomation.RouteDecision leg =
+                    Dungeon70Action.decideRoute(positions[index]);
+            assertEquals(targets[index], leg.targetX);
+            assertEquals(targetYs[index], leg.targetY);
+            assertEquals("马车", leg.protectName);
+        }
+        // 偏离走廊时先把 y 拉回 25。
+        assertEquals(300, Dungeon70Action.decideRoute(300, 45).targetX);
+        assertEquals(25, Dungeon70Action.decideRoute(300, 45).targetY);
         assertTrue(Dungeon70Action.decideRoute(570).exit);
 
         DungeonBattleAutomation.EnemyRow carriage = new DungeonBattleAutomation.EnemyRow(
@@ -1314,18 +1387,38 @@ public final class HelperAccessibilityServiceTest {
                 70, "长安城驻军队长", new android.graphics.Rect(0, 0, 1, 1));
         assertEquals(guard, DungeonBattleAutomation.selectEnemyRow(
                 Arrays.asList(carriage, guard), List.of(),
-                part0.priorityEnemyNames, part0.protectName, false));
+                part0.priorityEnemyNames, List.of(), part0.protectName, false));
+        // 名单落空时武当不会退而打杂兵——护送途中乱打会脱离马车。
+        DungeonBattleAutomation.EnemyRow mob = new DungeonBattleAutomation.EnemyRow(
+                70, "70级 长安守军", new android.graphics.Rect(0, 0, 1, 1));
+        assertFalse(part0.acceptAnyEnemy);
+        assertNull(DungeonBattleAutomation.selectEnemyRow(
+                Arrays.asList(carriage, mob), List.of(),
+                part0.priorityEnemyNames, List.of(), part0.protectName, false));
     }
 
     @Test
     public void reproducesTheLevel75ShortMapGatesAndBossPriority() {
+        // part0 武当按等级打杂兵，BOSS 名单只在 part1（x≥79）生效；x<61 用 toRight 顶进。
         DungeonBattleAutomation.RouteDecision part0 = Dungeon75Action.decideRoute(50);
-        assertEquals(73, part0.targetX);
+        assertTrue(part0.priorityEnemyNames.isEmpty());
+        assertFalse(part0.acceptAnyEnemy);
+        assertEquals(Arrays.asList(1, 74, 75), part0.enemyLevels);
+        assertEquals(80, part0.targetX);
+        assertEquals(73, Dungeon75Action.decideRoute(62).targetX);
+        // 67..78 只有 y 偏出走廊才走门点，否则继续往前顶。
+        assertEquals(97, Dungeon75Action.decideRoute(67).targetX);
+        assertEquals(73, Dungeon75Action.decideRoute(67, 40).targetX);
+
+        // part1：(130,25) → (170,25) → 离场，边界是 120 和 160。
+        DungeonBattleAutomation.RouteDecision part1 = Dungeon75Action.decideRoute(100);
         assertEquals(Arrays.asList("吕虔", "于禁", "李典", "夏侯渊"),
-                part0.priorityEnemyNames);
-        assertEquals(73, Dungeon75Action.decideRoute(70).targetX);
-        assertEquals(130, Dungeon75Action.decideRoute(100).targetX);
-        assertEquals(187, Dungeon75Action.decideRoute(150).targetX);
+                part1.priorityEnemyNames);
+        assertEquals(130, part1.targetX);
+        assertEquals(25, part1.targetY);
+        assertEquals(170, Dungeon75Action.decideRoute(150).targetX);
+        assertEquals(25, Dungeon75Action.decideRoute(150).targetY);
+        assertTrue(Dungeon75Action.decideRoute(160).exit);
         assertTrue(Dungeon75Action.decideRoute(187).exit);
 
         DungeonBattleAutomation.EnemyRow xiahou = new DungeonBattleAutomation.EnemyRow(
@@ -1334,7 +1427,7 @@ public final class HelperAccessibilityServiceTest {
                 75, "李典", new android.graphics.Rect(0, 0, 1, 1));
         assertEquals(lvdian, DungeonBattleAutomation.selectEnemyRow(
                 Arrays.asList(xiahou, lvdian), List.of(),
-                part0.priorityEnemyNames, null, false));
+                part1.priorityEnemyNames, List.of(), null, false));
     }
 
     @Test

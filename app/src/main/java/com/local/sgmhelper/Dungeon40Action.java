@@ -13,15 +13,23 @@ final class Dungeon40Action extends BaseDungeonAction {
 
     @Override
     DungeonBattleAutomation.RouteDecision decide(int x, int y) {
-        return decideRoute(x);
+        return decideRoute(x, y);
     }
 
     static DungeonBattleAutomation.RouteDecision decideRoute(int x) {
+        return decideRoute(x, 25);
+    }
+
+    static DungeonBattleAutomation.RouteDecision decideRoute(int x, int y) {
         if (x >= 32) {
+            // 武当先把 y 拉回 25 再继续推进，走廊之外的 y 会让阶梯路点寻不到路。
+            if (y < 20 || y > 30) {
+                return DungeonBattleAutomation.RouteDecision.move(x, 25, 0);
+            }
             // part0（32..599）：只找红名副本 BOSS，清空后按固定阶梯路点往左走，
-            // 武当这里没有随机推进。
+            // 武当这里没有随机推进。卡住时武当连走两次 (x+100,25) 往回退。
             return DungeonBattleAutomation.RouteDecision.search(
-                    part0TargetX(x), 25, 0, false);
+                    part0TargetX(x), 25, Math.min(x + 100, 599), false);
         }
         // part1（13..31）：直接走出口点。
         return DungeonBattleAutomation.RouteDecision.exit(25, 25);
